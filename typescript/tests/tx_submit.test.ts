@@ -28,6 +28,7 @@ function harness(
     active?: boolean;
     simulationError?: unknown;
     sendError?: boolean;
+    sendRpcError?: unknown;
     wrongSignature?: boolean;
     sponsored?: boolean;
     strategy?: SigningStrategy;
@@ -120,7 +121,9 @@ function harness(
           };
           break;
         case "sendTransaction":
-          if (options.sendError) throw Error("connection reset after send");
+          if (options.sendError) throw Error("connection reset: https://rpc.invalid/?api-key=do-not-expose");
+          if (options.sendRpcError !== undefined)
+            return Response.json({ error: options.sendRpcError });
           result = options.wrongSignature ? "wrong" : SIGNED.signature;
           break;
         default:
@@ -322,12 +325,59 @@ describe("v1 transaction submission", () => {
           error instanceof SdkError &&
           error.variant === "SubmissionUnknown" &&
           error.signature === SIGNED.signature &&
-          error.lastValidBlockHeight === 100,
+          error.lastValidBlockHeight === 100 &&
+          !String(error.stack).includes("do-not-expose") &&
+          error.causeError === undefined,
       );
       assert.equal(
         h.calls.filter((c) => c.method === "sendTransaction").length,
         1,
       );
+    }
+  });
+
+  it("distinguishes definite RPC rejections from uncertain outcomes without resending", async () => {
+    for (const code of [-32700, -32600, -32601, -32602, -32002, -32003, -32005, -32006, -32013, -32015, -32016]) {
+      const h = harness({ sendRpcError: { code, message: "request rejected", data: { err: "BlockhashNotFound" } } });
+      await assert.rejects(new Rpc(h.context).submitSignedTransaction(SIGNED), error =>
+        error instanceof SdkError && error.variant === "SubmissionRejected" &&
+        error.rpcCode === code && error.signature === SIGNED.signature &&
+        error.message.includes("request rejected"));
+      assert.equal(h.calls.filter(call => call.method === "sendTransaction").length, 1);
+    }
+    for (const sendRpcError of [
+      { code: -32002, message: "failed", data: { err: "AlreadyProcessed" } },
+      { code: -32002, message: "This transaction has already been processed" },
+      { code: -32603, message: "internal failure" },
+      { code: -32099, message: "provider error" },
+      { code: -32002 },
+    ]) {
+      const h = harness({ sendRpcError });
+      await assert.rejects(new Rpc(h.context).submitSignedTransaction(SIGNED), error =>
+        error instanceof SdkError && error.variant === "SubmissionUnknown" &&
+        error.signature === SIGNED.signature && error.lastValidBlockHeight === 100);
+      assert.equal(h.calls.filter(call => call.method === "sendTransaction").length, 1);
+    }
+  });
+
+  it("fails over activation and simulation reads while preserving the signed bytes", async () => {
+    for (const method of ["getAccountInfo", "simulateTransaction"]) {
+      const h = harness();
+      const calls: Array<{ url: string; method: string; params: unknown[] }> = [];
+      const rpc = new Rpc({ ...h.context, rpcFetch: async (url, init) => {
+        const request = JSON.parse(String(init?.body));
+        calls.push({ url: String(url), ...request });
+        if (request.method === method && String(url).includes("primary"))
+          return new Response("unavailable", { status: 503 });
+        return h.context.rpcFetch!(h.context.primaryConnection!.rpcEndpoint, init);
+      } });
+      assert.equal(await rpc.submitSignedTransaction(SIGNED), SIGNED.signature);
+      assert.equal(calls.filter(call => call.method === method && call.url.includes("primary")).length, 2);
+      assert.ok(calls.some(call => call.method === method && call.url.includes("backup")));
+      const wire = Buffer.from(SIGNED.toWireBytes()).toString("base64");
+      for (const call of calls.filter(call => ["simulateTransaction", "sendTransaction"].includes(call.method)))
+        assert.equal(call.params[0], wire);
+      assert.equal(calls.filter(call => call.method === "sendTransaction").length, 1);
     }
   });
 

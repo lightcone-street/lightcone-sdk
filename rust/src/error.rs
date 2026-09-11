@@ -14,6 +14,14 @@ pub enum SdkError {
         reason: String,
     },
 
+    /// The RPC rejected this send before queuing it. No automatic retry is performed.
+    #[error("RPC rejected transaction {signature} ({code}): {reason}")]
+    SubmissionRejected {
+        signature: String,
+        code: i64,
+        reason: String,
+    },
+
     #[error("HTTP error: {0}")]
     Http(#[from] HttpError),
 

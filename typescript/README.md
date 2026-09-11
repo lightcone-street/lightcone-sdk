@@ -82,7 +82,9 @@ Before prompting a wallet the SDK checks the cluster's v1 feature activation.
 Submission verifies all signatures, checks activation again, simulates the exact
 signed bytes with `sigVerify: true` and `replaceRecentBlockhash: false`, then sends
 once with preflight enabled and `maxRetries: 0`. There is no send retry or RPC
-failover. `SubmissionUnknown` preserves `signature` and `lastValidBlockHeight` for
+failover. Definite request or preflight rejections return `SubmissionRejected`
+with `signature` and `rpcCode`. `AlreadyProcessed` and uncertain sends return
+`SubmissionUnknown`, preserving `signature` and `lastValidBlockHeight` for
 reconciliation. Confirmation uses the original expiry for ordinary and prepared
 transactions. Rebuild and obtain new signatures when the message or budget changes;
 a timeout or expired status does not authorize automatic resubmission.
@@ -600,6 +602,7 @@ All SDK operations reject with `SdkError`:
 | `MissingMarketContext` | Market context not provided for an operation requiring `DepositSource.Market` |
 | `Signing` | Signing operation failures |
 | `UserCancelled` | User cancelled wallet signing prompt |
+| `SubmissionRejected` | RPC rejected the request or preflight before queuing; inspect `signature`, `rpcCode`, and the error message |
 | `SubmissionUnknown` | Send outcome is uncertain; inspect `signature` and `lastValidBlockHeight` before rebuilding |
 | `TransactionFailed` | Transaction confirmed with an on-chain error |
 | `TransactionExpired` | Expiry is past and final history evidence has no signature; reconcile before rebuilding |

@@ -60,7 +60,9 @@ responses must preserve the complete message and provide valid signatures.
 External signers must implement `ExternalSigner::wallet_address()` and return
 the connected wallet's public key for unsponsored transaction submission.
 Submission requires active cluster support, exact-message simulation, and
-preflight. A transport failure returns `SubmissionUnknown` with the signature
+preflight. A definite request or preflight rejection returns `SubmissionRejected` with its RPC
+code and reason. An uncertain send or `AlreadyProcessed` response returns
+`SubmissionUnknown` with the signature
 and expiry; reconcile it before rebuilding. Existing SOL balance, reserve,
 canonical WSOL, and temporary-account semantics remain intact.
 
@@ -167,12 +169,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use lightcone::prelude::*;
 use solana_keypair::read_keypair_file;
 use solana_signer::Signer;
+use std::sync::Arc;
 
 // Defaults to Prod. Use .env(LightconeEnv::Staging) for staging.
+let keypair = Arc::new(read_keypair_file(std::env::var("LIGHTCONE_WALLET_PATH")?)?);
+let rpc_url = std::env::var("SDK_RPC_URL")?;
+let payer = keypair.pubkey();
 let client = LightconeClient::builder()
     .deposit_source(DepositSource::Market)
+    .transaction_resources(V1ResourceConfig {
+        compute_unit_limit: 200_000,
+        loaded_accounts_data_size_limit: 1024 * 1024,
+        priority_fee_lamports: 1_000,
+        heap_size: None,
+    })
+    .rpc_url(&rpc_url)
     .build()?;
-let keypair = read_keypair_file("~/.config/solana/id.json")?;
+client.set_signing_strategy(SigningStrategy::Native(keypair.clone())).await;
 ```
 
 ### Step 1: Find a Market
@@ -192,7 +205,7 @@ let orderbook = market
 ```rust
 let deposit_mint = market.deposit_assets[0].pubkey().to_pubkey()?;
 let deposit_ix = client.positions().deposit().await
-    .user(keypair.pubkey())
+    .user(payer)
     .mint(deposit_mint)
     .amount(1_000_000)
     .build_ix()
@@ -203,7 +216,7 @@ let deposit_ix = client.positions().deposit().await
 
 ```rust
 let order = client.orders().limit_order().await
-    .maker(keypair.pubkey())
+    .maker(payer)
     .bid()
     .price("0.55")
     .size("1")
@@ -229,7 +242,7 @@ ws.subscribe(SubscribeParams::Books {
     orderbook_ids: vec![orderbook.orderbook_id.clone()],
 })?;
 ws.subscribe(SubscribeParams::User {
-    wallet_address: keypair.pubkey().into(),
+    wallet_address: payer.into(),
 })?;
 ```
 
@@ -254,7 +267,7 @@ REST depth is a coherent projection that may briefly lag a mutation. Use its
 ### Step 5: Cancel an Order
 
 ```rust
-let cancel = CancelBody::signed(order.order_hash.clone(), keypair.pubkey().into(), &keypair);
+let cancel = CancelBody::signed(order.order_hash.clone(), payer.into(), keypair.as_ref());
 client.orders().cancel(&cancel).await?;
 ```
 
@@ -263,7 +276,7 @@ client.orders().cancel(&cancel).await?;
 ```rust
 // sign_and_submit builds the tx, signs it using the client's signing strategy, and submits
 let tx_hash = client.positions().merge()
-    .user(keypair.pubkey())
+    .user(payer)
     .market(&market)
     .mint(deposit_mint)
     .amount(1_000_000)
@@ -275,7 +288,7 @@ let tx_hash = client.positions().merge()
 
 ```rust
 let withdraw_ix = client.positions().withdraw().await
-    .user(keypair.pubkey())
+    .user(payer)
     .mint(deposit_mint)
     .amount(1_000_000)
     .build_ix()

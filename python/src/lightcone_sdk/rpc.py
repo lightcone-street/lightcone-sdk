@@ -17,6 +17,7 @@ failures or the poll cap raise ``ConfirmationTimeout``.
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar, cast
@@ -33,6 +34,7 @@ from spl.token.instructions import get_associated_token_address
 from .error import (
     ConfirmationTimeout,
     SdkError,
+    SubmissionRejected,
     SubmissionUnknown,
     TransactionExpired,
     TransactionFailed,
@@ -82,7 +84,9 @@ class TransactionSimulation:
     """Confirmed simulation observations for an exact signed v1 message."""
 
     slot: int
+    #: Compute units consumed during simulation.
     units_consumed: int | None
+    #: Total loaded account data, in bytes.
     loaded_accounts_data_size: int | None
     logs: tuple[str, ...]
 
@@ -200,6 +204,81 @@ async def _connection_with_failover(
     raise retry_failure
 
 
+class _RpcSendRejected(Exception):
+    """Carry a parsed rejection separately from transport or acknowledgement failures."""
+
+    def __init__(self, code: int, reason: str):
+        super().__init__(reason)
+        self.code = code
+
+
+def _definite_rpc_rejection(error: object) -> _RpcSendRejected | None:
+    """Recognize errors emitted before queuing, excluding already-processed signatures."""
+    if not isinstance(error, dict):
+        return None
+    code, reason = error.get("code"), error.get("message")
+    if type(code) is not int or not isinstance(reason, str):
+        return None
+    data = error.get("data")
+    if (isinstance(data, dict) and data.get("err") == "AlreadyProcessed") or any(
+        phrase in reason.lower()
+        for phrase in (
+            "alreadyprocessed",
+            "already processed",
+            "already been processed",
+        )
+    ):
+        return None
+    if code in {
+        -32700,
+        -32600,
+        -32601,
+        -32602,
+        -32002,
+        -32003,
+        -32005,
+        -32006,
+        -32013,
+        -32015,
+        -32016,
+    }:
+        return _RpcSendRejected(code, reason)
+    return None
+
+
+def _binding_rpc_error(error: object) -> dict | None:
+    """Recover RPC codes omitted by solders' typed error JSON representation."""
+    from solders.rpc import errors
+
+    if isinstance(error, errors.RpcCustomErrorFieldless):
+        fieldless = (
+            (
+                errors.RpcCustomErrorFieldless.TransactionSignatureVerificationFailure,
+                -32003,
+            ),
+            (errors.RpcCustomErrorFieldless.TransactionSignatureLenMismatch, -32013),
+        )
+        for kind, code in fieldless:
+            if error == kind:
+                return {"code": code, "message": str(error)}
+        return None
+    codes = (
+        (errors.ParseErrorMessage, -32700),
+        (errors.InvalidRequestMessage, -32600),
+        (errors.MethodNotFoundMessage, -32601),
+        (errors.InvalidParamsMessage, -32602),
+        (errors.SendTransactionPreflightFailureMessage, -32002),
+        (errors.NodeUnhealthyMessage, -32005),
+        (errors.TransactionPrecompileVerificationFailureMessage, -32006),
+        (errors.UnsupportedTransactionVersionMessage, -32015),
+        (errors.MinContextSlotNotReachedMessage, -32016),
+    )
+    for kind, code in codes:
+        if isinstance(error, kind):
+            return {**json.loads(error.to_json()), "code": code}
+    return None
+
+
 async def _send_transaction_once(
     connection: AsyncClient, wire: bytes, options: object
 ) -> str:
@@ -212,7 +291,16 @@ async def _send_transaction_once(
     from solana.rpc.async_api import AsyncClient
 
     if not isinstance(connection, AsyncClient):
-        response = await connection.send_raw_transaction(wire, opts=options)
+        from solana.rpc.core import RPCException
+
+        try:
+            response = await connection.send_raw_transaction(wire, opts=options)
+        except RPCException as error:
+            payload = _binding_rpc_error(error.args[0]) if error.args else None
+            rejection = _definite_rpc_rejection(payload)
+            if rejection is not None:
+                raise rejection from None
+            raise
         return str(getattr(response, "value", ""))
     provider = connection._provider
     body = connection._send_raw_transaction_body(wire, options)
@@ -224,12 +312,15 @@ async def _send_transaction_once(
     )
     response.raise_for_status()
     payload = response.json()
-    if (
-        not isinstance(payload, dict)
-        or "error" in payload
-        or not isinstance(payload.get("result"), str)
-    ):
-        raise SdkError(f"RPC returned an invalid send acknowledgement: {payload}")
+    if not isinstance(payload, dict):
+        raise SdkError("RPC returned an invalid send acknowledgement")
+    if payload.get("error") is not None:
+        rejection = _definite_rpc_rejection(payload["error"])
+        if rejection is not None and payload.get("result") is None:
+            raise rejection
+        raise SdkError("RPC returned an uncertain send error")
+    if not isinstance(payload.get("result"), str):
+        raise SdkError("RPC returned an invalid send acknowledgement")
     return payload["result"]
 
 
@@ -527,10 +618,14 @@ class Rpc:
                     max_retries=0,
                 ),
             )
-        except Exception as error:
+        except _RpcSendRejected as error:
+            raise SubmissionRejected(signature, error.code, str(error)) from None
+        except Exception:
             raise SubmissionUnknown(
-                signature, transaction.context.last_valid_block_height, str(error)
-            ) from error
+                signature,
+                transaction.context.last_valid_block_height,
+                "RPC did not acknowledge the expected signature",
+            ) from None
         if response != signature:
             raise SubmissionUnknown(
                 signature,

@@ -151,10 +151,7 @@ function validateMessage(
     config?.computeUnitLimit !== resources.computeUnitLimit ||
     config?.loadedAccountsDataSizeLimit !==
       resources.loadedAccountsDataSizeLimit ||
-    config?.priorityFeeLamports !==
-      (resources.priorityFeeLamports === 0n
-        ? undefined
-        : resources.priorityFeeLamports) ||
+    (config?.priorityFeeLamports ?? 0n) !== resources.priorityFeeLamports ||
     config?.heapSize !== resources.heapSize
   ) {
     throw SdkError.validation(

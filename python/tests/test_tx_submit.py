@@ -16,6 +16,7 @@ from lightcone_sdk import (
     InsufficientSolForTransactionFees,
     LightconeClientBuilder,
     SdkError,
+    SubmissionRejected,
     SubmissionUnknown,
     V1ResourceConfig,
     V1Transaction,
@@ -400,7 +401,7 @@ async def test_injected_solana_connection_cannot_retry_uncertain_send(failure):
             json={
                 "jsonrpc": "2.0",
                 "id": 0,
-                "error": {"code": -32002, "message": "simulation rejected"},
+                "error": {"code": -32603, "message": "internal error"},
             },
             request=request,
         )
@@ -416,4 +417,148 @@ async def test_injected_solana_connection_cannot_retry_uncertain_send(failure):
     assert error.value.signature == str(tx.sign([payer]).signatures[0])
     assert error.value.last_valid_block_height == CONTEXT.last_valid_block_height
     await connection.close()
+    await client.close()
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        -32700,
+        -32600,
+        -32601,
+        -32602,
+        -32002,
+        -32003,
+        -32005,
+        -32006,
+        -32013,
+        -32015,
+        -32016,
+    ],
+)
+async def test_structured_rpc_rejections_are_typed_and_never_retried(code):
+    import httpx2
+    from solana.rpc.async_api import AsyncClient
+
+    client, _, payer, _, tx = setup()
+    connection = AsyncClient("http://localhost:8899", max_transport_retries=3)
+    await connection._provider.session.aclose()
+    attempts = []
+
+    async def handle(request):
+        attempts.append(request)
+        return httpx2.Response(
+            200,
+            json={
+                "error": {
+                    "code": code,
+                    "message": "request rejected",
+                    "data": {"err": "BlockhashNotFound"},
+                }
+            },
+            request=request,
+        )
+
+    connection._provider.session = httpx2.AsyncClient(
+        transport=httpx2.MockTransport(handle)
+    )
+    client._primary_connection = connection
+    client.rpc().simulate_transaction = AsyncMock()
+    with pytest.raises(SubmissionRejected) as error:
+        await client.rpc().submit_signed_transaction(tx.sign([payer]))
+    assert len(attempts) == 1
+    assert error.value.code == code
+    assert error.value.signature == str(tx.sign([payer]).signatures[0])
+    assert "request rejected" in str(error.value)
+    await connection.close()
+    await client.close()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "error": {
+                "code": -32002,
+                "message": "failed",
+                "data": {"err": "AlreadyProcessed"},
+            }
+        },
+        {
+            "error": {
+                "code": -32002,
+                "message": "This transaction has already been processed",
+            }
+        },
+        {"error": {"code": -32099, "message": "provider error"}},
+        {"error": {"code": -32002}},
+        {
+            "error": {"code": -32002, "message": "rejected"},
+            "result": "conflicting signature",
+        },
+        None,
+    ],
+)
+async def test_uncertain_rpc_responses_retain_reconciliation_metadata(payload):
+    import httpx2
+    from solana.rpc.async_api import AsyncClient
+
+    client, _, payer, _, tx = setup()
+    connection = AsyncClient("http://localhost:8899", max_transport_retries=3)
+    await connection._provider.session.aclose()
+    attempts = []
+
+    async def handle(request):
+        import json
+
+        attempts.append(request)
+        return httpx2.Response(200, content=json.dumps(payload), request=request)
+
+    connection._provider.session = httpx2.AsyncClient(
+        transport=httpx2.MockTransport(handle)
+    )
+    client._primary_connection = connection
+    client.rpc().simulate_transaction = AsyncMock()
+    with pytest.raises(SubmissionUnknown) as error:
+        await client.rpc().submit_signed_transaction(tx.sign([payer]))
+    assert len(attempts) == 1
+    assert error.value.signature == str(tx.sign([payer]).signatures[0])
+    assert error.value.last_valid_block_height == CONTEXT.last_valid_block_height
+    await connection.close()
+    await client.close()
+
+
+async def test_uncertain_transport_errors_do_not_expose_credentials_in_tracebacks():
+    import traceback
+
+    client, conn, _, _, tx = setup()
+    conn.send_error = ConnectionError("https://rpc.invalid/?api-key=do-not-expose")
+    with pytest.raises(SubmissionUnknown) as error:
+        await client.sign_and_submit_tx(tx)
+    assert "do-not-expose" not in "".join(traceback.format_exception(error.value))
+    assert error.value.__suppress_context__
+    assert len(conn.sent) == 1
+    await client.close()
+
+
+@pytest.mark.parametrize(
+    "kind,code", [("params", -32602), ("signature", -32003), ("length", -32013)]
+)
+async def test_typed_binding_rpc_rejection_from_alternate_connection(kind, code):
+    from solana.rpc.core import RPCException
+    from solders.rpc.errors import InvalidParamsMessage, RpcCustomErrorFieldless
+
+    client, conn, payer, _, tx = setup()
+    conn.send_error = RPCException(
+        {
+            "params": InvalidParamsMessage("request rejected"),
+            "signature": RpcCustomErrorFieldless.TransactionSignatureVerificationFailure,
+            "length": RpcCustomErrorFieldless.TransactionSignatureLenMismatch,
+        }[kind]
+    )
+    with pytest.raises(SubmissionRejected) as error:
+        await client.sign_and_submit_tx(tx)
+    assert error.value.code == code
+    assert error.value.signature == str(tx.sign([payer]).signatures[0])
+    assert len(conn.sent) == 1
     await client.close()

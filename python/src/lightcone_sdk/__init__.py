@@ -91,6 +91,7 @@ from .error import (
     MissingMarketContext,
     SdkError,
     SigningError,
+    SubmissionRejected,
     SubmissionUnknown,
     TransactionExpired,
     TransactionFailed,
@@ -783,4 +784,4 @@ __all__ = [
 ]
 
 __all__ += ["V1ResourceConfig", "V1Transaction", "V1TransactionContext"]
-__all__ += ["SubmissionUnknown", "TransactionSimulation"]
+__all__ += ["SubmissionUnknown", "SubmissionRejected", "TransactionSimulation"]

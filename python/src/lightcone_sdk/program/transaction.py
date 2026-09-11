@@ -117,7 +117,13 @@ class V1Transaction:
             tx.sanitize()
             if (
                 message.lifetime_specifier != self.context.blockhash
-                or message.config != self.context.resources._config()
+                or message.config.compute_unit_limit
+                != self.context.resources.compute_unit_limit
+                or message.config.loaded_accounts_data_size_limit
+                != self.context.resources.loaded_accounts_data_size_limit
+                or (message.config.priority_fee or 0)
+                != self.context.resources.priority_fee_lamports
+                or message.config.heap_size != self.context.resources.heap_size
             ):
                 raise SdkError("message does not match its blockhash/resource context")
             if not message.instructions:

@@ -129,8 +129,12 @@ impl V1Transaction {
                 "a recent blockhash and its last valid block height are required",
             ));
         }
+        let mut imported_config = message.config;
+        // Both omitted and explicitly encoded zero priority fees mean zero lamports.
+        // Normalize only the comparison; the signed message bytes stay untouched.
+        imported_config.priority_fee = imported_config.priority_fee.filter(|fee| *fee != 0);
         if message.lifetime_specifier != context.blockhash
-            || message.config != context.resources.config()?
+            || imported_config != context.resources.config()?
         {
             return Err(invalid(
                 "message does not match its blockhash/resource context",
@@ -311,6 +315,156 @@ mod tests {
         let mut trailing = bytes;
         trailing.push(0);
         assert!(V1Transaction::from_wire_bytes(&trailing, &context).is_err());
+    }
+
+    #[test]
+    fn cross_language_compilation_and_signing_match_pinned_digests() {
+        use sha2::{Digest, Sha256};
+        // Shared with Python/TypeScript: pin upstream Rust bytes without fixture files.
+        let payer = Keypair::new_from_array([1; 32]);
+        let second = Keypair::new_from_array([2; 32]);
+        let key = |byte| Pubkey::new_from_array([byte; 32]);
+        let instruction = Instruction {
+            program_id: key(99),
+            accounts: vec![
+                AccountMeta::new_readonly(second.pubkey(), true),
+                AccountMeta::new_readonly(key(10), false),
+                AccountMeta::new(payer.pubkey(), true),
+                AccountMeta::new_readonly(second.pubkey(), true),
+                AccountMeta::new(key(8), false),
+            ],
+            data: vec![0, 1, 2, 127, 128, 255],
+        };
+        let mut merged = instruction.clone();
+        merged.accounts.extend([
+            AccountMeta::new(key(10), false),
+            AccountMeta::new(second.pubkey(), true),
+        ]);
+        let cases = [
+            (
+                V1ResourceConfig {
+                    compute_unit_limit: 1_400_000,
+                    loaded_accounts_data_size_limit: 67_108_864,
+                    priority_fee_lamports: u64::MAX,
+                    heap_size: Some(262_144),
+                },
+                vec![instruction.clone()],
+                "c5fdf05cc77574469ea3b7b08798722fda2bd225b1b8e35995d42f31e7011290",
+                "40156bfa4370bd072ca9000a3c42d1159be9c6c8b32cf598793a276b16f332c3",
+            ),
+            (
+                V1ResourceConfig {
+                    priority_fee_lamports: 1001,
+                    heap_size: Some(32_768),
+                    ..test_context().resources
+                },
+                vec![
+                    instruction,
+                    merged,
+                    solana_system_interface::instruction::transfer(&payer.pubkey(), &key(9), 42),
+                ],
+                "fdf9fd85a3963251ca654526c1fb6134f4e76ad361aa2b057bb3dfff379f41c4",
+                "368fb841224f6273bfc741ac09d88df014050640e8d3f4b31a38c05b1ef04809",
+            ),
+            (
+                V1ResourceConfig {
+                    priority_fee_lamports: 0,
+                    ..test_context().resources
+                },
+                vec![
+                    Instruction {
+                        program_id: key(99),
+                        accounts: vec![
+                            AccountMeta::new(key(99), false),
+                            AccountMeta::new(key(98), false),
+                        ],
+                        data: vec![1, 2],
+                    },
+                    Instruction {
+                        program_id: key(98),
+                        accounts: vec![
+                            AccountMeta::new_readonly(key(99), false),
+                            AccountMeta::new(payer.pubkey(), true),
+                        ],
+                        data: vec![3, 4],
+                    },
+                ],
+                "68e412b10a0ac0b912f9606cf2b62bc158e74ee25a2f5a7a5c20117584cfd7c8",
+                "e7629ba9b05db1fd502a408343395bb001aa0fdb48d659c59c1b06983f924307",
+            ),
+        ];
+        for (resources, instructions, message_hash, wire_hash) in cases {
+            let context = V1TransactionContext {
+                resources,
+                ..test_context()
+            };
+            let tx = V1Transaction::compile(&instructions, &payer.pubkey(), &context).unwrap();
+            let signed = if tx.required_signers().len() == 2 {
+                tx.sign(&[&payer, &second])
+            } else {
+                tx.sign(&[&payer])
+            }
+            .unwrap();
+            assert_eq!(
+                hex::encode(Sha256::digest(tx.message_bytes().unwrap())),
+                message_hash
+            );
+            assert_eq!(
+                hex::encode(Sha256::digest(signed.to_wire_bytes().unwrap())),
+                wire_hash
+            );
+            signed.verify_signatures().unwrap();
+        }
+    }
+
+    #[test]
+    fn imports_explicit_zero_fee_without_changing_signed_bytes() {
+        let payer = Keypair::new();
+        let mut context = test_context();
+        context.resources.priority_fee_lamports = 0;
+        let omitted =
+            V1Transaction::compile(&[transfer(&payer.pubkey())], &payer.pubkey(), &context)
+                .unwrap();
+        let mut message = omitted.message().clone();
+        message.config.priority_fee = Some(0);
+        let external =
+            VersionedTransaction::try_new(VersionedMessage::V1(message), &[&payer]).unwrap();
+        let bytes = wincode::serialize(&external).unwrap();
+        let imported = V1Transaction::from_wire_bytes(&bytes, &context).unwrap();
+        imported.verify_signatures().unwrap();
+        assert_eq!(imported.to_wire_bytes().unwrap(), bytes);
+        assert_eq!(imported.message().config.priority_fee, Some(0));
+        assert_eq!(imported.accept_signed_bytes(&bytes).unwrap(), imported);
+        // Equivalent fee values do not authorize a wallet to rewrite the prepared encoding.
+        assert!(omitted.accept_signed_bytes(&bytes).is_err());
+        context.resources.priority_fee_lamports = 1;
+        assert!(V1Transaction::from_wire_bytes(&bytes, &context).is_err());
+    }
+
+    #[test]
+    fn upstream_validation_rejects_zero_signers_and_payer_as_program() {
+        let payer = Keypair::new();
+        let context = test_context();
+        let valid = V1Transaction::compile(&[transfer(&payer.pubkey())], &payer.pubkey(), &context)
+            .unwrap();
+        for zero_signers in [true, false] {
+            let mut tx = valid.as_versioned().clone();
+            let VersionedMessage::V1(message) = &mut tx.message else {
+                unreachable!()
+            };
+            if zero_signers {
+                message.header.num_required_signatures = 0;
+                tx.signatures.clear();
+            } else {
+                message.instructions[0].program_id_index = 0;
+            }
+            assert!(message.validate().is_err());
+            assert!(V1Transaction::from_versioned(tx.clone(), &context).is_err());
+            assert!(
+                V1Transaction::from_wire_bytes(&wincode::serialize(&tx).unwrap(), &context)
+                    .is_err()
+            );
+        }
     }
 
     #[test]

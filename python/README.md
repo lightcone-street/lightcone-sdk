@@ -85,7 +85,9 @@ message; changing budgets, instructions, accounts, payer, or blockhash is reject
 Submission requires active runtime v1 support, verifies all signatures, simulates
 the exact signed bytes with signature verification and no blockhash replacement,
 and sends once with preflight and `maxRetries=0`. It never retries or changes
-endpoints after an uncertain send. `SubmissionUnknown` retains `signature`,
+endpoints after an uncertain send. Definite request or preflight rejections raise
+`SubmissionRejected` with the signature, RPC code, and reason. `AlreadyProcessed`
+and uncertain sends raise `SubmissionUnknown`, which retains `signature`,
 `last_valid_block_height`, and `reason`; reconcile the signature before another
 attempt. Confirmation retains the original expiry for ordinary and SOL-prepared
 transactions. A changed budget requires a fresh plan and signatures.
@@ -579,6 +581,7 @@ or one of its subclasses:
 | `MissingMarketContext` | Market context not provided for operation requiring `DepositSource.MARKET` |
 | `SigningError` | Signing operation failures |
 | `UserCancelled` | User cancelled wallet signing prompt |
+| `SubmissionRejected` | RPC rejected the request or preflight before queuing; retains `signature`, `code`, and `reason` |
 | `SubmissionUnknown` | A send acknowledgement failed or was invalid; retains `signature`, `last_valid_block_height`, and `reason` for reconciliation before retrying |
 | `SdkError` | Catch-all for other SDK failures |
 

@@ -37,6 +37,32 @@ import {
 } from "./program/accounts";
 import type { Exchange, GlobalDepositToken } from "./program/types";
 
+/** Parsed RPC errors retain their code separately from transport failures. */
+class RpcResponseError extends SdkError {
+  constructor(
+    readonly code: number,
+    message: string,
+    readonly data: unknown
+  ) {
+    super("Other", message);
+  }
+
+  /** Request/preflight rejections precede queuing; existing signatures remain uncertain. */
+  isDefiniteRejection(): boolean {
+    const message = this.message.toLowerCase();
+    const error = this.data && typeof this.data === "object"
+      ? (this.data as { err?: unknown }).err
+      : undefined;
+    const alreadyProcessed = [
+      "alreadyprocessed", "already processed", "already been processed"
+    ].some(text => message.includes(text));
+    return error !== "AlreadyProcessed" && !alreadyProcessed && [
+      -32700, -32600, -32601, -32602, -32002, -32003, -32005,
+      -32006, -32013, -32015, -32016
+    ].includes(this.code);
+  }
+}
+
 // ── Transaction confirmation ──────────────────────────────────────────────
 
 /** Interval between polls while awaiting transaction confirmation. */
@@ -334,14 +360,9 @@ export class Rpc {
       Buffer.from(transaction.messageBytes()).toString("base64"),
       { commitment: "confirmed" }
     ];
-    const result = await connectionWithFailover(this.client, async connection => {
-      try {
-        return await this.v1Request("getFeeForMessage", params, connection);
-      } catch (error) {
-        // Preserve the original transport error for infrastructure classification.
-        throw error instanceof SdkError && error.causeError ? error.causeError : error;
-      }
-    }).catch(error => { throw SdkError.from(error); }) as { value?: number | bigint | null };
+    const result = await this.v1ReadRequest("getFeeForMessage", params) as {
+      value?: number | bigint | null;
+    };
     if (result.value === null || result.value === undefined)
       throw SdkError.validation("transaction fee estimate is unavailable");
     return rpcLamports(result.value, "transaction fee estimate");
@@ -349,7 +370,7 @@ export class Rpc {
 
   /** Require feature activation in the same confirmed bank used for the account read. */
   async ensureV1Supported(): Promise<void> {
-    const result = (await this.v1Request("getAccountInfo", [
+    const result = (await this.v1ReadRequest("getAccountInfo", [
       "txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL",
       { commitment: "confirmed", encoding: "base64" }
     ])) as {
@@ -395,7 +416,7 @@ export class Rpc {
     requireV1Transaction(transaction);
     transaction.verifySignatures();
     await this.ensureV1Supported();
-    const result = (await this.v1Request("simulateTransaction", [
+    const result = (await this.v1ReadRequest("simulateTransaction", [
       Buffer.from(transaction.toWireBytes()).toString("base64"),
       {
         encoding: "base64",
@@ -451,16 +472,40 @@ export class Rpc {
         );
       return signature;
     } catch (error) {
+      if (error instanceof RpcResponseError && error.isDefiniteRejection())
+        throw SdkError.submissionRejected(signature, error.code, error.message);
       throw SdkError.submissionUnknown(
         signature,
         transaction.lastValidBlockHeight,
-        error instanceof Error ? error.message : String(error)
+        "RPC did not acknowledge the expected signature"
       );
     }
   }
 
+  /** Retry and fail over read-only requests while retaining their exact parameters. */
+  private async v1ReadRequest(method: string, params: unknown[]): Promise<unknown> {
+    try {
+      return await connectionWithFailover(this.client, async connection => {
+        try {
+          return await this.v1Request(method, params, connection);
+        } catch (error) {
+          // Infrastructure classification needs the original transport exception.
+          throw error instanceof SdkError && error.causeError
+            ? error.causeError
+            : error;
+        }
+      });
+    } catch (error) {
+      throw SdkError.from(error);
+    }
+  }
+
   /** One HTTP attempt without the legacy Connection's rate-limit retries. */
-  private async v1Request(method: string, params: unknown[], connection?: Connection): Promise<unknown> {
+  private async v1Request(
+    method: string,
+    params: unknown[],
+    connection?: Connection
+  ): Promise<unknown> {
     try {
       const response = await (this.client.rpcFetch ?? fetch)(
         (connection ?? requireConnection(this.client)).rpcEndpoint,
@@ -475,10 +520,18 @@ export class Rpc {
       const result = parseJsonExact<{ error?: unknown; result?: unknown }>(
         await response.text()
       );
-      if (result.error !== undefined)
-        throw new Error(
-          `RPC ${method} failed: ${stringifyJsonExact(result.error)}`
-        );
+      if (result.error !== undefined && result.error !== null) {
+        const error = result.error as {
+          code?: unknown; message?: unknown; data?: unknown;
+        };
+        if (
+          (result.result !== undefined && result.result !== null) ||
+          !Number.isSafeInteger(error.code) ||
+          typeof error.message !== "string"
+        )
+          throw new Error("RPC returned a malformed error response");
+        throw new RpcResponseError(error.code as number, error.message, error.data);
+      }
       if (!("result" in result))
         throw new Error(`RPC ${method} omitted its result`);
       return result.result;
@@ -661,7 +714,9 @@ export class Rpc {
 /** Resource usage reported for the exact signed v1 message. */
 export interface TransactionSimulation {
   slot: number;
+  /** Compute units consumed during simulation. */
   unitsConsumed?: number;
+  /** Total loaded account data, in bytes. */
   loadedAccountsDataSize?: number;
   logs: string[];
 }

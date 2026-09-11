@@ -87,6 +87,16 @@ class SubmissionUnknown(SdkError):
         self.reason = reason
 
 
+class SubmissionRejected(SdkError):
+    """The node rejected this send before queuing it; no automatic retry occurs."""
+
+    def __init__(self, signature: str, code: int, reason: str):
+        super().__init__(f"RPC rejected transaction {signature} ({code}): {reason}")
+        self.signature = signature
+        self.code = code
+        self.reason = reason
+
+
 class TransactionFailed(SdkError):
     """Raised when a submitted transaction landed on-chain but failed.
 
@@ -353,6 +363,8 @@ __all__ = [
     "MissingMarketContext",
     "SigningError",
     "UserCancelled",
+    "SubmissionUnknown",
+    "SubmissionRejected",
     "TransactionFailed",
     "TransactionExpired",
     "ConfirmationTimeout",

@@ -14,7 +14,9 @@ oversized wire bytes, ComputeBudget instructions, and mismatched contexts.
 Signing and wallet-response validation preserve the complete prepared message
 and verify every required signature. Every send checks v1 activation, simulates
 the signed message without blockhash replacement, and sends once with preflight.
-Ambiguous submissions retain the original signature and expiry for reconciliation;
+Definite request/preflight rejections are distinct from uncertain send outcomes.
+`AlreadyProcessed` still requires reconciliation. Ambiguous submissions retain
+the original signature and expiry for reconciliation;
 the SDK never automatically rebuilds, re-signs, or resubmits them.
 
 The existing Privy backend transaction endpoint returns only a transaction hash,
@@ -45,4 +47,6 @@ SOL planners keep their stricter live fee, rent, and reserve requirements.
 ## Validation
 
 Each language tests transaction resource and size limits, invalid imports, immutable
-signing, wallet message validation, funding, and submission errors.
+signing, wallet message validation, funding, and submission errors. Matching digest
+assertions in the existing test modules pin account ordering, merged privileges,
+writable invoked programs, resources, and signed wire bytes across languages.

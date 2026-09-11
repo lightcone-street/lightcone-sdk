@@ -224,6 +224,8 @@ Create a `MergeBuilder` for burning a complete set of conditional tokens and rel
 
 ## Examples
 
+Configure `LightconeClientBuilder::transaction_resources` and a signing strategy before using fluent `sign_and_submit` methods. Refer to the [Rust trading setup](../../../README.md#start-trading) for the complete client configuration. Offline `build_tx` calls take their explicit `V1TransactionContext` directly.
+
 ### Check portfolio across all markets
 
 ```rust

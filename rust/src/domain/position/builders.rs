@@ -394,6 +394,9 @@ pub(crate) fn build_temporary_native_withdraw_transaction(
 /// - **Global**: `deposit_to_global` — wallet → global pool
 /// - **Market**: `deposit` (mint complete set) — wallet → market, mints conditional tokens
 ///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
+///
 /// # Example (global deposit)
 ///
 /// ```rust,ignore
@@ -554,6 +557,9 @@ impl<'a> DepositBuilder<'a> {
 /// Burns a complete set of conditional tokens (one of each outcome) from a market
 /// position and releases the underlying collateral back to the user's wallet.
 ///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
+///
 /// # Example
 ///
 /// ```rust,ignore
@@ -665,6 +671,9 @@ impl<'a> MergeBuilder<'a> {
 /// Dispatches based on deposit source:
 /// - **Global**: `withdraw_from_global` — global pool → wallet
 /// - **Market**: `withdraw_conditional_from_position` — conditional-token ATA → user's wallet
+///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
 ///
 /// # Example (global withdraw)
 ///
@@ -843,6 +852,9 @@ impl<'a> WithdrawBuilder<'a> {
 ///
 /// Created via `client.positions().redeem_winnings()` — direct construction is not exposed.
 ///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
+///
 /// # Example
 ///
 /// ```rust,ignore
@@ -964,6 +976,9 @@ impl<'a> RedeemWinningsBuilder<'a> {
 /// Fluent builder for conditional-token withdraw-from-position operations.
 ///
 /// Created via `client.positions().withdraw_conditional_from_position()` — direct construction is not exposed.
+///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
 ///
 /// # Example
 ///
@@ -1313,6 +1328,9 @@ mod position_token_builder_tests {
 /// Existing accounts remain in place on retries and additional-group calls.
 /// Supply 1–8 deposit mints in strictly increasing GDT index order.
 ///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
+///
 /// # Example
 ///
 /// ```rust,ignore
@@ -1434,6 +1452,9 @@ impl<'a> InitPositionTokensBuilder<'a> {
 ///
 /// Created via `client.positions().deposit_to_global()` — direct construction is not exposed.
 ///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
+///
 /// # Example
 ///
 /// ```rust,ignore
@@ -1522,6 +1543,9 @@ impl<'a> DepositToGlobalBuilder<'a> {
 ///
 /// Created via `client.positions().withdraw_from_global()` — direct construction is not exposed.
 ///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
+///
 /// # Example
 ///
 /// ```rust,ignore
@@ -1608,6 +1632,9 @@ impl<'a> WithdrawFromGlobalBuilder<'a> {
 /// Fluent builder for global-to-market deposit operations.
 ///
 /// Created via `client.positions().global_to_market_deposit()` — direct construction is not exposed.
+///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
 ///
 /// # Example
 ///

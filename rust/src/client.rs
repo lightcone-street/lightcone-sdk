@@ -876,8 +876,8 @@ impl LightconeClient {
     /// cluster reports the transaction as `confirmed` or `finalized`.
     /// `last_valid_block_height` bounds the wait: pass the height returned
     /// alongside the transaction's blockhash, or `None` when the submitted
-    /// transaction's blockhash cannot be proven (e.g. an external signer may
-    /// have replaced it) — expiry is then never reported and only the poll
+    /// transaction's original expiry was not retained — expiry is then never
+    /// reported and only the poll
     /// cap ends the wait. Terminal outcomes:
     ///
     /// - [`SdkError::TransactionFailed`] — the transaction landed but errored
@@ -885,7 +885,8 @@ impl LightconeClient {
     /// - [`SdkError::TransactionExpired`] — the chain moved past
     ///   `last_valid_block_height` on consecutive height samples and a
     ///   history-searching status check still cannot see the signature; the
-    ///   transaction can never land and is safe to resubmit.
+    ///   transaction cannot newly land. Reconcile its signature and authoritative
+    ///   state before rebuilding; one RPC's absent history is not global proof.
     /// - [`SdkError::ConfirmationTimeout`] — the outcome could not be
     ///   determined (persistent RPC errors or the poll cap); check the
     ///   signature on-chain before resubmitting.
@@ -974,9 +975,10 @@ impl LightconeClient {
                                 if over_bound_samples >= EXPIRY_HEIGHT_SAMPLES {
                                     // Search ledger history before declaring
                                     // expiry — the recent-status cache can evict
-                                    // landed transactions, and
-                                    // `TransactionExpired` promises resubmit
-                                    // safety. On a failed lookup, keep polling
+                                    // landed transactions. A successful absent
+                                    // lookup is expiry evidence for this RPC,
+                                    // not a promise of global resubmit safety.
+                                    // On a failed lookup, keep polling
                                     // until the cap.
                                     if let Ok(history) =
                                         self.get_signature_statuses_with_history(&signatures).await
@@ -1118,7 +1120,7 @@ impl LightconeClient {
     /// Require v1 activation in the feature account's own confirmed bank snapshot.
     pub async fn ensure_v1_supported(&self) -> Result<(), SdkError> {
         let response: serde_json::Value = self
-            .rpc_call_once(&serde_json::json!({
+            .rpc_call_with_failover(&serde_json::json!({
                 "jsonrpc": "2.0", "id": 1, "method": "getAccountInfo",
                 "params": ["txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL", {
                     "commitment": "confirmed", "encoding": "base64"
@@ -1141,7 +1143,7 @@ impl LightconeClient {
             tx.to_wire_bytes()?,
         );
         let response: serde_json::Value = self
-            .rpc_call_once(&serde_json::json!({
+            .rpc_call_with_failover(&serde_json::json!({
                 "jsonrpc": "2.0", "id": 1, "method": "simulateTransaction",
                 "params": [encoded, {
                     "encoding": "base64", "commitment": "confirmed",
@@ -1228,20 +1230,61 @@ impl LightconeClient {
                 }]
             }))
             .await
-            .map_err(|error| SdkError::SubmissionUnknown {
+            .map_err(|_| SdkError::SubmissionUnknown {
                 signature: signature.clone(),
                 last_valid_block_height: tx.context().last_valid_block_height,
-                reason: error.to_string(),
+                reason: "transport failure while submitting transaction".into(),
             })?;
-        if response["result"].as_str() != Some(signature.as_str()) {
+        if let Some(rejection) = rpc_submission_rejection(&response, &signature) {
+            return Err(rejection);
+        }
+        if !response["error"].is_null() || response["result"].as_str() != Some(signature.as_str()) {
             return Err(SdkError::SubmissionUnknown {
                 signature,
                 last_valid_block_height: tx.context().last_valid_block_height,
-                reason: format!("RPC did not acknowledge the expected signature: {response}"),
+                reason: "RPC did not acknowledge the expected signature".into(),
             });
         }
         Ok(signature)
     }
+}
+
+/// Recognize request and preflight rejections that precede the node's send queue.
+/// AlreadyProcessed and unknown provider/internal errors still require reconciliation.
+fn rpc_submission_rejection(response: &serde_json::Value, signature: &str) -> Option<SdkError> {
+    let error = response.get("error")?;
+    let code = error.get("code")?.as_i64()?;
+    let reason = error.get("message")?.as_str()?;
+    if !response["result"].is_null() {
+        return None;
+    }
+    let message = reason.to_ascii_lowercase();
+    if error["data"]["err"] == "AlreadyProcessed"
+        || message.contains("alreadyprocessed")
+        || message.contains("already processed")
+        || message.contains("already been processed")
+    {
+        return None;
+    }
+    matches!(
+        code,
+        -32700
+            | -32600
+            | -32601
+            | -32602
+            | -32002
+            | -32003
+            | -32005
+            | -32006
+            | -32013
+            | -32015
+            | -32016
+    )
+    .then(|| SdkError::SubmissionRejected {
+        signature: signature.into(),
+        code,
+        reason: reason.into(),
+    })
 }
 
 /// Validate the feature owner, allocation, activation slot, and response bank together.
@@ -2153,5 +2196,224 @@ mod tests {
             1
         );
         assert!(!calls.iter().any(|method| method == "getLatestBlockhash"));
+    }
+
+    #[test]
+    fn rpc_rejections_exclude_existing_signatures_and_ambiguous_errors() {
+        for code in [
+            -32700, -32600, -32601, -32602, -32002, -32003, -32005, -32006, -32013, -32015, -32016,
+        ] {
+            let response = serde_json::json!({"error":{"code":code,"message":"rejected","data":{"err":"BlockhashNotFound"}}});
+            assert!(
+                matches!(rpc_submission_rejection(&response, "signature"), Some(SdkError::SubmissionRejected { code: actual, .. }) if actual == code)
+            );
+        }
+        for response in [
+            serde_json::json!({"error":{"code":-32002,"message":"failed","data":{"err":"AlreadyProcessed"}}}),
+            serde_json::json!({"error":{"code":-32002,"message":"Transaction has already been processed"}}),
+            serde_json::json!({"error":{"code":-32603,"message":"internal failure"}}),
+            serde_json::json!({"error":{"code":-32099,"message":"provider failure"}}),
+            serde_json::json!({"error":{"code":-32002}}),
+            serde_json::json!({"result":"signature","error":{"code":-32002,"message":"conflicting response"}}),
+            serde_json::json!({"result":"signature","error":null}),
+        ] {
+            assert!(rpc_submission_rejection(&response, "signature").is_none());
+        }
+    }
+
+    #[cfg(feature = "native")]
+    async fn v1_rpc_test_server(
+        handler: impl Fn(&serde_json::Value) -> (u16, Option<serde_json::Value>) + Send + 'static,
+    ) -> (
+        String,
+        Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = calls.clone();
+        let task = tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                let request: serde_json::Value = loop {
+                    let mut buffer = [0; 8192];
+                    let count = socket.read(&mut buffer).await.unwrap();
+                    assert!(count > 0);
+                    bytes.extend_from_slice(&buffer[..count]);
+                    if let Some(split) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                        let headers = String::from_utf8_lossy(&bytes[..split]).to_lowercase();
+                        let length: usize = headers
+                            .lines()
+                            .find_map(|line| line.strip_prefix("content-length:"))
+                            .unwrap()
+                            .trim()
+                            .parse()
+                            .unwrap();
+                        if bytes.len() >= split + 4 + length {
+                            break serde_json::from_slice(&bytes[split + 4..split + 4 + length])
+                                .unwrap();
+                        }
+                    }
+                };
+                recorded.lock().unwrap().push(request.clone());
+                let (status, response) = handler(&request);
+                if let Some(response) = response {
+                    let body = response.to_string();
+                    socket.write_all(format!("HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+                }
+            }
+        });
+        (url, calls, task)
+    }
+
+    #[cfg(feature = "native")]
+    fn v1_read_response(request: &serde_json::Value) -> serde_json::Value {
+        match request["method"].as_str().unwrap() {
+            "getAccountInfo" => {
+                assert_eq!(
+                    request["params"][0],
+                    "txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL"
+                );
+                feature_response(Some(1), 10)
+            }
+            "simulateTransaction" => {
+                assert_eq!(request["params"][1]["sigVerify"], true);
+                assert_eq!(request["params"][1]["replaceRecentBlockhash"], false);
+                serde_json::json!({"result":{"context":{"slot":10},"value":{"err":null,"logs":[]}}})
+            }
+            method => panic!("unexpected read {method}"),
+        }
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn send_errors_are_classified_once_without_leaking_transport_credentials() {
+        let payer = Keypair::new();
+        let signed = test_transaction(&payer.pubkey()).sign(&[&payer]).unwrap();
+        for (send_response, rejected) in [
+            (None, false),
+            (
+                Some(
+                    serde_json::json!({"error":{"code":-32002,"message":"preflight rejected","data":{"err":"BlockhashNotFound"}}}),
+                ),
+                true,
+            ),
+            (
+                Some(
+                    serde_json::json!({"error":{"code":-32002,"message":"already processed","data":{"err":"AlreadyProcessed"}}}),
+                ),
+                false,
+            ),
+            (
+                Some(serde_json::json!({"error":{"code":-32603,"message":"internal error"}})),
+                false,
+            ),
+            (
+                Some(serde_json::json!({"result":"wrong signature","debug":"do-not-expose"})),
+                false,
+            ),
+        ] {
+            let (url, calls, server) = v1_rpc_test_server(move |request| {
+                if request["method"] == "sendTransaction" {
+                    assert_eq!(request["params"][1]["maxRetries"], 0);
+                    assert_eq!(request["params"][1]["skipPreflight"], false);
+                    (200, send_response.clone())
+                } else {
+                    (200, Some(v1_read_response(request)))
+                }
+            })
+            .await;
+            let client = LightconeClient::builder()
+                .rpc_url(&format!("{url}/?api-key=do-not-expose"))
+                .build()
+                .unwrap();
+            let error = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                client.submit_signed_transaction(&signed),
+            )
+            .await
+            .unwrap()
+            .unwrap_err();
+            assert!(!format!("{error:?}").contains("do-not-expose"));
+            if rejected {
+                assert!(matches!(
+                    error,
+                    SdkError::SubmissionRejected { code: -32002, .. }
+                ));
+            } else {
+                assert!(
+                    matches!(error, SdkError::SubmissionUnknown { ref signature, last_valid_block_height: 100, .. } if signature == &signed.as_versioned().signatures[0].to_string())
+                );
+            }
+            assert_eq!(
+                calls
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|call| call["method"] == "sendTransaction")
+                    .count(),
+                1
+            );
+            server.abort();
+        }
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn activation_and_simulation_reads_fail_over_without_changing_the_message() {
+        let payer = Keypair::new();
+        let signed = test_transaction(&payer.pubkey()).sign(&[&payer]).unwrap();
+        for failing_method in ["getAccountInfo", "simulateTransaction"] {
+            let (primary, primary_calls, primary_server) = v1_rpc_test_server(move |request| {
+                if request["method"] == failing_method {
+                    (503, Some(serde_json::json!({"error":"unavailable"})))
+                } else {
+                    (200, Some(v1_read_response(request)))
+                }
+            })
+            .await;
+            let (backup, backup_calls, backup_server) =
+                v1_rpc_test_server(|request| (200, Some(v1_read_response(request)))).await;
+            let client = LightconeClient::builder()
+                .rpc_url(&primary)
+                .backup_rpc_url(&backup)
+                .build()
+                .unwrap();
+            tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                client.simulate_transaction(&signed),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(
+                primary_calls
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|call| call["method"] == failing_method)
+                    .count(),
+                2
+            );
+            let backup_calls = backup_calls.lock().unwrap();
+            assert!(backup_calls
+                .iter()
+                .any(|call| call["method"] == failing_method));
+            let simulation = backup_calls
+                .iter()
+                .find(|call| call["method"] == "simulateTransaction")
+                .unwrap();
+            assert_eq!(
+                simulation["params"][0],
+                base64::Engine::encode(
+                    &base64::engine::general_purpose::STANDARD,
+                    signed.to_wire_bytes().unwrap()
+                )
+            );
+            primary_server.abort();
+            backup_server.abort();
+        }
     }
 }

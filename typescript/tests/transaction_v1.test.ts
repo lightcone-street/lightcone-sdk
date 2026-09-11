@@ -2,6 +2,8 @@ import { ed25519 } from "@noble/curves/ed25519";
 import { sha512 } from "@noble/hashes/sha512";
 import nacl from "tweetnacl";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { getCompiledTransactionMessageDecoder, getCompiledTransactionMessageEncoder } from "@solana/kit";
 import { describe, it } from "node:test";
 import {
   Keypair,
@@ -18,6 +20,30 @@ import {
   validateV1Resources,
 } from "../src/program/transaction";
 import { TEST_CONTEXT, transferTransaction } from "./v1_helpers";
+
+describe("explicit zero priority fee imports", () => {
+  it("preserves signed bytes while accepting equivalent zero-fee resources", () => {
+    const payer = Keypair.fromSeed(Buffer.alloc(32, 1));
+    const context = { ...TEST_CONTEXT, resources: { ...TEST_CONTEXT.resources, priorityFeeLamports: 0n } };
+    const omitted = transferTransaction(payer, context);
+    const decoded = getCompiledTransactionMessageDecoder().decode(omitted.messageBytes());
+    assert.equal(decoded.version, 1);
+    if (decoded.version !== 1) throw new Error("expected v1");
+    const message = getCompiledTransactionMessageEncoder().encode({
+      ...decoded, configMask: decoded.configMask | 3,
+      configValues: [{ kind: "u64", value: 0n }, ...decoded.configValues],
+    });
+    const wire = Buffer.concat([message, nacl.sign.detached(message, payer.secretKey)]);
+    const imported = V1Transaction.fromWireBytes(wire, context);
+    imported.verifySignatures();
+    assert.deepEqual(imported.toWireBytes(), Uint8Array.from(wire));
+    assert.deepEqual(imported.acceptSignedBytes(wire).toWireBytes(), imported.toWireBytes());
+    assert.throws(() => omitted.acceptSignedBytes(wire), /wallet changed/);
+    assert.throws(() => V1Transaction.fromWireBytes(wire, {
+      ...context, resources: { ...context.resources, priorityFeeLamports: 1n },
+    }), /context/);
+  });
+});
 
 describe("v1 validation and immutable signing", () => {
   const payer = Keypair.fromSeed(Buffer.alloc(32, 1));
@@ -295,4 +321,60 @@ describe("v1 validation and immutable signing", () => {
     assert.throws(() => tx.acceptSignedBytes(corrupt), /signature/);
     assert.throws(() => tx.sign([]), /missing required signer/);
   });
+});
+
+
+it("pins cross-language compilation and signed encoding without fixture files", () => {
+  const payer = Keypair.fromSeed(Buffer.alloc(32, 1));
+  const second = Keypair.fromSeed(Buffer.alloc(32, 2));
+  const key = (byte: number) => new PublicKey(Buffer.alloc(32, byte));
+  const accounts = [
+    { pubkey: second.publicKey, isSigner: true, isWritable: false },
+    { pubkey: key(10), isSigner: false, isWritable: false },
+    { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+    { pubkey: second.publicKey, isSigner: true, isWritable: false },
+    { pubkey: key(8), isSigner: false, isWritable: true },
+  ];
+  const instruction = new TransactionInstruction({ programId: key(99), keys: accounts, data: Buffer.from([0, 1, 2, 127, 128, 255]) });
+  const merged = new TransactionInstruction({ ...instruction, keys: [...accounts,
+    { pubkey: key(10), isSigner: false, isWritable: true },
+    { pubkey: second.publicKey, isSigner: true, isWritable: true },
+  ] });
+  // These digests are also asserted against upstream Rust and solders in their tests.
+  const cases = [
+    {
+      resources: { computeUnitLimit: 1_400_000, loadedAccountsDataSizeLimit: 67_108_864, priorityFeeLamports: (1n << 64n) - 1n, heapSize: 262_144 },
+      instructions: [instruction], signers: [payer, second],
+      messageHash: "c5fdf05cc77574469ea3b7b08798722fda2bd225b1b8e35995d42f31e7011290",
+      wireHash: "40156bfa4370bd072ca9000a3c42d1159be9c6c8b32cf598793a276b16f332c3",
+    },
+    {
+      resources: { computeUnitLimit: 200_000, loadedAccountsDataSizeLimit: 1_048_576, priorityFeeLamports: 1001n, heapSize: 32_768 },
+      instructions: [instruction, merged, SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: key(9), lamports: 42 })], signers: [payer, second],
+      messageHash: "fdf9fd85a3963251ca654526c1fb6134f4e76ad361aa2b057bb3dfff379f41c4",
+      wireHash: "368fb841224f6273bfc741ac09d88df014050640e8d3f4b31a38c05b1ef04809",
+    },
+    {
+      resources: { computeUnitLimit: 200_000, loadedAccountsDataSizeLimit: 1_048_576, priorityFeeLamports: 0n },
+      instructions: [
+        new TransactionInstruction({ programId: key(99), keys: [
+          { pubkey: key(99), isSigner: false, isWritable: true },
+          { pubkey: key(98), isSigner: false, isWritable: true },
+        ], data: Buffer.from([1, 2]) }),
+        new TransactionInstruction({ programId: key(98), keys: [
+          { pubkey: key(99), isSigner: false, isWritable: false },
+          { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+        ], data: Buffer.from([3, 4]) }),
+      ], signers: [payer],
+      messageHash: "68e412b10a0ac0b912f9606cf2b62bc158e74ee25a2f5a7a5c20117584cfd7c8",
+      wireHash: "e7629ba9b05db1fd502a408343395bb001aa0fdb48d659c59c1b06983f924307",
+    },
+  ];
+  for (const { resources, instructions, signers, messageHash, wireHash } of cases) {
+    const tx = V1Transaction.compile(instructions, payer.publicKey, { ...TEST_CONTEXT, blockhash: key(7).toBase58(), resources });
+    const signed = tx.sign(signers);
+    assert.equal(createHash("sha256").update(tx.messageBytes()).digest("hex"), messageHash);
+    assert.equal(createHash("sha256").update(signed.toWireBytes()).digest("hex"), wireHash);
+    signed.verifySignatures();
+  }
 });
