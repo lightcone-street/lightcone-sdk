@@ -112,15 +112,15 @@ Same as the no-arg authed variants above, but accept a raw `Cookie` header conta
 
 ### Wallet Deposit Balances and SOL Action Planning
 
-`deposit_token_balances` returns a required exact nine-decimal `native_sol_balance` alongside the mint-keyed SPL `balances`. Initialize `WalletDepositBalancesState` either with `apply_rest_snapshot(wallet, snapshot)` or a complete WebSocket `Snapshot`, then apply typed events from the matching wallet channel. Complete snapshots replace state even when their lower cross-component slot trails a prior update; component events are absolute and only apply to initialized matching-wallet state. A matching SPL update with a negative idle balance returns `Rejected` without changing balances or the context slot.
+`deposit_token_balances` returns a required exact nine-decimal `native_sol_balance` alongside the mint-keyed SPL `balances`. Initialize `WalletDepositBalancesState` either with `apply_rest_snapshot(wallet, snapshot)` or a complete WebSocket `Snapshot`, then apply typed events from the matching wallet channel. Existing methods preserve unconditional complete-snapshot replacement even when the lower shared snapshot slot trails a prior update. Confirmation-aware consumers can call `apply_rest_snapshot_with_minimum_snapshot_slot` or `apply_event_with_minimum_snapshot_slot`; only a complete snapshot below the supplied floor is ignored without mutation, while equal slots and all balance/status events retain their normal behavior. Balance update events are absolute and only apply to initialized matching-wallet state. A matching SPL update with a negative idle balance returns `Rejected` without changing balances or the context slot.
 
-`WalletDepositBalancesState::combined_sol_balance()` returns exact native SOL plus the separately stored canonical WSOL balance. `sol_components()` narrows each component to Solana's `u64` transaction range. `plan_sol_split`, `plan_sol_merge`, `plan_sol_redeem`, and `plan_native_sol_withdrawal` return an unsigned `SolActionPlan` containing live fee/rent costs, the action-specific reserve and spendable balance, and separate expected native/canonical deltas. Missing RPC estimates, an incomplete or wrong-wallet snapshot, insufficient native reserve, and sponsored requests fail closed; sponsorship remains unsupported until a concrete sponsor owns fees and account rent. An occupied canonical address is accepted only when it decodes as the wallet's initialized, unfrozen Tokenkeg native-mint account. `canonical_wsol_account_info` exposes that exact validated inspection as full account lamports (including excess), decoded token-amount lamports, and decoded native-reserve lamports, while `canonical_wsol_account_exists` preserves the boolean API by delegating to it.
+`WalletDepositBalancesState::combined_sol_balance()` returns exact native SOL plus the separately stored canonical WSOL balance. `sol_balance_breakdown()` narrows each balance to Solana's `u64` transaction range. `plan_sol_split`, `plan_sol_merge`, `plan_sol_redeem`, and `plan_native_sol_withdrawal` return an unsigned `SolActionPlan` containing live fee/rent costs, the action-specific reserve and spendable balance, and separate expected native/canonical deltas. Missing RPC estimates, an incomplete or wrong-wallet snapshot, insufficient native reserve, and sponsored requests fail closed; sponsorship remains unsupported until a concrete sponsor owns fees and account rent. An occupied canonical address is accepted only when it decodes as the wallet's initialized, unfrozen Tokenkeg native-mint account. `canonical_wsol_account_info` exposes that exact validated inspection as full account lamports (including excess), decoded token-amount lamports, and decoded native-reserve lamports, while `canonical_wsol_account_exists` preserves the boolean API by delegating to it.
 
 Split plans consume canonical WSOL first and add idempotent ATA creation, native transfer, and `SyncNative` only for a shortfall. `SyncNative` is the Token Program instruction that recalculates the WSOL token amount from account lamports minus the native-account rent reserve. Merge and redeem plans create the canonical account when absent and always retain proceeds there. Native withdrawal transfers directly when native SOL covers amount plus reserve; otherwise it converts only the shortfall through a bounded, seeded temporary Tokenkeg account, closes that temporary account back to the Trading Wallet, and transfers the exact requested native amount to the recipient. The temporary account's create, initialize, WSOL transfer, close, and native transfer instructions share one Solana transaction, so an instruction failure rolls the entire conversion back atomically. These ordinary planners never close the persistent canonical account.
 
 Native-keypair consumers have two explicit standalone conversion planners. `plan_wrap_sol(amount_lamports, state)` creates the canonical ATA only when absent, transfers the exact positive amount, and runs `SyncNative`; an existing account must have no unsynchronized donated lamports because `SyncNative` would otherwise increase WSOL by more than the requested amount. Standard reserve floors apply and its native delta includes only the amount, live fee, and newly funded rent. No-amount `plan_unwrap_wsol_all(state)` requires positive cached WSOL exactly matching the live token amount, then closes the canonical account to and under the authority of the same Trading Wallet. It accepts unsynchronized excess and returns every live account lamport, including rent and donated excess, after checking that the final native balance remains within `u64`. Its `SolActionCosts` fields are always unsponsored, zero upfront rent, and no account creation; its availability reserves only the live fee, which native SOL must fund before the refund is available. Browser wallet adapters and Privy signers are intentionally rejected only for these explicit conversion planners.
 
-Submit the final rebuilt plan with `sign_and_submit_prepared_tx_confirmed_with_slot`; this preserves the fee-estimated message and rejects external-wallet message replacement. Atomic execution does not resolve uncertain submission or confirmation errors, so refresh authoritative balances instead of automatically retrying. Hold the component projection until a complete snapshot covering the returned slot restores action authority. See [`docs/adr/0001-persistent-canonical-wsol.md`](../../../../docs/adr/0001-persistent-canonical-wsol.md).
+Submit the final rebuilt plan with `sign_and_submit_prepared_tx_confirmed_with_slot`; this preserves the fee-estimated message and rejects external-wallet message replacement. Atomic execution does not resolve uncertain submission or confirmation errors, so refresh authoritative balances instead of automatically retrying. Hold the balance projection until a complete snapshot covering the returned slot restores action authority. See [`docs/adr/0001-persistent-canonical-wsol.md`](../../../../docs/adr/0001-persistent-canonical-wsol.md).
 
 The `deposit_token_balances` example is manual-only and runs with `LIGHTCONE_ENV=local` or `staging` only when `SDK_API_URL`, `SDK_WS_URL`, `SDK_RPC_URL`, and `SDK_PROGRAM_ID` are all unset. It sends 0.001 SOL to the TypeScript SDK wallet configured by `LIGHTCONE_WALLET_PATH_TS`, confirms it with a slot, waits for the wallet stream to cover that slot, and refreshes a complete snapshot at that slot. Running it moves funds. If it fails after submission, inspect authoritative balances before retrying because funds may already have moved.
 
@@ -128,13 +128,13 @@ The `wsol_conversion` example runs automatically for every SDK wallet in local a
 
 ### On-Chain Instruction & Transaction Builders
 
-Each operation has an `_ix` method returning an `Instruction` (or `Result<Instruction, SdkError>` for fallible builders) and a `_tx` convenience method returning `Result<Transaction, SdkError>`.
+Each operation has an `_ix` method returning an `Instruction` (or `Result<Instruction, SdkError>` for fallible builders) and a `_tx` convenience method returning `Result<V1Transaction, SdkError>`.
 
 #### `redeem_winnings_ix` / `redeem_winnings_tx`
 
 ```rust
 fn redeem_winnings_ix(&self, params: &RedeemWinningsParams, outcome_index: u8) -> Instruction
-fn redeem_winnings_tx(&self, params: RedeemWinningsParams, outcome_index: u8) -> Result<Transaction, SdkError>
+fn redeem_winnings_tx(&self, params: RedeemWinningsParams, outcome_index: u8, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
 Build a RedeemWinnings instruction/transaction — redeem conditional tokens for collateral after market resolution.
@@ -143,11 +143,11 @@ Build a RedeemWinnings instruction/transaction — redeem conditional tokens for
 
 ```rust
 fn withdraw_conditional_from_position_ix(&self, params: &WithdrawConditionalFromPositionParams) -> Instruction
-fn withdraw_conditional_from_position_tx(&self, params: WithdrawConditionalFromPositionParams) -> Result<Transaction, SdkError>
+fn withdraw_conditional_from_position_tx(&self, params: WithdrawConditionalFromPositionParams, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 
 // Compatibility wrappers:
 fn withdraw_from_position_ix(&self, params: &WithdrawFromPositionParams) -> Instruction
-fn withdraw_from_position_tx(&self, params: WithdrawFromPositionParams) -> Result<Transaction, SdkError>
+fn withdraw_from_position_tx(&self, params: WithdrawFromPositionParams, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
 Build a conditional-token withdrawal instruction/transaction. The params take the market's registered `deposit_mint`; the SDK derives the conditional mint from `(market, deposit_mint, outcome_index)` and withdraws from the position's canonical conditional-token ATA to the user's canonical ATA.
@@ -158,25 +158,16 @@ The fluent `withdraw_from_position()` and `withdraw_conditional_from_position()`
 
 ```rust
 fn init_position_tokens_ix(&self, params: &InitPositionTokensParams, num_outcomes: u8) -> Instruction
-fn init_position_tokens_tx(&self, params: InitPositionTokensParams, num_outcomes: u8) -> Result<Transaction, SdkError>
+fn init_position_tokens_tx(&self, params: InitPositionTokensParams, num_outcomes: u8, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
-Build an InitPositionTokens instruction/transaction — create a position account and associated token accounts for all outcomes.
-
-#### `extend_position_tokens_ix` / `extend_position_tokens_tx`
-
-```rust
-fn extend_position_tokens_ix(&self, params: &ExtendPositionTokensParams, num_outcomes: u8) -> Result<Instruction, SdkError>
-fn extend_position_tokens_tx(&self, params: ExtendPositionTokensParams, num_outcomes: u8) -> Result<Transaction, SdkError>
-```
-
-Build an ExtendPositionTokens instruction/transaction — extend a position's lookup table with additional token accounts.
+Build permissionless, idempotent position preparation with a signing payer and an unsigned on-curve user. Every call validates all requested collateral groups and creates missing position accounts and conditional ATAs. Existing valid accounts remain in place. Use the same instruction for initial, partial, repeated, and additional-group preparation. Supply 1–8 distinct mints in strictly increasing GDT registration-index order. No recent slot is required. The fluent builder and transaction helper validate beneficiaries, group counts, duplicate mints, and outcome counts locally. Raw instruction builders retain their infallible return types and leave validation to the program.
 
 #### `deposit_to_global_ix` / `deposit_to_global_tx`
 
 ```rust
 fn deposit_to_global_ix(&self, params: &DepositToGlobalParams) -> Instruction
-fn deposit_to_global_tx(&self, params: DepositToGlobalParams) -> Result<Transaction, SdkError>
+fn deposit_to_global_tx(&self, params: DepositToGlobalParams, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
 Build a DepositToGlobal instruction/transaction — deposit collateral into the global deposit pool for cross-market use.
@@ -185,25 +176,16 @@ Build a DepositToGlobal instruction/transaction — deposit collateral into the 
 
 ```rust
 fn global_to_market_deposit_ix(&self, params: &GlobalToMarketDepositParams, num_outcomes: u8) -> Instruction
-fn global_to_market_deposit_tx(&self, params: GlobalToMarketDepositParams, num_outcomes: u8) -> Result<Transaction, SdkError>
+fn global_to_market_deposit_tx(&self, params: GlobalToMarketDepositParams, num_outcomes: u8, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
 Build a GlobalToMarketDeposit instruction/transaction — move collateral from the global deposit pool into a specific market position.
-
-#### `close_position_alt_ix` / `close_position_alt_tx`
-
-```rust
-fn close_position_alt_ix(&self, params: &ClosePositionAltParams) -> Instruction
-fn close_position_alt_tx(&self, params: ClosePositionAltParams) -> Result<Transaction, SdkError>
-```
-
-Build a ClosePositionAlt instruction/transaction — deactivate or close a resolved position lookup table.
 
 #### `close_position_token_accounts_ix` / `close_position_token_accounts_tx`
 
 ```rust
 fn close_position_token_accounts_ix(&self, params: &ClosePositionTokenAccountsParams, num_outcomes: u8) -> Result<Instruction, SdkError>
-fn close_position_token_accounts_tx(&self, params: ClosePositionTokenAccountsParams, num_outcomes: u8) -> Result<Transaction, SdkError>
+fn close_position_token_accounts_tx(&self, params: ClosePositionTokenAccountsParams, num_outcomes: u8, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
 Build a ClosePositionTokenAccounts instruction/transaction — close empty position-owned conditional token accounts.
@@ -218,7 +200,7 @@ The preferred way to build deposit, withdraw, and merge instructions.
 async fn deposit(&self) -> DepositBuilder<'a>
 ```
 
-Create a `DepositBuilder` pre-seeded with the client's deposit source. Chain `.user()`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx()`.
+Create a `DepositBuilder` pre-seeded with the client's deposit source. Chain `.user()`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx(&context)`.
 
 For market deposits, use `.with_market_deposit_source(&market)` or `.market(&market)` if the client is already configured with `DepositSource::Market`.
 
@@ -228,7 +210,7 @@ For market deposits, use `.with_market_deposit_source(&market)` or `.market(&mar
 async fn withdraw(&self) -> WithdrawBuilder<'a>
 ```
 
-Create a `WithdrawBuilder` pre-seeded with the client's deposit source. Chain `.user()`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx()`.
+Create a `WithdrawBuilder` pre-seeded with the client's deposit source. Chain `.user()`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx(&context)`.
 
 For market withdrawals, `.mint()` is the registered deposit mint and the SDK derives the conditional mint from `.outcome_index()`. Position withdrawals are conditional-token only; collateral exits through global withdrawal, complete-set merge, or winnings redemption.
 
@@ -238,9 +220,11 @@ For market withdrawals, `.mint()` is the registered deposit mint and the SDK der
 fn merge(&self) -> MergeBuilder<'a>
 ```
 
-Create a `MergeBuilder` for burning a complete set of conditional tokens and releasing collateral. Chain `.user()`, `.market(&market)`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx()`.
+Create a `MergeBuilder` for burning a complete set of conditional tokens and releasing collateral. Chain `.user()`, `.market(&market)`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx(&context)`.
 
 ## Examples
+
+Configure `LightconeClientBuilder::transaction_resources` and a signing strategy before using fluent `sign_and_submit` methods. Refer to the [Rust trading setup](../../../README.md#start-trading) for the complete client configuration. Offline `build_tx` calls take their explicit `V1TransactionContext` directly.
 
 ### Check portfolio across all markets
 

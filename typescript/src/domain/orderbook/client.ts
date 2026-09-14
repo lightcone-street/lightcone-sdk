@@ -1,16 +1,15 @@
-import { Transaction, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
+import { V1Transaction, type V1TransactionContext } from "../../program/transaction";
+import { type PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import type { ClientContext } from "../../context";
 import { requireConnection } from "../../context";
 import { ProgramSdkError } from "../../program/error";
 import { RetryPolicy } from "../../http";
 import {
-  buildCloseOrderbookAltIx,
   buildCloseOrderbookIx,
 } from "../../program/instructions";
 import { getOrderbookPda } from "../../program/pda";
 import { deserializeOrderbook as deserializeProgramOrderbook } from "../../program/accounts";
 import type {
-  CloseOrderbookAltParams,
   CloseOrderbookParams,
   Orderbook as ProgramOrderbook,
 } from "../../program/types";
@@ -143,22 +142,13 @@ export class Orderbooks {
 
   // ── On-chain transaction builders ────────────────────────────────────
 
-  closeOrderbookAltIx(params: CloseOrderbookAltParams): TransactionInstruction {
-    return buildCloseOrderbookAltIx(params, this.client.programId);
-  }
-
   closeOrderbookIx(params: CloseOrderbookParams): TransactionInstruction {
     return buildCloseOrderbookIx(params, this.client.programId);
   }
 
-  closeOrderbookAltTx(params: CloseOrderbookAltParams): Transaction {
-    const ix = this.closeOrderbookAltIx(params);
-    return new Transaction({ feePayer: params.operator }).add(ix);
-  }
-
-  closeOrderbookTx(params: CloseOrderbookParams): Transaction {
+  closeOrderbookTx(params: CloseOrderbookParams, context: V1TransactionContext): V1Transaction {
     const ix = this.closeOrderbookIx(params);
-    return new Transaction({ feePayer: params.operator }).add(ix);
+    return V1Transaction.compile([ix], params.operator, context);
   }
 
   // ── On-chain account fetchers (require Connection) ──────────────────

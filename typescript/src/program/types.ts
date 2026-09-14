@@ -1,4 +1,5 @@
-import { PublicKey, Transaction } from "@solana/web3.js";
+import type { V1Transaction } from "./transaction";
+import { PublicKey } from "@solana/web3.js";
 
 // ============================================================================
 // ENUMS
@@ -75,6 +76,7 @@ export interface Market {
   conditionId: Buffer; // 32 bytes - derived from oracle + questionId + numOutcomes
   payoutNumerators: PayoutNumerators; // six u32 values; first numOutcomes are meaningful
   payoutDenominator: number; // u32 sum of meaningful payout numerators
+  depositMintCount: number; // u8 at byte 148 - mints registered via addDepositMint (max MAX_DEPOSIT_MINTS_PER_MARKET)
 }
 
 export type PayoutNumerators = [number, number, number, number, number, number];
@@ -114,17 +116,19 @@ export interface Position {
 }
 
 /**
- * Orderbook account - links market to token pair and lookup table
+ * Orderbook account: one market outcome backed by two distinct collateral mints.
  * PDA: ["orderbook", mint_a (32 bytes), mint_b (32 bytes)]
- * Size: 144 bytes
+ * Size: 176 bytes
  */
 export interface Orderbook {
   discriminator: Buffer; // 8 bytes
   market: PublicKey; // 32 bytes
   mintA: PublicKey; // 32 bytes
   mintB: PublicKey; // 32 bytes
-  lookupTable: PublicKey; // 32 bytes
+  depositMintA: PublicKey; // 32 bytes, collateral backing mintA
+  depositMintB: PublicKey; // 32 bytes, collateral backing mintB
   baseIndex: number; // u8
+  outcomeIndex: number; // u8, shared by both conditional mints
   bump: number; // u8
 }
 
@@ -137,8 +141,8 @@ export interface GlobalDepositToken {
   discriminator: Buffer; // 8 bytes
   mint: PublicKey; // 32 bytes
   bump: number; // u8
-  index: number; // u16 - ALT ordering index
-  active: boolean; // u8 - backend-visible status flag
+  index: number; // u16, canonical preparation-group registration order
+  active: boolean; // u8, live trading permission for this collateral
 }
 
 // ============================================================================
@@ -327,12 +331,14 @@ export interface MatchOrdersMultiParams {
   market: PublicKey;
   baseMint: PublicKey;
   quoteMint: PublicKey;
+  baseDepositMint: PublicKey;
+  quoteDepositMint: PublicKey;
   feeReceiver: PublicKey;
   takerOrder: SignedOrder;
   makerOrders: SignedOrder[];
-  makerFillAmounts: bigint[]; // Per maker - what each maker gives
-  takerFillAmounts: bigint[]; // Per maker - what taker gives to each maker
-  fullFillBitmask: number; // u8 bitmask: bit 7 = taker, bits 0..n = makers
+  makerFillAmounts: bigint[]; // Integer units of each maker's give-side token
+  takerFillAmounts: bigint[]; // Integer units of the taker's give-side token, per maker
+  fullFillBitmask: number; // u16: bit 15 = taker, bits 0..10 = makers
 }
 
 /**
@@ -357,10 +363,8 @@ export interface CreateOrderbookParams {
   feeReceiver: PublicKey;
   mintADepositMint: PublicKey;
   mintBDepositMint: PublicKey;
-  recentSlot: bigint;
   baseIndex: number; // Which supplied mint is base: 0 = mintA, 1 = mintB
-  mintAOutcomeIndex: number;
-  mintBOutcomeIndex: number;
+  outcomeIndex: number; // u8, shared market outcome index, 0..5
 }
 
 /**
@@ -388,18 +392,6 @@ export interface SetOracleParams {
   authority: PublicKey;
   market: PublicKey;
   newOracle: PublicKey;
-}
-
-/**
- * Parameters for refreshing an orderbook ALT after fee receiver rotation.
- */
-export interface RefreshOrderbookAltParams {
-  manager: PublicKey;
-  market: PublicKey;
-  orderbook: PublicKey;
-  lookupTable: PublicKey;
-  quoteMint: PublicKey;
-  feeReceiver: PublicKey;
 }
 
 /**
@@ -458,7 +450,8 @@ export interface WhitelistDepositTokenParams {
 }
 
 /**
- * Parameters for updating the backend-visible global deposit token status flag.
+ * Parameters for controlling whether a registered collateral can back trades.
+ * Inactivity does not restrict deposits, preparation, splits, merges, or exits.
  */
 export interface SetDepositTokenStatusParams {
   manager: PublicKey;
@@ -476,13 +469,6 @@ export interface DepositToGlobalParams {
 }
 
 /**
- * Optional ALT behavior for depositToGlobal.
- */
-export type DepositToGlobalAltContext =
-  | { kind: "create"; recentSlot: bigint }
-  | { kind: "extend"; lookupTable: PublicKey };
-
-/**
  * Parameters for globalToMarketDeposit instruction
  */
 export interface GlobalToMarketDepositParams {
@@ -493,44 +479,39 @@ export interface GlobalToMarketDepositParams {
 }
 
 /**
- * Parameters for initPositionTokens instruction
+ * Parameters for initPositionTokens instruction.
+ *
+ * Any signing payer can prepare an on-curve beneficiary's Position and ATAs.
+ * Repeated calls preserve existing valid accounts and create missing accounts.
+ * Supply 1..8 distinct mints in increasing global registration-index order.
+ * The same instruction prepares additional collateral groups without a slot.
  */
 export interface InitPositionTokensParams {
   payer: PublicKey;
   user: PublicKey;
   market: PublicKey;
   depositMints: PublicKey[];
-  recentSlot: bigint;
-}
-
-/**
- * Parameters for depositAndSwap instruction
- */
-/**
- * Parameters for extendPositionTokens instruction
- */
-export interface ExtendPositionTokensParams {
-  operator: PublicKey;
-  user: PublicKey;
-  market: PublicKey;
-  lookupTable: PublicKey;
-  depositMints: PublicKey[];
 }
 
 export interface MakerFill {
   order: SignedOrder;
-  makerFillAmount: bigint;
-  takerFillAmount: bigint;
+  makerFillAmount: bigint; // Integer units of the maker's give-side token
+  takerFillAmount: bigint; // Integer units of the taker's give-side token
   isFullFill: boolean;
   isDeposit: boolean;
   depositMint: PublicKey;
 }
 
+/**
+ * Parameters for depositAndSwap instruction
+ */
 export interface DepositAndSwapParams {
   operator: PublicKey;
   market: PublicKey;
   baseMint: PublicKey;
   quoteMint: PublicKey;
+  baseDepositMint: PublicKey;
+  quoteDepositMint: PublicKey;
   feeReceiver: PublicKey;
   takerOrder: SignedOrder;
   takerIsFullFill: boolean;
@@ -547,16 +528,6 @@ export interface WithdrawFromGlobalParams {
   user: PublicKey;
   mint: PublicKey;
   amount: bigint;
-}
-
-/**
- * Parameters for closePositionAlt instruction.
- */
-export interface ClosePositionAltParams {
-  operator: PublicKey;
-  position: PublicKey;
-  market: PublicKey;
-  lookupTable: PublicKey;
 }
 
 /**
@@ -578,23 +549,12 @@ export interface ClosePositionTokenAccountsParams {
 }
 
 /**
- * Parameters for closeOrderbookAlt instruction.
- */
-export interface CloseOrderbookAltParams {
-  operator: PublicKey;
-  orderbook: PublicKey;
-  market: PublicKey;
-  lookupTable: PublicKey;
-}
-
-/**
  * Parameters for closeOrderbook instruction.
  */
 export interface CloseOrderbookParams {
   operator: PublicKey;
   orderbook: PublicKey;
   market: PublicKey;
-  lookupTable: PublicKey;
 }
 
 // ============================================================================
@@ -606,7 +566,7 @@ export interface CloseOrderbookParams {
  */
 export interface BuildResult<T = Record<string, PublicKey>> {
   /** Unsigned transaction ready for signing */
-  transaction: Transaction;
+  transaction: V1Transaction;
   /** Key accounts involved in the transaction */
   accounts: T;
   /** Serialize transaction to base64 */

@@ -8,17 +8,17 @@ use crate::domain::market::Market;
 use crate::domain::position::state::{SolActionCosts, SolBalanceAvailability};
 use crate::error::SdkError;
 use crate::program::instructions;
+use crate::program::transaction::{V1Transaction, V1TransactionContext};
 use crate::program::types::{
-    BuildDepositParams, BuildMergeParams, DepositToGlobalAltContext, DepositToGlobalParams,
-    ExtendPositionTokensParams, GlobalToMarketDepositParams, InitPositionTokensParams,
-    RedeemWinningsParams, WithdrawConditionalFromPositionParams, WithdrawFromGlobalParams,
+    BuildDepositParams, BuildMergeParams, DepositToGlobalParams, GlobalToMarketDepositParams,
+    InitPositionTokensParams, RedeemWinningsParams, WithdrawConditionalFromPositionParams,
+    WithdrawFromGlobalParams,
 };
 use crate::shared::DepositSource;
 use sha2::{Digest, Sha256};
 use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
-use solana_transaction::Transaction;
 use std::str::FromStr;
 
 use super::state::WRAPPED_SOL_MINT_ADDRESS;
@@ -50,12 +50,12 @@ pub enum SolActionKind {
     UnwrapAll,
 }
 
-/// Expected change to the separately authoritative SOL components.
+/// Expected change to the separately authoritative native and canonical WSOL balances.
 ///
 /// Values include the estimated transaction fee and net rent movement so Web
-/// can freeze one post-confirmation projection without merging component state.
+/// can freeze one post-confirmation projection without merging balance state.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct SolComponentDelta {
+pub struct SolBalanceDelta {
     /// Expected system-account change in lamports, including unsponsored costs.
     pub native_lamports: i128,
     /// Expected canonical legacy-token WSOL ATA change in lamports.
@@ -68,13 +68,13 @@ pub struct SolActionPlan {
     /// Operation whose balance semantics produced this plan.
     pub kind: SolActionKind,
     /// Unsigned, fee-prepared transaction whose exact message must be preserved.
-    pub transaction: Transaction,
+    pub transaction: V1Transaction,
     /// Live fee/rent observations and sponsorship capability used at preflight.
     pub costs: SolActionCosts,
-    /// Authoritative component totals after reserving action-specific native SOL.
+    /// Authoritative balance breakdown after reserving action-specific native SOL.
     pub availability: SolBalanceAvailability,
-    /// Projection kept component-wise so callers do not erase state authority.
-    pub expected_delta: SolComponentDelta,
+    /// Projection keeps native and canonical balances separate to preserve state authority.
+    pub expected_delta: SolBalanceDelta,
 }
 
 /// Derive the canonical native mint and the wallet's persistent Tokenkeg ATA.
@@ -131,7 +131,8 @@ pub(crate) fn build_wrap_sol_transaction(
     wallet: Pubkey,
     amount_lamports: u64,
     create_canonical_account: bool,
-) -> Result<Transaction, SdkError> {
+    context: &V1TransactionContext,
+) -> Result<V1Transaction, SdkError> {
     let token_program = spl_token_interface::id();
     let (mint, account) = wrapped_sol_accounts(&wallet)?;
     let mut instructions = Vec::with_capacity(if create_canonical_account { 3 } else { 2 });
@@ -147,7 +148,7 @@ pub(crate) fn build_wrap_sol_transaction(
         spl_token_interface::instruction::sync_native(&token_program, &account)
             .map_err(|error| SdkError::Other(format!("failed to build SyncNative: {error}")))?,
     );
-    Ok(Transaction::new_with_payer(&instructions, Some(&wallet)))
+    Ok(V1Transaction::compile(&instructions, &wallet, context)?)
 }
 
 /// Return an unsigned transaction containing one canonical `CloseAccount` instruction.
@@ -157,7 +158,10 @@ pub(crate) fn build_wrap_sol_transaction(
 /// the close. Ordinary split, merge, redeem, and native-withdrawal builders never
 /// call this builder.
 #[cfg(feature = "native-auth")]
-pub(crate) fn build_unwrap_wsol_all_transaction(wallet: Pubkey) -> Result<Transaction, SdkError> {
+pub(crate) fn build_unwrap_wsol_all_transaction(
+    wallet: Pubkey,
+    context: &V1TransactionContext,
+) -> Result<V1Transaction, SdkError> {
     let token_program = spl_token_interface::id();
     let (_, account) = wrapped_sol_accounts(&wallet)?;
     let close = spl_token_interface::instruction::close_account(
@@ -168,7 +172,7 @@ pub(crate) fn build_unwrap_wsol_all_transaction(wallet: Pubkey) -> Result<Transa
         &[],
     )
     .map_err(|error| SdkError::Other(format!("failed to close canonical WSOL account: {error}")))?;
-    Ok(Transaction::new_with_payer(&[close], Some(&wallet)))
+    Ok(V1Transaction::compile(&[close], &wallet, context)?)
 }
 
 /// Build one atomic wrap-shortfall and market split transaction.
@@ -179,7 +183,8 @@ pub(crate) fn build_sol_split_transaction(
     amount: u64,
     shortfall: u64,
     create_canonical_account: bool,
-) -> Result<Transaction, SdkError> {
+    context: &V1TransactionContext,
+) -> Result<V1Transaction, SdkError> {
     let token_program = spl_token_interface::id();
     let (mint, account) = wrapped_sol_accounts(&wallet)?;
     let mut instructions = Vec::with_capacity(4);
@@ -205,7 +210,7 @@ pub(crate) fn build_sol_split_transaction(
         market.num_outcomes,
         program_id,
     ));
-    Ok(Transaction::new_with_payer(&instructions, Some(&wallet)))
+    Ok(V1Transaction::compile(&instructions, &wallet, context)?)
 }
 
 /// Build a merge that creates the canonical ATA when needed and never closes it.
@@ -215,7 +220,8 @@ pub(crate) fn build_sol_merge_transaction(
     market: &Market,
     amount: u64,
     create_canonical_account: bool,
-) -> Result<Transaction, SdkError> {
+    context: &V1TransactionContext,
+) -> Result<V1Transaction, SdkError> {
     let (mint, _) = wrapped_sol_accounts(&wallet)?;
     let mut instructions = Vec::with_capacity(2);
     if create_canonical_account {
@@ -231,7 +237,7 @@ pub(crate) fn build_sol_merge_transaction(
         market.num_outcomes,
         program_id,
     ));
-    Ok(Transaction::new_with_payer(&instructions, Some(&wallet)))
+    Ok(V1Transaction::compile(&instructions, &wallet, context)?)
 }
 
 /// Build a winnings redemption that leaves resulting WSOL in the canonical ATA.
@@ -242,7 +248,8 @@ pub(crate) fn build_sol_redeem_transaction(
     amount: u64,
     outcome_index: u8,
     create_canonical_account: bool,
-) -> Result<Transaction, SdkError> {
+    context: &V1TransactionContext,
+) -> Result<V1Transaction, SdkError> {
     let (mint, _) = wrapped_sol_accounts(&wallet)?;
     let mut instructions = Vec::with_capacity(2);
     if create_canonical_account {
@@ -258,7 +265,7 @@ pub(crate) fn build_sol_redeem_transaction(
         outcome_index,
         program_id,
     ));
-    Ok(Transaction::new_with_payer(&instructions, Some(&wallet)))
+    Ok(V1Transaction::compile(&instructions, &wallet, context)?)
 }
 
 /// Build the direct path when native lamports already cover amount and reserve.
@@ -266,13 +273,15 @@ pub(crate) fn build_direct_native_withdraw_transaction(
     wallet: Pubkey,
     recipient: Pubkey,
     amount: u64,
-) -> Transaction {
-    Transaction::new_with_payer(
+    context: &V1TransactionContext,
+) -> Result<V1Transaction, SdkError> {
+    Ok(V1Transaction::compile(
         &[solana_system_interface::instruction::transfer(
             &wallet, &recipient, amount,
         )],
-        Some(&wallet),
-    )
+        &wallet,
+        context,
+    )?)
 }
 
 /// Return a byte-exact, domain-separated temporary-account seed.
@@ -314,6 +323,8 @@ pub(crate) fn temporary_wsol_account(wallet: &Pubkey, seed: &str) -> Result<Pubk
 /// recipient transfer. All five instructions execute in one Solana transaction,
 /// so any instruction failure rolls back the temporary account and both transfers.
 /// The canonical account is never closed.
+// Keep the atomic withdrawal amounts and account evidence explicit at each call site.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_temporary_native_withdraw_transaction(
     wallet: Pubkey,
     recipient: Pubkey,
@@ -322,7 +333,8 @@ pub(crate) fn build_temporary_native_withdraw_transaction(
     temporary_rent: u64,
     seed: &str,
     temporary_account: Pubkey,
-) -> Result<Transaction, SdkError> {
+    context: &V1TransactionContext,
+) -> Result<V1Transaction, SdkError> {
     let token_program = spl_token_interface::id();
     let (mint, canonical_account) = wrapped_sol_accounts(&wallet)?;
     let create = solana_system_interface::instruction::create_account_with_seed(
@@ -364,10 +376,11 @@ pub(crate) fn build_temporary_native_withdraw_transaction(
     .map_err(|error| SdkError::Other(format!("failed to close temporary WSOL account: {error}")))?;
     let transfer_native =
         solana_system_interface::instruction::transfer(&wallet, &recipient, amount);
-    Ok(Transaction::new_with_payer(
+    Ok(V1Transaction::compile(
         &[create, initialize, transfer_wrapped, close, transfer_native],
-        Some(&wallet),
-    ))
+        &wallet,
+        context,
+    )?)
 }
 
 // ─── DepositBuilder ─────────────────────────────────────────────────────────
@@ -380,6 +393,9 @@ pub(crate) fn build_temporary_native_withdraw_transaction(
 /// Dispatches based on deposit source:
 /// - **Global**: `deposit_to_global` — wallet → global pool
 /// - **Market**: `deposit` (mint complete set) — wallet → market, mints conditional tokens
+///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
 ///
 /// # Example (global deposit)
 ///
@@ -498,10 +514,7 @@ impl<'a> DepositBuilder<'a> {
                 let market = self.market.ok_or(SdkError::MissingMarketContext(
                     "market is required for Market deposit source",
                 ))?;
-                let market_pubkey = market
-                    .pubkey
-                    .to_pubkey()
-                    .map_err(|error| SdkError::Validation(error))?;
+                let market_pubkey = market.pubkey.to_pubkey().map_err(SdkError::Validation)?;
                 let num_outcomes = market.num_outcomes;
                 Ok(instructions::build_deposit_ix(
                     &BuildDepositParams {
@@ -518,19 +531,24 @@ impl<'a> DepositBuilder<'a> {
     }
 
     /// Build a deposit transaction.
-    pub async fn build_tx(self) -> Result<Transaction, SdkError> {
+    pub async fn build_tx(self, context: &V1TransactionContext) -> Result<V1Transaction, SdkError> {
         let payer = self
             .user
             .ok_or_else(|| SdkError::Validation("user is required".into()))?;
         let instruction = self.build_ix().await?;
-        Ok(Transaction::new_with_payer(&[instruction], Some(&payer)))
+        Ok(V1Transaction::compile(&[instruction], &payer, context)?)
     }
 
     /// Build, sign, and submit the deposit transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let transaction = self.build_tx().await?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix().await?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -542,6 +560,9 @@ impl<'a> DepositBuilder<'a> {
 ///
 /// Burns a complete set of conditional tokens (one of each outcome) from a market
 /// position and releases the underlying collateral back to the user's wallet.
+///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
 ///
 /// # Example
 ///
@@ -610,10 +631,7 @@ impl<'a> MergeBuilder<'a> {
         let market = self.market.ok_or(SdkError::MissingMarketContext(
             "market is required for merge",
         ))?;
-        let market_pubkey = market
-            .pubkey
-            .to_pubkey()
-            .map_err(|error| SdkError::Validation(error))?;
+        let market_pubkey = market.pubkey.to_pubkey().map_err(SdkError::Validation)?;
         let num_outcomes = market.num_outcomes;
         let program_id = &self.client.program_id;
 
@@ -630,19 +648,24 @@ impl<'a> MergeBuilder<'a> {
     }
 
     /// Build a merge transaction.
-    pub fn build_tx(self) -> Result<Transaction, SdkError> {
+    pub fn build_tx(self, context: &V1TransactionContext) -> Result<V1Transaction, SdkError> {
         let payer = self
             .user
             .ok_or_else(|| SdkError::Validation("user is required".into()))?;
         let instruction = self.build_ix()?;
-        Ok(Transaction::new_with_payer(&[instruction], Some(&payer)))
+        Ok(V1Transaction::compile(&[instruction], &payer, context)?)
     }
 
     /// Build, sign, and submit the merge transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let transaction = self.build_tx()?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix()?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -656,6 +679,9 @@ impl<'a> MergeBuilder<'a> {
 /// Dispatches based on deposit source:
 /// - **Global**: `withdraw_from_global` — global pool → wallet
 /// - **Market**: `withdraw_conditional_from_position` — conditional-token ATA → user's wallet
+///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
 ///
 /// # Example (global withdraw)
 ///
@@ -791,10 +817,7 @@ impl<'a> WithdrawBuilder<'a> {
                 let market = self.market.ok_or(SdkError::MissingMarketContext(
                     "market is required for Market withdrawal",
                 ))?;
-                let market_pubkey = market
-                    .pubkey
-                    .to_pubkey()
-                    .map_err(|error| SdkError::Validation(error))?;
+                let market_pubkey = market.pubkey.to_pubkey().map_err(SdkError::Validation)?;
                 let outcome_index = self.outcome_index.ok_or_else(|| {
                     SdkError::Validation("outcome_index is required for Market withdrawal".into())
                 })?;
@@ -814,19 +837,24 @@ impl<'a> WithdrawBuilder<'a> {
     }
 
     /// Build a withdraw transaction.
-    pub async fn build_tx(self) -> Result<Transaction, SdkError> {
+    pub async fn build_tx(self, context: &V1TransactionContext) -> Result<V1Transaction, SdkError> {
         let payer = self
             .user
             .ok_or_else(|| SdkError::Validation("user is required".into()))?;
         let instruction = self.build_ix().await?;
-        Ok(Transaction::new_with_payer(&[instruction], Some(&payer)))
+        Ok(V1Transaction::compile(&[instruction], &payer, context)?)
     }
 
     /// Build, sign, and submit the withdraw transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let transaction = self.build_tx().await?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix().await?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -835,6 +863,9 @@ impl<'a> WithdrawBuilder<'a> {
 /// Fluent builder for redeem winnings operations.
 ///
 /// Created via `client.positions().redeem_winnings()` — direct construction is not exposed.
+///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
 ///
 /// # Example
 ///
@@ -935,19 +966,24 @@ impl<'a> RedeemWinningsBuilder<'a> {
     }
 
     /// Build a redeem winnings transaction.
-    pub fn build_tx(self) -> Result<Transaction, SdkError> {
+    pub fn build_tx(self, context: &V1TransactionContext) -> Result<V1Transaction, SdkError> {
         let payer = self
             .user
             .ok_or_else(|| SdkError::Validation("user is required".into()))?;
         let instruction = self.build_ix()?;
-        Ok(Transaction::new_with_payer(&[instruction], Some(&payer)))
+        Ok(V1Transaction::compile(&[instruction], &payer, context)?)
     }
 
     /// Build, sign, and submit the redeem winnings transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let transaction = self.build_tx()?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix()?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -956,6 +992,9 @@ impl<'a> RedeemWinningsBuilder<'a> {
 /// Fluent builder for conditional-token withdraw-from-position operations.
 ///
 /// Created via `client.positions().withdraw_conditional_from_position()` — direct construction is not exposed.
+///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
 ///
 /// # Example
 ///
@@ -1072,19 +1111,24 @@ impl<'a> WithdrawFromPositionBuilder<'a> {
     }
 
     /// Build a withdraw-from-position transaction.
-    pub fn build_tx(self) -> Result<Transaction, SdkError> {
+    pub fn build_tx(self, context: &V1TransactionContext) -> Result<V1Transaction, SdkError> {
         let payer = self
             .user
             .ok_or_else(|| SdkError::Validation("user is required".into()))?;
         let instruction = self.build_ix()?;
-        Ok(Transaction::new_with_payer(&[instruction], Some(&payer)))
+        Ok(V1Transaction::compile(&[instruction], &payer, context)?)
     }
 
     /// Build, sign, and submit the withdraw-from-position transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let transaction = self.build_tx()?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix()?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -1133,11 +1177,179 @@ mod withdraw_from_position_tests {
     }
 }
 
+#[cfg(test)]
+mod position_token_builder_tests {
+    use super::*;
+    use crate::program::constants::MAX_DEPOSIT_MINTS_PER_IX;
+    use crate::program::error::SdkError as ProgramError;
+
+    fn client() -> LightconeClient {
+        match LightconeClient::builder().build() {
+            Ok(client) => client,
+            Err(error) => panic!("failed to build test client: {error}"),
+        }
+    }
+
+    #[test]
+    fn init_rejects_zero_and_pda_beneficiaries() {
+        let client = client();
+        let pda = crate::program::pda::get_exchange_pda(&client.program_id).0;
+        for user in [Pubkey::default(), pda] {
+            let result = client
+                .positions()
+                .init_position_tokens()
+                .payer(*crate::program::constants::INITIALIZE_AUTHORITY)
+                .user(user)
+                .market(Pubkey::new_unique())
+                .deposit_mints(vec![Pubkey::new_unique()])
+                .num_outcomes(2)
+                .build_ix();
+            assert!(matches!(
+                result,
+                Err(SdkError::Program(ProgramError::InvalidPubkey(key))) if key == user.to_string()
+            ));
+        }
+    }
+
+    fn deposit_mints(count: usize) -> Vec<Pubkey> {
+        (0..count).map(|_| Pubkey::new_unique()).collect()
+    }
+
+    #[test]
+    fn init_rejects_empty_deposit_mints() {
+        let client = client();
+        let result = client
+            .positions()
+            .init_position_tokens()
+            .payer(Pubkey::new_unique())
+            .user(*crate::program::constants::INITIALIZE_AUTHORITY)
+            .market(Pubkey::new_unique())
+            .deposit_mints(vec![])
+            .num_outcomes(2)
+            .build_tx(&crate::program::transaction::test_context());
+        assert!(matches!(
+            result,
+            Err(SdkError::Program(ProgramError::MissingField(field))) if field == "deposit_mints"
+        ));
+    }
+
+    #[test]
+    fn init_rejects_more_groups_than_the_program_accepts() {
+        let client = client();
+        let error = client
+            .positions()
+            .init_position_tokens()
+            .payer(Pubkey::new_unique())
+            .user(*crate::program::constants::INITIALIZE_AUTHORITY)
+            .market(Pubkey::new_unique())
+            .deposit_mints(deposit_mints(MAX_DEPOSIT_MINTS_PER_IX + 1))
+            .num_outcomes(2)
+            .build_ix()
+            .expect_err("expected the group cap to reject the request");
+
+        assert!(matches!(
+            error,
+            SdkError::Program(ProgramError::TooManyDepositMints { count })
+                if count == MAX_DEPOSIT_MINTS_PER_IX + 1
+        ));
+    }
+
+    #[test]
+    fn init_accepts_the_maximum_group_count() {
+        let client = client();
+        let ix = client
+            .positions()
+            .init_position_tokens()
+            .payer(Pubkey::new_unique())
+            .user(*crate::program::constants::INITIALIZE_AUTHORITY)
+            .market(Pubkey::new_unique())
+            .deposit_mints(deposit_mints(MAX_DEPOSIT_MINTS_PER_IX))
+            .num_outcomes(2)
+            .build_ix()
+            .expect("maximum group count must build");
+
+        assert_eq!(
+            ix.data.last().copied(),
+            Some(MAX_DEPOSIT_MINTS_PER_IX as u8)
+        );
+    }
+
+    #[test]
+    fn init_validates_outcomes_and_duplicate_groups_without_a_slot() {
+        let client = client();
+        let user = *crate::program::constants::INITIALIZE_AUTHORITY;
+        let mint = Pubkey::new_unique();
+        for outcomes in [0, 1, 7] {
+            let result = client
+                .positions()
+                .init_position_tokens()
+                .payer(Pubkey::new_unique())
+                .user(user)
+                .market(Pubkey::new_unique())
+                .deposit_mints(vec![mint])
+                .num_outcomes(outcomes)
+                .build_ix();
+            assert!(matches!(
+                result,
+                Err(SdkError::Program(ProgramError::InvalidOutcomeCount { .. }))
+            ));
+        }
+        let result = client
+            .positions()
+            .init_position_tokens()
+            .payer(Pubkey::new_unique())
+            .user(user)
+            .market(Pubkey::new_unique())
+            .deposit_mints(vec![mint, mint])
+            .num_outcomes(2)
+            .build_tx(&crate::program::transaction::test_context());
+        assert!(matches!(
+            result,
+            Err(SdkError::Program(ProgramError::InvalidDepositMintOrder))
+        ));
+    }
+
+    #[test]
+    fn init_transaction_preserves_sponsoring_payer_and_unsigned_beneficiary() {
+        let client = client();
+        let payer = Pubkey::new_unique();
+        let user = *crate::program::constants::INITIALIZE_AUTHORITY;
+        let market = Pubkey::new_unique();
+        let mints = deposit_mints(2);
+        let build = || {
+            client
+                .positions()
+                .init_position_tokens()
+                .payer(payer)
+                .user(user)
+                .market(market)
+                .deposit_mints(mints.clone())
+                .num_outcomes(6)
+                .build_tx(&crate::program::transaction::test_context())
+                .unwrap()
+        };
+        let first = build();
+        assert_eq!(first.message(), build().message());
+        assert_eq!(first.message().account_keys[0], payer);
+        let ix = &first.message().instructions[0];
+        assert_eq!(ix.data, vec![19, 2]);
+        assert_eq!(first.message().account_keys[ix.accounts[1] as usize], user);
+        assert!(!first.message().is_signer(ix.accounts[1] as usize));
+    }
+}
+
 // ─── InitPositionTokensBuilder ─────────────────────────────────────────────
 
 /// Fluent builder for init-position-tokens operations.
 ///
 /// Created via `client.positions().init_position_tokens()` — direct construction is not exposed.
+///
+/// Every call validates all supplied groups and creates missing accounts.
+/// Existing accounts remain in place on retries and additional-group calls.
+/// Supply 1–8 deposit mints in strictly increasing GDT index order.
+///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
 ///
 /// # Example
 ///
@@ -1147,7 +1359,6 @@ mod withdraw_from_position_tests {
 ///     .user(user_pubkey)
 ///     .market(market_pubkey)
 ///     .deposit_mints(vec![mint_a, mint_b])
-///     .recent_slot(slot)
 ///     .num_outcomes(2)
 ///     .sign_and_submit()
 ///     .await?;
@@ -1158,7 +1369,6 @@ pub struct InitPositionTokensBuilder<'a> {
     user: Option<Pubkey>,
     market: Option<Pubkey>,
     deposit_mints: Option<Vec<Pubkey>>,
-    recent_slot: Option<u64>,
     num_outcomes: Option<u8>,
 }
 
@@ -1170,7 +1380,6 @@ impl<'a> InitPositionTokensBuilder<'a> {
             user: None,
             market: None,
             deposit_mints: None,
-            recent_slot: None,
             num_outcomes: None,
         }
     }
@@ -1199,12 +1408,6 @@ impl<'a> InitPositionTokensBuilder<'a> {
         self
     }
 
-    /// Set the recent slot for ALT address derivation.
-    pub fn recent_slot(mut self, recent_slot: u64) -> Self {
-        self.recent_slot = Some(recent_slot);
-        self
-    }
-
     /// Set the number of outcomes in the market.
     pub fn num_outcomes(mut self, num_outcomes: u8) -> Self {
         self.num_outcomes = Some(num_outcomes);
@@ -1212,6 +1415,8 @@ impl<'a> InitPositionTokensBuilder<'a> {
     }
 
     /// Build an init-position-tokens instruction.
+    ///
+    /// Rejects zero or off-curve beneficiaries and empty or oversized deposit-mint lists.
     pub fn build_ix(self) -> Result<Instruction, SdkError> {
         let payer = self
             .payer
@@ -1225,12 +1430,11 @@ impl<'a> InitPositionTokensBuilder<'a> {
         let deposit_mints = self
             .deposit_mints
             .ok_or_else(|| SdkError::Validation("deposit_mints is required".into()))?;
-        let recent_slot = self
-            .recent_slot
-            .ok_or_else(|| SdkError::Validation("recent_slot is required".into()))?;
         let num_outcomes = self
             .num_outcomes
             .ok_or_else(|| SdkError::Validation("num_outcomes is required".into()))?;
+        crate::program::utils::validate_position_token_inputs(&user, &deposit_mints)?;
+        crate::program::utils::validate_outcome_count(num_outcomes)?;
 
         Ok(instructions::build_init_position_tokens_ix(
             &InitPositionTokensParams {
@@ -1238,7 +1442,6 @@ impl<'a> InitPositionTokensBuilder<'a> {
                 user,
                 market,
                 deposit_mints,
-                recent_slot,
             },
             num_outcomes,
             &self.client.program_id,
@@ -1246,148 +1449,24 @@ impl<'a> InitPositionTokensBuilder<'a> {
     }
 
     /// Build an init-position-tokens transaction.
-    pub fn build_tx(self) -> Result<Transaction, SdkError> {
+    pub fn build_tx(self, context: &V1TransactionContext) -> Result<V1Transaction, SdkError> {
         let payer = self
             .payer
             .ok_or_else(|| SdkError::Validation("payer is required".into()))?;
         let instruction = self.build_ix()?;
-        Ok(Transaction::new_with_payer(&[instruction], Some(&payer)))
+        Ok(V1Transaction::compile(&[instruction], &payer, context)?)
     }
 
     /// Build, sign, and submit the init-position-tokens transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let transaction = self.build_tx()?;
-        client.sign_and_submit_tx(transaction).await
-    }
-}
-
-// ─── ExtendPositionTokensBuilder ───────────────────────────────────────────
-
-/// Fluent builder for extend-position-tokens operations.
-///
-/// Created via `client.positions().extend_position_tokens()` — direct construction is not exposed.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// let tx_signature = client.positions().extend_position_tokens()
-///     .operator(keypair.pubkey())
-///     .user(user_pubkey)
-///     .market(market_pubkey)
-///     .lookup_table(alt_pubkey)
-///     .deposit_mints(vec![mint_c, mint_d])
-///     .num_outcomes(2)
-///     .sign_and_submit()
-///     .await?;
-/// ```
-pub struct ExtendPositionTokensBuilder<'a> {
-    client: &'a LightconeClient,
-    operator: Option<Pubkey>,
-    user: Option<Pubkey>,
-    market: Option<Pubkey>,
-    lookup_table: Option<Pubkey>,
-    deposit_mints: Option<Vec<Pubkey>>,
-    num_outcomes: Option<u8>,
-}
-
-impl<'a> ExtendPositionTokensBuilder<'a> {
-    pub(crate) fn new(client: &'a LightconeClient) -> Self {
-        Self {
-            client,
-            operator: None,
-            user: None,
-            market: None,
-            lookup_table: None,
-            deposit_mints: None,
-            num_outcomes: None,
-        }
-    }
-
-    /// Set the operator's public key (signer).
-    pub fn operator(mut self, operator: Pubkey) -> Self {
-        self.operator = Some(operator);
-        self
-    }
-
-    /// Set the position owner's public key.
-    pub fn user(mut self, user: Pubkey) -> Self {
-        self.user = Some(user);
-        self
-    }
-
-    /// Set the market public key.
-    pub fn market(mut self, market: Pubkey) -> Self {
-        self.market = Some(market);
-        self
-    }
-
-    /// Set the existing ALT public key from init_position_tokens.
-    pub fn lookup_table(mut self, lookup_table: Pubkey) -> Self {
-        self.lookup_table = Some(lookup_table);
-        self
-    }
-
-    /// Set the new deposit mints to add.
-    pub fn deposit_mints(mut self, deposit_mints: Vec<Pubkey>) -> Self {
-        self.deposit_mints = Some(deposit_mints);
-        self
-    }
-
-    /// Set the number of outcomes in the market.
-    pub fn num_outcomes(mut self, num_outcomes: u8) -> Self {
-        self.num_outcomes = Some(num_outcomes);
-        self
-    }
-
-    /// Build an extend-position-tokens instruction.
-    pub fn build_ix(self) -> Result<Instruction, SdkError> {
-        let operator = self
-            .operator
-            .ok_or_else(|| SdkError::Validation("operator is required".into()))?;
-        let user = self
-            .user
-            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
-        let market = self
-            .market
-            .ok_or_else(|| SdkError::Validation("market is required".into()))?;
-        let lookup_table = self
-            .lookup_table
-            .ok_or_else(|| SdkError::Validation("lookup_table is required".into()))?;
-        let deposit_mints = self
-            .deposit_mints
-            .ok_or_else(|| SdkError::Validation("deposit_mints is required".into()))?;
-        let num_outcomes = self
-            .num_outcomes
-            .ok_or_else(|| SdkError::Validation("num_outcomes is required".into()))?;
-
-        Ok(instructions::build_extend_position_tokens_ix(
-            &ExtendPositionTokensParams {
-                operator,
-                user,
-                market,
-                lookup_table,
-                deposit_mints,
-            },
-            num_outcomes,
-            &self.client.program_id,
-        )?)
-    }
-
-    /// Build an extend-position-tokens transaction.
-    pub fn build_tx(self) -> Result<Transaction, SdkError> {
-        let operator = self
-            .operator
-            .ok_or_else(|| SdkError::Validation("operator is required".into()))?;
+        let payer = self
+            .payer
+            .ok_or_else(|| SdkError::Validation("payer is required".into()))?;
         let instruction = self.build_ix()?;
-        Ok(Transaction::new_with_payer(&[instruction], Some(&operator)))
-    }
-
-    /// Build, sign, and submit the extend-position-tokens transaction.
-    pub async fn sign_and_submit(self) -> Result<String, SdkError> {
-        let client = self.client;
-        let transaction = self.build_tx()?;
-        client.sign_and_submit_tx(transaction).await
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -1396,6 +1475,9 @@ impl<'a> ExtendPositionTokensBuilder<'a> {
 /// Fluent builder for deposit-to-global operations.
 ///
 /// Created via `client.positions().deposit_to_global()` — direct construction is not exposed.
+///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
 ///
 /// # Example
 ///
@@ -1412,7 +1494,6 @@ pub struct DepositToGlobalBuilder<'a> {
     user: Option<Pubkey>,
     mint: Option<Pubkey>,
     amount: Option<u64>,
-    alt_context: Option<DepositToGlobalAltContext>,
 }
 
 impl<'a> DepositToGlobalBuilder<'a> {
@@ -1422,7 +1503,6 @@ impl<'a> DepositToGlobalBuilder<'a> {
             user: None,
             mint: None,
             amount: None,
-            alt_context: None,
         }
     }
 
@@ -1444,18 +1524,6 @@ impl<'a> DepositToGlobalBuilder<'a> {
         self
     }
 
-    /// Create the user's deposit ALT while depositing.
-    pub fn create_alt(mut self, recent_slot: u64) -> Self {
-        self.alt_context = Some(DepositToGlobalAltContext::Create { recent_slot });
-        self
-    }
-
-    /// Extend an existing user deposit ALT while depositing.
-    pub fn extend_alt(mut self, lookup_table: Pubkey) -> Self {
-        self.alt_context = Some(DepositToGlobalAltContext::Extend { lookup_table });
-        self
-    }
-
     /// Build a deposit-to-global instruction.
     pub fn build_ix(self) -> Result<Instruction, SdkError> {
         let user = self
@@ -1469,30 +1537,31 @@ impl<'a> DepositToGlobalBuilder<'a> {
             .ok_or_else(|| SdkError::Validation("amount is required".into()))?;
 
         let params = DepositToGlobalParams { user, mint, amount };
-        Ok(match self.alt_context {
-            Some(alt_context) => instructions::build_deposit_to_global_ix_with_alt(
-                &params,
-                alt_context,
-                &self.client.program_id,
-            ),
-            None => instructions::build_deposit_to_global_ix(&params, &self.client.program_id),
-        })
+        Ok(instructions::build_deposit_to_global_ix(
+            &params,
+            &self.client.program_id,
+        ))
     }
 
     /// Build a deposit-to-global transaction.
-    pub fn build_tx(self) -> Result<Transaction, SdkError> {
+    pub fn build_tx(self, context: &V1TransactionContext) -> Result<V1Transaction, SdkError> {
         let payer = self
             .user
             .ok_or_else(|| SdkError::Validation("user is required".into()))?;
         let instruction = self.build_ix()?;
-        Ok(Transaction::new_with_payer(&[instruction], Some(&payer)))
+        Ok(V1Transaction::compile(&[instruction], &payer, context)?)
     }
 
     /// Build, sign, and submit the deposit-to-global transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let transaction = self.build_tx()?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix()?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -1501,6 +1570,9 @@ impl<'a> DepositToGlobalBuilder<'a> {
 /// Fluent builder for withdraw-from-global operations.
 ///
 /// Created via `client.positions().withdraw_from_global()` — direct construction is not exposed.
+///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
 ///
 /// # Example
 ///
@@ -1566,19 +1638,24 @@ impl<'a> WithdrawFromGlobalBuilder<'a> {
     }
 
     /// Build a withdraw-from-global transaction.
-    pub fn build_tx(self) -> Result<Transaction, SdkError> {
+    pub fn build_tx(self, context: &V1TransactionContext) -> Result<V1Transaction, SdkError> {
         let payer = self
             .user
             .ok_or_else(|| SdkError::Validation("user is required".into()))?;
         let instruction = self.build_ix()?;
-        Ok(Transaction::new_with_payer(&[instruction], Some(&payer)))
+        Ok(V1Transaction::compile(&[instruction], &payer, context)?)
     }
 
     /// Build, sign, and submit the withdraw-from-global transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let transaction = self.build_tx()?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix()?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -1587,6 +1664,9 @@ impl<'a> WithdrawFromGlobalBuilder<'a> {
 /// Fluent builder for global-to-market deposit operations.
 ///
 /// Created via `client.positions().global_to_market_deposit()` — direct construction is not exposed.
+///
+/// Fluent submission requires a signing strategy and explicit
+/// [`V1ResourceConfig`](crate::program::V1ResourceConfig) on the client builder.
 ///
 /// # Example
 ///
@@ -1682,19 +1762,24 @@ impl<'a> GlobalToMarketDepositBuilder<'a> {
     }
 
     /// Build a global-to-market deposit transaction.
-    pub fn build_tx(self) -> Result<Transaction, SdkError> {
+    pub fn build_tx(self, context: &V1TransactionContext) -> Result<V1Transaction, SdkError> {
         let payer = self
             .user
             .ok_or_else(|| SdkError::Validation("user is required".into()))?;
         let instruction = self.build_ix()?;
-        Ok(Transaction::new_with_payer(&[instruction], Some(&payer)))
+        Ok(V1Transaction::compile(&[instruction], &payer, context)?)
     }
 
     /// Build, sign, and submit the global-to-market deposit transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let transaction = self.build_tx()?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix()?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -1747,9 +1832,9 @@ mod sol_action_tests {
         }
     }
 
-    fn account_key(transaction: &Transaction, instruction: usize, account: usize) -> Pubkey {
-        transaction.message.account_keys
-            [transaction.message.instructions[instruction].accounts[account] as usize]
+    fn account_key(transaction: &V1Transaction, instruction: usize, account: usize) -> Pubkey {
+        transaction.message().account_keys
+            [transaction.message().instructions[instruction].accounts[account] as usize]
     }
 
     #[test]
@@ -1791,8 +1876,13 @@ mod sol_action_tests {
         assert_eq!(strict_create.accounts, create.accounts);
         assert_eq!(strict_create.data, [0]);
 
-        let transaction = build_wrap_sol_transaction(wallet, 42, true)?;
-        let instructions = &transaction.message.instructions;
+        let transaction = build_wrap_sol_transaction(
+            wallet,
+            42,
+            true,
+            &crate::program::transaction::test_context(),
+        )?;
+        let instructions = &transaction.message().instructions;
 
         assert_eq!(instructions.len(), 3);
         // Exact wrap must abort if the planned-missing ATA appears before execution.
@@ -1812,14 +1902,19 @@ mod sol_action_tests {
         ));
         assert_eq!(account_key(&transaction, 2, 0), canonical);
 
-        let reused = build_wrap_sol_transaction(wallet, 7, false)?;
-        assert_eq!(reused.message.instructions.len(), 2);
+        let reused = build_wrap_sol_transaction(
+            wallet,
+            7,
+            false,
+            &crate::program::transaction::test_context(),
+        )?;
+        assert_eq!(reused.message().instructions.len(), 2);
         assert_eq!(
-            bincode::deserialize::<SystemInstruction>(&reused.message.instructions[0].data)?,
+            bincode::deserialize::<SystemInstruction>(&reused.message().instructions[0].data)?,
             SystemInstruction::Transfer { lamports: 7 }
         );
         assert!(matches!(
-            TokenInstruction::unpack(&reused.message.instructions[1].data)?,
+            TokenInstruction::unpack(&reused.message().instructions[1].data)?,
             TokenInstruction::SyncNative
         ));
         Ok(())
@@ -1830,10 +1925,13 @@ mod sol_action_tests {
     fn unwrap_all_closes_canonical_to_and_by_the_same_trading_wallet() -> TestResult {
         let wallet = Pubkey::new_unique();
         let (_, canonical) = wrapped_sol_accounts(&wallet)?;
-        let transaction = build_unwrap_wsol_all_transaction(wallet)?;
-        let instruction = &transaction.message.instructions[0];
+        let transaction = build_unwrap_wsol_all_transaction(
+            wallet,
+            &crate::program::transaction::test_context(),
+        )?;
+        let instruction = &transaction.message().instructions[0];
 
-        assert_eq!(transaction.message.instructions.len(), 1);
+        assert_eq!(transaction.message().instructions.len(), 1);
         assert!(matches!(
             TokenInstruction::unpack(&instruction.data)?,
             TokenInstruction::CloseAccount
@@ -1842,7 +1940,7 @@ mod sol_action_tests {
         assert_eq!(account_key(&transaction, 0, 1), wallet);
         assert_eq!(account_key(&transaction, 0, 2), wallet);
         assert!(transaction
-            .message
+            .message()
             .is_signer(instruction.accounts[2] as usize));
         Ok(())
     }
@@ -1856,18 +1954,53 @@ mod sol_action_tests {
         let seed = "0123456789abcdef0123456789abcdef";
         let temporary = temporary_wsol_account(&wallet, seed)?;
         let transactions = [
-            build_sol_split_transaction(&program_id, wallet, &market(), 10, 10, true)?,
-            build_sol_merge_transaction(&program_id, wallet, &market(), 10, true)?,
-            build_sol_redeem_transaction(&program_id, wallet, Pubkey::new_unique(), 10, 0, true)?,
-            build_direct_native_withdraw_transaction(wallet, recipient, 10),
+            build_sol_split_transaction(
+                &program_id,
+                wallet,
+                &market(),
+                10,
+                10,
+                true,
+                &crate::program::transaction::test_context(),
+            )?,
+            build_sol_merge_transaction(
+                &program_id,
+                wallet,
+                &market(),
+                10,
+                true,
+                &crate::program::transaction::test_context(),
+            )?,
+            build_sol_redeem_transaction(
+                &program_id,
+                wallet,
+                Pubkey::new_unique(),
+                10,
+                0,
+                true,
+                &crate::program::transaction::test_context(),
+            )?,
+            build_direct_native_withdraw_transaction(
+                wallet,
+                recipient,
+                10,
+                &crate::program::transaction::test_context(),
+            )?,
             build_temporary_native_withdraw_transaction(
-                wallet, recipient, 10, 5, 2_039_280, seed, temporary,
+                wallet,
+                recipient,
+                10,
+                5,
+                2_039_280,
+                seed,
+                temporary,
+                &crate::program::transaction::test_context(),
             )?,
         ];
 
         for transaction in transactions {
-            for instruction in &transaction.message.instructions {
-                if transaction.message.account_keys[instruction.program_id_index as usize]
+            for instruction in &transaction.message().instructions {
+                if transaction.message().account_keys[instruction.program_id_index as usize]
                     == spl_token_interface::id()
                     && matches!(
                         TokenInstruction::unpack(&instruction.data),
@@ -1875,7 +2008,7 @@ mod sol_action_tests {
                     )
                 {
                     assert_ne!(
-                        transaction.message.account_keys[instruction.accounts[0] as usize],
+                        transaction.message().account_keys[instruction.accounts[0] as usize],
                         canonical
                     );
                 }
@@ -1910,10 +2043,17 @@ mod sol_action_tests {
         let temporary = temporary_wsol_account(&wallet, seed).unwrap();
         let (_, canonical) = wrapped_sol_accounts(&wallet).unwrap();
         let transaction = build_temporary_native_withdraw_transaction(
-            wallet, recipient, 50, 25, 2_039_280, seed, temporary,
+            wallet,
+            recipient,
+            50,
+            25,
+            2_039_280,
+            seed,
+            temporary,
+            &crate::program::transaction::test_context(),
         )
         .unwrap();
-        let instructions = &transaction.message.instructions;
+        let instructions = &transaction.message().instructions;
         assert_eq!(instructions.len(), 5);
 
         let create: SystemInstruction = bincode::deserialize(&instructions[0].data).unwrap();
@@ -1938,11 +2078,11 @@ mod sol_action_tests {
             TokenInstruction::Transfer { amount: 25 }
         ));
         assert_eq!(
-            transaction.message.account_keys[instructions[2].accounts[0] as usize],
+            transaction.message().account_keys[instructions[2].accounts[0] as usize],
             canonical
         );
         assert_eq!(
-            transaction.message.account_keys[instructions[2].accounts[1] as usize],
+            transaction.message().account_keys[instructions[2].accounts[1] as usize],
             temporary
         );
         assert!(matches!(
@@ -1950,11 +2090,11 @@ mod sol_action_tests {
             TokenInstruction::CloseAccount
         ));
         assert_eq!(
-            transaction.message.account_keys[instructions[3].accounts[0] as usize],
+            transaction.message().account_keys[instructions[3].accounts[0] as usize],
             temporary
         );
         assert_ne!(
-            transaction.message.account_keys[instructions[3].accounts[0] as usize],
+            transaction.message().account_keys[instructions[3].accounts[0] as usize],
             canonical
         );
         assert_eq!(
@@ -1962,7 +2102,7 @@ mod sol_action_tests {
             SystemInstruction::Transfer { lamports: 50 }
         );
         assert_eq!(
-            transaction.message.account_keys[instructions[4].accounts[1] as usize],
+            transaction.message().account_keys[instructions[4].accounts[1] as usize],
             recipient
         );
     }

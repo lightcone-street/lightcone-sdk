@@ -7,7 +7,9 @@ pub mod error;
 pub mod instructions;
 pub mod orders;
 pub mod pda;
+pub mod transaction;
 pub mod types;
+pub use transaction::{V1ResourceConfig, V1Transaction, V1TransactionContext};
 pub mod utils;
 
 // Re-export commonly used items

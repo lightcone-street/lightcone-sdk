@@ -290,17 +290,10 @@ class InvalidFeeReceiverError(LightconeError):
 
 
 class InvalidOracleError(LightconeError):
-    """Raised when a market oracle pubkey is invalid."""
+    """Raised when a market oracle pubkey is zero or off-curve."""
 
     def __init__(self):
         super().__init__("Invalid oracle")
-
-
-class LookupTableDeactivatedError(LightconeError):
-    """Raised when a lookup table is deactivated and cannot be extended."""
-
-    def __init__(self):
-        super().__init__("Lookup table is deactivated")
 
 
 class NoPendingRoleTransferError(LightconeError):
@@ -315,6 +308,57 @@ class PendingRoleMismatchError(LightconeError):
 
     def __init__(self):
         super().__init__("Pending role transfer mismatch")
+
+
+class InvalidEventAuthorityError(LightconeError):
+    """Raised when the event-authority trailer account is missing or wrong."""
+
+    def __init__(self):
+        super().__init__("Invalid event authority")
+
+
+class EventBatchOverflowError(LightconeError):
+    """Raised when an instruction's event batch exceeds the program's buffer."""
+
+    def __init__(self):
+        super().__init__("Event batch overflow")
+
+
+class InvalidEventBatchError(LightconeError):
+    """Raised when the program rejects a malformed event-batch self-CPI."""
+
+    def __init__(self):
+        super().__init__("Invalid event batch")
+
+
+class InvalidEventContractError(LightconeError):
+    """Raised when an event-batch self-CPI violates the event contract."""
+
+    def __init__(self):
+        super().__init__("Invalid event contract")
+
+
+class UnsupportedEventSchemaError(LightconeError):
+    """Raised when an event batch declares an unsupported schema version."""
+
+    def __init__(self):
+        super().__init__("Unsupported event schema")
+
+
+class PublicInstructionMustBeTopLevelError(LightconeError):
+    """Raised when an instruction or invocation depth is outside the governance CPI allowlist."""
+
+    def __init__(self):
+        super().__init__("Public instruction must be top-level")
+
+
+class TooManyDepositMintsError(LightconeError):
+    """Raised when a market or instruction exceeds the deposit-mint cap."""
+
+    def __init__(self, count: int, max_count: int):
+        self.count = count
+        self.max_count = max_count
+        super().__init__(f"Too many deposit mints: {count} (maximum: {max_count})")
 
 
 class InvalidOrderbookError(LightconeError):
@@ -399,13 +443,6 @@ class TokenAccountNotEmptyError(LightconeError):
         super().__init__("Token account is not empty")
 
 
-class LookupTableNotClosedError(LightconeError):
-    """Raised when an orderbook PDA is closed before its lookup table."""
-
-    def __init__(self):
-        super().__init__("Lookup table is not closed")
-
-
 class InvalidPubkeyError(LightconeError):
     """Raised when a public key is invalid."""
 
@@ -426,3 +463,24 @@ class UnsignedOrderError(LightconeError):
 
     def __init__(self):
         super().__init__("Order is not signed")
+
+
+class InactiveDepositTokenError(LightconeError):
+    """Program error 76: a required trading collateral registration is inactive."""
+
+    def __init__(self):
+        super().__init__("Inactive deposit token")
+
+
+class DepositMintMismatchError(LightconeError):
+    """Program error 77: collateral differs from book or funding provenance."""
+
+    def __init__(self):
+        super().__init__("Deposit mint mismatch")
+
+
+class InvalidConditionalMintError(LightconeError):
+    """Program error 18: a conditional mint has invalid provenance or properties."""
+
+    def __init__(self):
+        super().__init__("Invalid conditional mint")

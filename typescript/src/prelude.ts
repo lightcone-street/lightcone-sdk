@@ -179,8 +179,8 @@ export type {
   SolActionKind,
   SolActionPlan,
   SolBalanceAvailability,
-  SolBalanceComponents,
-  SolComponentDelta,
+  SolBalanceBreakdown,
+  SolBalanceDelta,
 } from "./domain/position";
 
 export {
@@ -189,7 +189,6 @@ export {
   RedeemWinningsBuilder,
   WithdrawFromPositionBuilder,
   InitPositionTokensBuilder,
-  ExtendPositionTokensBuilder,
   DepositToGlobalBuilder,
   WithdrawFromGlobalBuilder,
   GlobalToMarketDepositBuilder,
@@ -333,3 +332,8 @@ export type PriceHistorySubClient = import("./domain/price_history").PriceHistor
 export type NotificationsClient = import("./domain/notification").Notifications;
 export type ReferralsClient = import("./domain/referral").Referrals;
 export type RpcClient = import("./rpc").Rpc;
+
+export { V1Transaction, validateV1Resources } from "./program/transaction";
+export type { V1ResourceConfig, V1TransactionContext } from "./program/transaction";
+
+export type { TransactionSimulation } from "./rpc";

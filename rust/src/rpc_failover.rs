@@ -188,8 +188,8 @@ pub fn is_infrastructure_error_http(error: &HttpError) -> bool {
 }
 
 #[cfg(feature = "solana-rpc")]
-pub fn is_infrastructure_error_solana(error: &solana_client::client_error::ClientError) -> bool {
-    use solana_client::client_error::ClientErrorKind;
+pub fn is_infrastructure_error_solana(error: &solana_rpc_client_api::client_error::Error) -> bool {
+    use solana_rpc_client_api::client_error::ErrorKind as ClientErrorKind;
     match error.kind() {
         ClientErrorKind::Io(_) => true,
         // Any reqwest error in the solana client is transport-level —

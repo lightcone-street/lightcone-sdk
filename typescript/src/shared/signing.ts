@@ -5,6 +5,7 @@ export interface ExternalSigner {
   /** Wallet controlled by this signer for identity-bound transactions. */
   readonly walletAddress?: string;
   signMessage(message: Uint8Array): Promise<Uint8Array>;
+  /** Sign canonical Solana v1 bytes without changing any message field; return all required signatures. */
   signTransaction(txBytes: Uint8Array): Promise<Uint8Array>;
 }
 
@@ -21,7 +22,8 @@ export type NativeSigningStrategy = Extract<SigningStrategy, { type: "native" }>
  *
  * A wallet-adapter or Privy strategy returns a validation error. Conversion
  * planners call this guard before RPC reads. Ordinary planners do not call it and
- * continue to accept their existing signing strategies.
+ * can build unsigned plans for external strategies. Submission requires verifiable
+ * signed v1 bytes, so Privy sign-and-send transaction submission is unavailable.
  */
 export function requireNativeSigningStrategy(
   strategy: SigningStrategy

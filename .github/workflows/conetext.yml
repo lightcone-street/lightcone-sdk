@@ -1,0 +1,26 @@
+name: Repository Guidance
+
+on:
+  pull_request:
+  push:
+    branches: [main, staging, prod]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-guidance:
+    name: Validate Guidance Files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Check repository guidance files
+        shell: bash
+        run: |
+          for path in AGENTS.md CLAUDE.md CONTEXT.md; do
+            if [[ ! -f "$path" || -L "$path" ]]; then
+              printf 'Missing or non-regular guidance file: %s\n' "$path" >&2
+              exit 1
+            fi
+          done

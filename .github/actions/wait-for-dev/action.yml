@@ -1,11 +1,12 @@
 name: Wait for dev backend
 description: >
-  Block until api.dev.lightcone.xyz is running the current lightcone-backend `staging`
+  Block until api.dev.internalcone.com is running the current lightcone-backend `staging`
   HEAD, then point the SDK examples at the dev tier (SDK_API_URL / SDK_WS_URL). This is
   the cross-repo gate: the SDK is only tested once dev provably runs the backend it
   expects, so a not-yet-deployed backend can't produce a false pass/fail. No-op unless
   the target env is staging (prod PRs test against prod as before). The rollout budget
   starts when the backend commit is created, so later SDK reruns fail stale deploys quickly.
+  During DevOps digest pinning, the operator must deploy the matching source before enabling this gate.
 inputs:
   lightcone-env:
     required: true
@@ -29,12 +30,12 @@ runs:
         DEADLINE=$(($(date -d "$EXPECTED_AT" +%s) + 40 * 60))
         echo "Waiting until api.dev runs backend $EXPECTED (committed $EXPECTED_AT)"
         while true; do
-          GOT=$(curl -s -m 8 https://api.dev.lightcone.xyz/version || true)
+          GOT=$(curl -s -m 8 https://api.dev.internalcone.com/version || true)
           if [ "$GOT" = "$EXPECTED" ]; then echo "dev is on $GOT"; break; fi
 
           NOW=$(date +%s)
           if [ "$NOW" -ge "$DEADLINE" ]; then
-            echo "::error title=Dev backend deployment stale::api.dev is on ${GOT:-unknown}; expected $EXPECTED. The backend staging build and dev redeploy did not finish within 40 minutes of $EXPECTED_AT. Inspect CodeBuild project lightcone-backend-build-staging before rerunning."
+            echo "::error title=Dev backend deployment stale::api.dev is on ${GOT:-unknown}; expected $EXPECTED. The matching source was not deployed within 40 minutes of $EXPECTED_AT. During digest pinning, the DevOps operator must advance the reviewed digest/runtime pair. Otherwise inspect CodeBuild project lightcone-backend-build-staging before rerunning."
             exit 1
           fi
 
@@ -45,6 +46,6 @@ runs:
           sleep "$SLEEP_SECONDS"
         done
         {
-          echo "SDK_API_URL=https://api.dev.lightcone.xyz"
-          echo "SDK_WS_URL=wss://ws.dev.lightcone.xyz/ws"
+          echo "SDK_API_URL=https://api.dev.internalcone.com"
+          echo "SDK_WS_URL=wss://ws.dev.internalcone.com/ws"
         } >> "$GITHUB_ENV"

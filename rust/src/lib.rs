@@ -53,6 +53,7 @@ pub mod client;
 // ── Prelude ──────────────────────────────────────────────────────────────────
 
 pub mod prelude {
+    pub use crate::program::transaction::{V1ResourceConfig, V1Transaction, V1TransactionContext};
     // Shared newtypes
     pub use crate::shared::{
         Denominator, DepositSource, ExactDecimal, OrderBookId, PubkeyStr, Resolution, Side,
@@ -93,10 +94,10 @@ pub mod prelude {
     pub use crate::domain::position::{
         CanonicalWsolAccountInfo, DepositAssetMetadata, DepositTokenBalance,
         DepositTokenBalancesSnapshot, Portfolio, Position, PositionOutcome, SolActionCosts,
-        SolActionKind, SolActionPlan, SolBalanceAvailability, SolBalanceComponents,
-        SolComponentDelta, TokenBalance, TokenBalanceComputedBase, TokenBalanceTokenType,
-        WalletDepositBalanceStatus, WalletDepositBalancesApplyResult, WalletDepositBalancesEvent,
-        WalletDepositBalancesState, WalletHolding, WRAPPED_SOL_MINT_ADDRESS,
+        SolActionKind, SolActionPlan, SolBalanceAvailability, SolBalanceBreakdown, SolBalanceDelta,
+        TokenBalance, TokenBalanceComputedBase, TokenBalanceTokenType, WalletDepositBalanceStatus,
+        WalletDepositBalancesApplyResult, WalletDepositBalancesEvent, WalletDepositBalancesState,
+        WalletHolding, WRAPPED_SOL_MINT_ADDRESS,
     };
 
     // Domain types — trade, price history
@@ -156,10 +157,9 @@ pub mod prelude {
 
     // Position builders
     pub use crate::domain::position::{
-        DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
-        GlobalToMarketDepositBuilder, InitPositionTokensBuilder, MergeBuilder,
-        RedeemWinningsBuilder, WithdrawBuilder, WithdrawFromGlobalBuilder,
-        WithdrawFromPositionBuilder,
+        DepositBuilder, DepositToGlobalBuilder, GlobalToMarketDepositBuilder,
+        InitPositionTokensBuilder, MergeBuilder, RedeemWinningsBuilder, WithdrawBuilder,
+        WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
     };
 
     // Signing strategy
@@ -182,7 +182,7 @@ pub mod prelude {
         GlobalDepositAssetsResult, LightconeClient, LightconeClientBuilder, MarketsClient,
         MarketsResult, MetricsClient, NotificationsClient, OrderbooksClient, OrdersClient,
         PositionsClient, PriceHistorySubClient, ReferralsClient, RpcClient, TradesClient,
-        TransactionStatus,
+        TransactionSimulation, TransactionStatus,
     };
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};

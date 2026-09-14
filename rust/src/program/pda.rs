@@ -5,7 +5,7 @@
 use solana_pubkey::Pubkey;
 
 use crate::program::constants::{
-    ALT_PROGRAM_ID, CONDITIONAL_MINT_SEED, CONDITION_SEED, EXCHANGE_SEED,
+    CONDITIONAL_MINT_SEED, CONDITION_SEED, EVENT_AUTHORITY_SEED, EXCHANGE_SEED,
     GLOBAL_DEPOSIT_TOKEN_SEED, MARKET_SEED, MINT_AUTHORITY_SEED, MPL_METADATA_SEED,
     MPL_TOKEN_METADATA_PROGRAM_ID, ORDERBOOK_SEED, ORDER_STATUS_SEED, POSITION_SEED,
     USER_NONCE_SEED, VAULT_SEED,
@@ -16,6 +16,18 @@ use crate::program::constants::{
 /// Seeds: ["central_state"]
 pub fn get_exchange_pda(program_id: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[EXCHANGE_SEED], program_id)
+}
+
+/// Get the event-authority PDA.
+///
+/// Seeds: ["__event_authority"]
+///
+/// The program signs its event-batch self-CPI with this PDA and requires every
+/// public instruction to pass it as a read-only, non-signer trailer account
+/// immediately before the program account. The account holds no data and is
+/// never initialized.
+pub fn get_event_authority_pda(program_id: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[EVENT_AUTHORITY_SEED], program_id)
 }
 
 /// Get a Market PDA.
@@ -140,16 +152,6 @@ pub fn get_orderbook_pda(mint_a: &Pubkey, mint_b: &Pubkey, program_id: &Pubkey) 
     )
 }
 
-/// Get an Address Lookup Table PDA.
-///
-/// Seeds: [orderbook, slot_le], program: ALT_PROGRAM_ID
-pub fn get_alt_pda(orderbook: &Pubkey, recent_slot: u64) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[orderbook.as_ref(), &recent_slot.to_le_bytes()],
-        &ALT_PROGRAM_ID,
-    )
-}
-
 /// Get a GlobalDepositToken whitelist PDA.
 ///
 /// Seeds: ["global_deposit", mint]
@@ -168,16 +170,6 @@ pub fn get_user_global_deposit_pda(
     Pubkey::find_program_address(
         &[GLOBAL_DEPOSIT_TOKEN_SEED, user.as_ref(), mint.as_ref()],
         program_id,
-    )
-}
-
-/// Get an Address Lookup Table PDA for a position (used by InitPositionTokens).
-///
-/// Seeds: [position, slot_le], program: ALT_PROGRAM_ID
-pub fn get_position_alt_pda(position: &Pubkey, recent_slot: u64) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[position.as_ref(), &recent_slot.to_le_bytes()],
-        &ALT_PROGRAM_ID,
     )
 }
 
@@ -298,18 +290,6 @@ mod tests {
     }
 
     #[test]
-    fn test_alt_pda_is_deterministic() {
-        let orderbook = Pubkey::new_unique();
-        let slot = 12345u64;
-
-        let (pda1, bump1) = get_alt_pda(&orderbook, slot);
-        let (pda2, bump2) = get_alt_pda(&orderbook, slot);
-
-        assert_eq!(pda1, pda2);
-        assert_eq!(bump1, bump2);
-    }
-
-    #[test]
     fn test_global_deposit_token_pda_is_deterministic() {
         let program_id = test_program_id();
         let mint = Pubkey::new_unique();
@@ -348,14 +328,28 @@ mod tests {
     }
 
     #[test]
-    fn test_position_alt_pda_is_deterministic() {
-        let position = Pubkey::new_unique();
-        let slot = 54321u64;
+    fn test_event_authority_pda_matches_seed_derivation() {
+        let program_id = test_program_id();
+        let (pda, bump) = get_event_authority_pda(&program_id);
 
-        let (pda1, bump1) = get_position_alt_pda(&position, slot);
-        let (pda2, bump2) = get_position_alt_pda(&position, slot);
+        assert_eq!(
+            (pda, bump),
+            Pubkey::find_program_address(&[EVENT_AUTHORITY_SEED], &program_id)
+        );
+        assert_eq!(get_event_authority_pda(&program_id), (pda, bump));
 
-        assert_eq!(pda1, pda2);
-        assert_eq!(bump1, bump2);
+        let (other, _) = get_event_authority_pda(&Pubkey::new_unique());
+        assert_ne!(pda, other);
+    }
+
+    #[test]
+    fn test_event_authority_pda_pinned_for_local_program() {
+        let program_id = Pubkey::from_str("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago").unwrap();
+        let (pda, _) = get_event_authority_pda(&program_id);
+
+        assert_eq!(
+            pda.to_string(),
+            "2V5fevrqDyZYEWEkvuaX8ceQUHNpfiTaSi6CYkuEw6BK"
+        );
     }
 }

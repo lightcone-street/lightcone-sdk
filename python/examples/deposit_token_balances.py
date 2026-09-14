@@ -1,4 +1,4 @@
-"""Plan and confirm a native-SOL withdrawal without closing canonical WSOL.
+"""Plan and confirm a native SOL withdrawal without closing canonical WSOL.
 
 This fund-moving example is intentionally restricted to local and staging. It
 refreshes a complete wallet snapshot covering the confirmation slot before
@@ -38,7 +38,7 @@ async def main():
 
     def on_event(event):
         # Install the reducer before subscribing so the complete baseline cannot
-        # race the listener; pre-baseline component events are safely ignored.
+        # race the listener; pre-baseline balance events are safely ignored.
         if (
             event.type is WsEventType.MESSAGE
             and event.message is not None
@@ -96,8 +96,7 @@ async def main():
         snapshot = await client.positions().deposit_token_balances(confirmed.slot)
         state.apply_rest_snapshot(wallet, snapshot)
         print(
-            "post-withdraw native + canonical WSOL: "
-            f"{state.combined_sol_balance()}"
+            "post-withdraw native + canonical WSOL: " f"{state.combined_sol_balance()}"
         )
 
         await ws.unsubscribe(params)

@@ -1,7 +1,6 @@
 """Unified error types for the Lightcone SDK."""
 
 from enum import Enum
-from typing import Optional
 
 from .shared.api_response import ApiRejectedDetails
 
@@ -78,6 +77,26 @@ class UserCancelled(SdkError):
         super().__init__("User cancelled signing")
 
 
+class SubmissionUnknown(SdkError):
+    """One send may have reached the cluster; reconcile its signature before retrying."""
+
+    def __init__(self, signature: str, last_valid_block_height: int, reason: str):
+        super().__init__(f"Submission outcome unknown for {signature}: {reason}")
+        self.signature = signature
+        self.last_valid_block_height = last_valid_block_height
+        self.reason = reason
+
+
+class SubmissionRejected(SdkError):
+    """The node rejected this send before queuing it; no automatic retry occurs."""
+
+    def __init__(self, signature: str, code: int, reason: str):
+        super().__init__(f"RPC rejected transaction {signature} ({code}): {reason}")
+        self.signature = signature
+        self.code = code
+        self.reason = reason
+
+
 class TransactionFailed(SdkError):
     """Raised when a submitted transaction landed on-chain but failed.
 
@@ -93,13 +112,13 @@ class TransactionFailed(SdkError):
 class TransactionExpired(SdkError):
     """Raised when a transaction's blockhash expired before the cluster saw it.
 
-    The transaction can never land and is safe to resubmit.
+    Reconcile its signature before constructing a replacement transaction.
     """
 
     def __init__(self, signature: str):
         super().__init__(
             f"Transaction {signature} expired before confirmation — "
-            "it was never processed and is safe to resubmit"
+            "reconcile its signature before retrying"
         )
         self.signature = signature
 
@@ -131,7 +150,9 @@ def _require(d: dict, key: str, type_name: str = ""):
 # ---------------------------------------------------------------------------
 
 
-class HttpErrorKind(str, Enum):
+class HttpErrorKind(
+    str, Enum
+):  # noqa: UP042 - preserve the public enum string representation
     """HTTP error variants."""
 
     REQUEST = "Request"
@@ -151,8 +172,8 @@ class HttpError(SdkError):
         self,
         message: str,
         kind: HttpErrorKind = HttpErrorKind.REQUEST,
-        status: Optional[int] = None,
-        retry_after_ms: Optional[int] = None,
+        status: int | None = None,
+        retry_after_ms: int | None = None,
     ):
         super().__init__(message)
         self.kind = kind
@@ -169,7 +190,7 @@ class HttpError(SdkError):
 
     @staticmethod
     def rate_limited(
-        message: str = "Rate limited", retry_after_ms: Optional[int] = None
+        message: str = "Rate limited", retry_after_ms: int | None = None
     ) -> "HttpError":
         return HttpError(
             message, HttpErrorKind.RATE_LIMITED, 429, retry_after_ms=retry_after_ms
@@ -221,7 +242,9 @@ class HttpError(SdkError):
 # ---------------------------------------------------------------------------
 
 
-class WsErrorKind(str, Enum):
+class WsErrorKind(
+    str, Enum
+):  # noqa: UP042 - preserve the public enum string representation
     """WebSocket error variants."""
 
     NOT_CONNECTED = "NotConnected"
@@ -239,7 +262,7 @@ class WsError(SdkError):
         self,
         message: str,
         kind: WsErrorKind = WsErrorKind.CONNECTION_FAILED,
-        code: Optional[int] = None,
+        code: int | None = None,
     ):
         super().__init__(message)
         self.kind = kind
@@ -266,7 +289,7 @@ class WsError(SdkError):
         return WsError(message, WsErrorKind.PROTOCOL_ERROR)
 
     @staticmethod
-    def closed(code: Optional[int] = None, reason: str = "") -> "WsError":
+    def closed(code: int | None = None, reason: str = "") -> "WsError":
         msg = f"Connection closed: {reason}" if reason else "Connection closed"
         return WsError(msg, WsErrorKind.CLOSED, code)
 
@@ -276,7 +299,9 @@ class WsError(SdkError):
 # ---------------------------------------------------------------------------
 
 
-class AuthErrorKind(str, Enum):
+class AuthErrorKind(
+    str, Enum
+):  # noqa: UP042 - preserve the public enum string representation
     """Authentication error variants."""
 
     NOT_AUTHENTICATED = "NotAuthenticated"
@@ -338,6 +363,8 @@ __all__ = [
     "MissingMarketContext",
     "SigningError",
     "UserCancelled",
+    "SubmissionUnknown",
+    "SubmissionRejected",
     "TransactionFailed",
     "TransactionExpired",
     "ConfirmationTimeout",

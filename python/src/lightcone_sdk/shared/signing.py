@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Optional
 
 from ..error import SdkError, SigningError, UserCancelled
 
@@ -23,7 +22,7 @@ class ExternalSigner(ABC):
 
     # Set this when the signer can expose its wallet before signing an
     # identity-bound transaction.
-    wallet_address: Optional[str] = None
+    wallet_address: str | None = None
 
     @abstractmethod
     async def sign_message(self, message: bytes) -> bytes:
@@ -32,11 +31,13 @@ class ExternalSigner(ABC):
 
     @abstractmethod
     async def sign_transaction(self, tx_bytes: bytes) -> bytes:
-        """Sign a serialized unsigned transaction and return the signed transaction bytes."""
+        """Sign canonical Solana v1 bytes and return fully signed bytes without changing the message."""
         ...
 
 
-class SigningStrategyKind(str, Enum):
+class SigningStrategyKind(
+    str, Enum
+):  # noqa: UP042 - preserve the public enum string representation
     """Signing strategy type."""
 
     NATIVE = "native"
@@ -55,9 +56,9 @@ class SigningStrategy:
         self,
         kind: SigningStrategyKind,
         keypair: object = None,
-        signer: Optional[ExternalSigner] = None,
-        wallet_id: Optional[str] = None,
-        wallet_address: Optional[str] = None,
+        signer: ExternalSigner | None = None,
+        wallet_id: str | None = None,
+        wallet_address: str | None = None,
     ):
         self.kind = kind
         self.keypair = keypair  # solders.keypair.Keypair (optional import)
@@ -66,7 +67,7 @@ class SigningStrategy:
         self.wallet_address = wallet_address
 
     @staticmethod
-    def native(keypair: object) -> "SigningStrategy":
+    def native(keypair: object) -> SigningStrategy:
         """Native keypair signing (CLI, bots).
 
         Signs locally using the provided keypair (``solders.keypair.Keypair``).
@@ -77,7 +78,7 @@ class SigningStrategy:
         )
 
     @staticmethod
-    def wallet_adapter(signer: ExternalSigner) -> "SigningStrategy":
+    def wallet_adapter(signer: ExternalSigner) -> SigningStrategy:
         """External wallet adapter (browser).
 
         Delegates signing to the provided ``ExternalSigner`` implementation.
@@ -88,9 +89,7 @@ class SigningStrategy:
         )
 
     @staticmethod
-    def privy(
-        wallet_id: str, wallet_address: Optional[str] = None
-    ) -> "SigningStrategy":
+    def privy(wallet_id: str, wallet_address: str | None = None) -> SigningStrategy:
         """Privy embedded wallet (backend-managed signing).
 
         The backend signs on behalf of the user using the Privy wallet.
@@ -101,7 +100,7 @@ class SigningStrategy:
             wallet_address=wallet_address,
         )
 
-    def controlled_wallet_address(self) -> Optional[str]:
+    def controlled_wallet_address(self) -> str | None:
         """Return the wallet identity this strategy can prove before signing."""
         if self.kind == SigningStrategyKind.NATIVE:
             try:

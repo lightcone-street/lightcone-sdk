@@ -33,7 +33,7 @@ from lightcone_sdk.domain.position import (
     SolActionCosts,
     SolActionKind,
     SolBalanceAvailability,
-    SolBalanceComponents,
+    SolBalanceBreakdown,
     WalletDepositBalancesApplyResult,
     WalletDepositBalanceSnapshot,
     WalletDepositBalancesState,
@@ -45,6 +45,7 @@ from lightcone_sdk.domain.position import (
 from lightcone_sdk.domain.position.client import Positions, native_withdraw_seed
 from lightcone_sdk.error import InsufficientSolForTransactionFees, SdkError
 from lightcone_sdk.program import InvalidOutcomeIndexError, get_associated_token_address
+from lightcone_sdk.program.transaction import V1ResourceConfig, V1TransactionContext
 from lightcone_sdk.rpc import CanonicalWsolAccountInfo
 from lightcone_sdk.shared.signing import (
     ExternalSigner,
@@ -182,7 +183,7 @@ def test_wallet_balance_wire_requires_object_data(message: dict[str, object]) ->
         parse_message_in(json.dumps(message))
 
 
-def test_state_replacement_component_updates_zero_removal_and_exact_combined_sol() -> (
+def test_state_replacement_balance_updates_zero_removal_and_exact_combined_sol() -> (
     None
 ):
     state = initialized_state("wallet-a")
@@ -273,7 +274,100 @@ def test_state_replacement_component_updates_zero_removal_and_exact_combined_sol
     )
 
 
-def test_transaction_components_reject_u64_overflow() -> None:
+def test_complete_snapshot_floor_ignores_lower_slots_and_accepts_equal_slot() -> None:
+    state = initialized_state("wallet-a")
+
+    assert (
+        state.apply_rest_snapshot(
+            "wallet-a",
+            DepositTokenBalancesSnapshot(
+                context_slot=99,
+                native_sol_balance="3.000000000",
+                balances={},
+            ),
+            minimum_snapshot_slot=100,
+        )
+        is WalletDepositBalancesApplyResult.IGNORED
+    )
+    assert state.context_slot == 100
+    assert (
+        state.apply_event(
+            WalletDepositBalanceSnapshot(
+                event_type="wallet_deposit_balance_snapshot",
+                wallet_address="wallet-a",
+                context_slot=99,
+                native_sol_balance="3.000000000",
+                balances={},
+            ),
+            minimum_snapshot_slot=100,
+        )
+        is WalletDepositBalancesApplyResult.IGNORED
+    )
+    assert state.context_slot == 100
+
+    assert (
+        state.apply_rest_snapshot(
+            "wallet-a",
+            DepositTokenBalancesSnapshot(
+                context_slot=100,
+                native_sol_balance="3.000000000",
+                balances={},
+            ),
+            minimum_snapshot_slot=100,
+        )
+        is WalletDepositBalancesApplyResult.APPLIED
+    )
+    assert state.context_slot == 100
+    assert state.native_sol_balance == "3.000000000"
+
+    assert (
+        state.apply_event(
+            WalletDepositBalanceSnapshot(
+                event_type="wallet_deposit_balance_snapshot",
+                wallet_address="wallet-a",
+                context_slot=100,
+                native_sol_balance="4.000000000",
+                balances={},
+            ),
+            minimum_snapshot_slot=100,
+        )
+        is WalletDepositBalancesApplyResult.APPLIED
+    )
+    assert state.native_sol_balance == "4.000000000"
+
+
+def test_snapshot_floor_does_not_change_balance_or_no_floor_behavior() -> None:
+    state = initialized_state("wallet-a")
+
+    assert (
+        state.apply_event(
+            WalletNativeSolBalanceUpdate(
+                event_type="wallet_native_sol_balance_update",
+                wallet_address="wallet-a",
+                context_slot=50,
+                native_sol_balance="3.000000000",
+            ),
+            minimum_snapshot_slot=100,
+        )
+        is WalletDepositBalancesApplyResult.APPLIED
+    )
+    assert (
+        state.apply_event(
+            WalletDepositBalanceSnapshot(
+                event_type="wallet_deposit_balance_snapshot",
+                wallet_address="wallet-a",
+                context_slot=25,
+                native_sol_balance="4.000000000",
+                balances={},
+            )
+        )
+        is WalletDepositBalancesApplyResult.APPLIED
+    )
+    assert state.context_slot == 25
+    assert state.native_sol_balance == "4.000000000"
+
+
+def test_transaction_breakdown_rejects_u64_overflow() -> None:
     """Keep broad display arithmetic while rejecting transaction-range overflow."""
     state = WalletDepositBalancesState()
     state.apply_rest_snapshot(
@@ -286,7 +380,7 @@ def test_transaction_components_reject_u64_overflow() -> None:
     )
     assert state.combined_sol_balance() == "18446744073.709551616"
     with pytest.raises(SdkError, match="transaction u64 range"):
-        state.sol_components()
+        state.sol_balance_breakdown()
 
 
 class FakeAuth:
@@ -325,7 +419,7 @@ class FakeRpc:
         self.occupied_temporary_attempts = occupied_temporary_attempts
         self.fees = list(fees or [5_000])
         self.rent_lamports = rent_lamports
-        self.blockhashes = list(blockhashes or [Hash.default()])
+        self.blockhashes = list(blockhashes or [Hash.from_bytes(bytes([7] * 32))])
         self.canonical_token_amount_lamports = canonical_token_amount_lamports
         self.canonical_account_lamports = canonical_account_lamports
         self.canonical_native_reserve_lamports = canonical_native_reserve_lamports
@@ -377,7 +471,6 @@ class FakeRpc:
 
     async def prepare_and_estimate_transaction_fee(self, transaction) -> int:
         """Attach deterministic blockhash authority before fee estimation."""
-        transaction.partial_sign([], await self.get_latest_blockhash())
         return await self.estimate_prepared_transaction_fee(transaction)
 
     async def estimate_prepared_transaction_fee(self, _transaction) -> int:
@@ -403,6 +496,13 @@ class FakePlanningClient:
         self._auth = FakeAuth(credentials)
         self._rpc = rpc
         self._strategy = strategy
+
+    async def transaction_context(self) -> V1TransactionContext:
+        return V1TransactionContext(
+            await self._rpc.get_latest_blockhash(),
+            123,
+            V1ResourceConfig(200_000, 1_048_576, 0),
+        )
 
     def auth(self) -> FakeAuth:
         """Return the cached-identity facade."""
@@ -545,25 +645,25 @@ def compiled_instruction(transaction, index: int) -> Instruction:
 
 def test_sol_action_availability_uses_live_costs_and_reserve_floors() -> None:
     """Use live costs above each floor and only honor explicit sponsorship."""
-    components = SolBalanceComponents(10_000_000, 5_000_000)
+    breakdown = SolBalanceBreakdown(10_000_000, 5_000_000)
     existing = SolBalanceAvailability.from_costs(
-        components, SolActionCosts(5_000, 0, False, False)
+        breakdown, SolActionCosts(5_000, 0, False, False)
     )
     assert existing.reserve_lamports == 1_000_000
     assert existing.spendable_lamports == 14_000_000
 
     account_creation = SolBalanceAvailability.from_costs(
-        components, SolActionCosts(1_000_000, 3_000_000, True, False)
+        breakdown, SolActionCosts(1_000_000, 3_000_000, True, False)
     )
     assert account_creation.reserve_lamports == 4_000_000
     sponsored = SolBalanceAvailability.from_costs(
-        components, SolActionCosts(20_000_000, 20_000_000, True, True)
+        breakdown, SolActionCosts(20_000_000, 20_000_000, True, True)
     )
     assert sponsored.reserve_lamports == 0
 
     with pytest.raises(InsufficientSolForTransactionFees) as raised:
         SolBalanceAvailability.from_costs(
-            SolBalanceComponents(999_999, 10_000_000),
+            SolBalanceBreakdown(999_999, 10_000_000),
             SolActionCosts(5_000, 0, False, False),
         )
     assert raised.value.available_lamports == 999_999
@@ -580,7 +680,7 @@ def test_sol_action_availability_rejects_invalid_costs(
     """Reject negative, overflowing, and sum-overflowing transaction costs."""
     with pytest.raises(SdkError, match="u64"):
         SolBalanceAvailability.from_costs(
-            SolBalanceComponents(10_000_000, 5_000_000),
+            SolBalanceBreakdown(10_000_000, 5_000_000),
             SolActionCosts(fee_lamports, rent_lamports, False, True),
         )
 
@@ -589,33 +689,33 @@ def test_sol_action_availability_rejects_displayed_u64_overflow() -> None:
     """Reject an aggregate amount that no Solana instruction can represent."""
     with pytest.raises(SdkError, match="displayed SOL exceeds"):
         SolBalanceAvailability.from_costs(
-            SolBalanceComponents(2**64 - 1, 1),
+            SolBalanceBreakdown(2**64 - 1, 1),
             SolActionCosts(0, 0, False, True),
         )
 
 
 @pytest.mark.parametrize(
-    "components",
-    [SolBalanceComponents(-1, 0), SolBalanceComponents(0, 2**64)],
+    "breakdown",
+    [SolBalanceBreakdown(-1, 0), SolBalanceBreakdown(0, 2**64)],
 )
-def test_sol_action_availability_rejects_invalid_components(
-    components: SolBalanceComponents,
+def test_sol_action_availability_rejects_invalid_breakdown(
+    breakdown: SolBalanceBreakdown,
 ) -> None:
-    """Reject negative or overflowing authoritative balance components."""
+    """Reject a negative or overflowing authoritative balance breakdown."""
     with pytest.raises(SdkError, match="non-negative u64"):
         SolBalanceAvailability.from_costs(
-            components,
+            breakdown,
             SolActionCosts(0, 0, False, True),
         )
 
 
 def test_unwrap_all_availability_reserves_only_the_exact_live_fee() -> None:
-    """Preserve components after validating the complete unwrap cost tuple."""
-    components = SolBalanceComponents(5_000, 500_000_000)
+    """Preserve the breakdown after validating the complete unwrap cost tuple."""
+    breakdown = SolBalanceBreakdown(5_000, 500_000_000)
     costs = SolActionCosts(5_000, 0, False, False)
-    availability = SolBalanceAvailability.from_unwrap_all_costs(components, costs)
+    availability = SolBalanceAvailability.from_unwrap_all_costs(breakdown, costs)
 
-    assert availability.components is components
+    assert availability.breakdown is breakdown
     assert availability.displayed_lamports == 500_005_000
     assert availability.reserve_lamports == 5_000
     assert availability.spendable_lamports == 500_000_000
@@ -625,19 +725,19 @@ def test_unwrap_all_availability_fails_closed_on_fee_and_display_errors() -> Non
     """Require native fee funding and checked common-u64 displayed arithmetic."""
     with pytest.raises(InsufficientSolForTransactionFees) as raised:
         SolBalanceAvailability.from_unwrap_all_costs(
-            SolBalanceComponents(4_999, 500_000_000),
+            SolBalanceBreakdown(4_999, 500_000_000),
             SolActionCosts(5_000, 0, False, False),
         )
     assert raised.value.available_lamports == 4_999
     assert raised.value.required_lamports == 5_000
     with pytest.raises(SdkError, match="displayed SOL exceeds"):
         SolBalanceAvailability.from_unwrap_all_costs(
-            SolBalanceComponents(2**64 - 1, 1),
+            SolBalanceBreakdown(2**64 - 1, 1),
             SolActionCosts(0, 0, False, False),
         )
     with pytest.raises(SdkError, match="non-negative u64"):
         SolBalanceAvailability.from_unwrap_all_costs(
-            SolBalanceComponents(5_000, 0),
+            SolBalanceBreakdown(5_000, 0),
             SolActionCosts(True, 0, False, False),
         )
 
@@ -656,7 +756,7 @@ def test_unwrap_all_availability_rejects_non_close_cost_tuples(
     """Reject rent, account creation, or sponsorship before fee-only math."""
     with pytest.raises(SdkError, match=message):
         SolBalanceAvailability.from_unwrap_all_costs(
-            SolBalanceComponents(10_000, 500_000_000), costs
+            SolBalanceBreakdown(10_000, 500_000_000), costs
         )
 
 
@@ -859,7 +959,7 @@ async def test_unwrap_all_accepts_unsynchronized_donation_and_credits_it() -> No
         (wallet, True, True),
     ]
     assert plan.costs == SolActionCosts(5_000, 0, False, False)
-    assert plan.availability.components == SolBalanceComponents(5_000, 500_000_000)
+    assert plan.availability.breakdown == SolBalanceBreakdown(5_000, 500_000_000)
     assert plan.availability.displayed_lamports == 500_005_000
     assert plan.availability.reserve_lamports == 5_000
     assert plan.availability.spendable_lamports == 500_000_000

@@ -20,13 +20,14 @@ from lightcone_sdk.program.orders import (
     sign_cancel_order,
 )
 from lightcone_sdk.program.types import OrderSide
-from lightcone_sdk.rpc import require_connection
 from lightcone_sdk.shared.scaling import scale_price_size
+from lightcone_sdk.shared.signing import SigningStrategy
 
 
 async def main():
     client = make_client()
     keypair = get_keypair()
+    client.set_signing_strategy(SigningStrategy.native(keypair))
     await login(client, keypair)
     pubkey = str(keypair.pubkey())
 
@@ -74,7 +75,6 @@ async def main():
         rules.trading_rules.price_quantum, "1", int(OrderSide.BID), rules
     ).quote_atoms
     mint = quote_deposit_mint(orderbook)
-    connection = require_connection(client)
     withdraw_ix = (
         client.positions()
         .withdraw_from_global()
@@ -83,12 +83,11 @@ async def main():
         .amount(order_quote_amount)
         .build_ix()
     )
-    blockhash = await client.rpc().get_latest_blockhash()
-    withdraw_tx = await client.rpc().build_transaction([withdraw_ix])
-    withdraw_tx.sign([keypair], blockhash)
-    withdraw_result = await connection.send_raw_transaction(bytes(withdraw_tx))
-    await connection.confirm_transaction(withdraw_result.value)
-    print(f"withdraw_from_global: confirmed {withdraw_result.value}")
+    withdraw_tx = await client.rpc().build_transaction(
+        [withdraw_ix], keypair.pubkey(), await client.transaction_context()
+    )
+    withdraw_result = await client.sign_and_submit_tx_confirmed_with_slot(withdraw_tx)
+    print(f"withdraw_from_global: confirmed {withdraw_result.signature}")
 
     await client.close()
 

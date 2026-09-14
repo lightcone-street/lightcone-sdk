@@ -50,7 +50,6 @@ export type {
   SetManagerParams,
   AcceptRoleParams,
   SetOracleParams,
-  RefreshOrderbookAltParams,
   MarketFeeUpdate,
   SetMarketFeesParams,
   SetFeeReceiverParams,
@@ -60,17 +59,13 @@ export type {
   WhitelistDepositTokenParams,
   SetDepositTokenStatusParams,
   DepositToGlobalParams,
-  DepositToGlobalAltContext,
   GlobalToMarketDepositParams,
   InitPositionTokensParams,
-  ExtendPositionTokensParams,
   MakerFill,
   DepositAndSwapParams,
   WithdrawFromGlobalParams,
-  ClosePositionAltParams,
   CloseOrderStatusParams,
   ClosePositionTokenAccountsParams,
-  CloseOrderbookAltParams,
   CloseOrderbookParams,
   BuildResult,
   InitializeAccounts,
@@ -93,7 +88,6 @@ export type {
 // ============================================================================
 export { PROGRAM_ID } from "../env";
 export {
-  ALT_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   SYSTEM_PROGRAM_ID,
@@ -107,6 +101,10 @@ export {
   MAX_OUTCOMES,
   MIN_OUTCOMES,
   MAX_MAKERS,
+  TAKER_MASK,
+  PARTICIPANT_MASK_LEN,
+  MAX_DEPOSIT_MINTS_PER_MARKET,
+  MAX_DEPOSIT_MINTS_PER_IX,
   SEEDS,
 } from "./constants";
 
@@ -119,6 +117,7 @@ export {
   toBeBytes,
   fromBeBytes,
   toU8,
+  toU16Le,
   toI16Le,
   toU32Le,
   toU64Le,
@@ -146,6 +145,7 @@ export {
 // ============================================================================
 export {
   getExchangePda,
+  getEventAuthorityPda,
   getMarketPda,
   getConditionTombstonePda,
   getVaultPda,
@@ -158,10 +158,8 @@ export {
   getPositionPda,
   canonicalMintPair,
   getOrderbookPda,
-  getAltPda,
   getGlobalDepositTokenPda,
   getUserGlobalDepositPda,
-  getPositionAltPda,
   pda,
 } from "./pda";
 
@@ -175,6 +173,8 @@ export {
   deserializeOrderStatus,
   deserializeUserNonce,
   deserializeOrderbook,
+  getOrderbookBaseDepositMint,
+  getOrderbookQuoteDepositMint,
   deserializeGlobalDepositToken,
   isExchangeAccount,
   isMarketAccount,
@@ -216,20 +216,15 @@ export {
   buildCreateConditionalMetadataIx,
   buildUpdateConditionalMetadataIx,
   buildCreateOrderbookIx,
-  buildRefreshOrderbookAltIx,
   buildWhitelistDepositTokenIx,
   buildSetDepositTokenStatusIx,
   buildDepositToGlobalIx,
-  buildDepositToGlobalIxWithAlt,
   buildGlobalToMarketDepositIx,
   buildInitPositionTokensIx,
-  buildExtendPositionTokensIx,
   buildDepositAndSwapIx,
   buildWithdrawFromGlobalIx,
-  buildClosePositionAltIx,
   buildCloseOrderStatusIx,
   buildClosePositionTokenAccountsIx,
-  buildCloseOrderbookAltIx,
   buildCloseOrderbookIx,
   buildInitializeTx,
   buildCreateMarketTx,
@@ -258,20 +253,15 @@ export {
   buildCreateConditionalMetadataTx,
   buildUpdateConditionalMetadataTx,
   buildCreateOrderbookTx,
-  buildRefreshOrderbookAltTx,
   buildWhitelistDepositTokenTx,
   buildSetDepositTokenStatusTx,
   buildDepositToGlobalTx,
-  buildDepositToGlobalTxWithAlt,
   buildGlobalToMarketDepositTx,
   buildInitPositionTokensTx,
-  buildExtendPositionTokensTx,
   buildDepositAndSwapTx,
   buildWithdrawFromGlobalTx,
-  buildClosePositionAltTx,
   buildCloseOrderStatusTx,
   buildClosePositionTokenAccountsTx,
-  buildCloseOrderbookAltTx,
   buildCloseOrderbookTx,
 } from "./instructions";
 
@@ -324,3 +314,6 @@ export {
 // ORDER BUILDER
 // ============================================================================
 export { OrderBuilder } from "./builder";
+
+export { V1Transaction, validateV1Resources } from "./transaction";
+export type { V1ResourceConfig, V1TransactionContext } from "./transaction";

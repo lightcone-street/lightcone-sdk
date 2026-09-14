@@ -6,7 +6,6 @@ from solders.pubkey import Pubkey
 from spl.token import constants as _spl_token_constants
 
 # Program IDs
-ALT_PROGRAM_ID = Pubkey.from_string("AddressLookupTab1e1111111111111111111111111")
 TOKEN_PROGRAM_ID = _spl_token_constants.TOKEN_PROGRAM_ID
 ASSOCIATED_TOKEN_PROGRAM_ID = _spl_token_constants.ASSOCIATED_TOKEN_PROGRAM_ID
 SYSTEM_PROGRAM_ID = _system_program.ID
@@ -16,7 +15,7 @@ MPL_TOKEN_METADATA_PROGRAM_ID = Pubkey.from_string(
     "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
 )
 INITIALIZE_AUTHORITY = Pubkey.from_string(
-    "2m6iAtMVmd3jE2BpNxoa9E79Kj7NeE6UxBFNyCBp6QEb"
+    "3vYRAzr5X41hrmKMnDCoQJJmPH89S4LLwmFpk8UtwCqr"
 )
 
 
@@ -46,6 +45,10 @@ ORDERBOOK_SEED = b"orderbook"
 SEED_GLOBAL_DEPOSIT = b"global_deposit"
 SEED_FEE_RECEIVER = b"fee_receiver"
 SEED_MPL_METADATA = b"metadata"
+# Event-authority PDA seed. The program signs its event-batch self-CPI with this
+# PDA and requires every public instruction to pass it as a read-only, non-signer
+# trailer account immediately before the program account.
+SEED_EVENT_AUTHORITY = b"__event_authority"
 
 
 # Account Sizes (in bytes)
@@ -54,7 +57,7 @@ MARKET_SIZE = 216
 ORDER_STATUS_SIZE = 32
 USER_NONCE_SIZE = 16
 POSITION_SIZE = 80
-ORDERBOOK_SIZE = 144
+ORDERBOOK_SIZE = 176
 GLOBAL_DEPOSIT_TOKEN_SIZE = 47
 
 
@@ -106,12 +109,9 @@ INSTRUCTION_DEPOSIT_TO_GLOBAL = 17
 INSTRUCTION_GLOBAL_TO_MARKET_DEPOSIT = 18
 INSTRUCTION_INIT_POSITION_TOKENS = 19
 INSTRUCTION_DEPOSIT_AND_SWAP = 20
-INSTRUCTION_EXTEND_POSITION_TOKENS = 21
 INSTRUCTION_WITHDRAW_FROM_GLOBAL = 22
-INSTRUCTION_CLOSE_POSITION_ALT = 23
 INSTRUCTION_CLOSE_ORDER_STATUS = 24
 INSTRUCTION_CLOSE_POSITION_TOKEN_ACCOUNTS = 25
-INSTRUCTION_CLOSE_ORDERBOOK_ALT = 26
 INSTRUCTION_CLOSE_ORDERBOOK = 27
 INSTRUCTION_SET_MANAGER = 28
 INSTRUCTION_SET_MARKET_FEES = 29
@@ -119,17 +119,31 @@ INSTRUCTION_SET_FEE_RECEIVER = 30
 INSTRUCTION_CREATE_CONDITIONAL_METADATA = 31
 INSTRUCTION_UPDATE_CONDITIONAL_METADATA = 32
 INSTRUCTION_SET_ORACLE = 33
-INSTRUCTION_REFRESH_ORDERBOOK_ALT = 34
 INSTRUCTION_ACCEPT_AUTHORITY = 35
 INSTRUCTION_ACCEPT_MANAGER = 36
 INSTRUCTION_ACCEPT_OPERATOR = 37
 INSTRUCTION_SET_DEPOSIT_TOKEN_STATUS = 38
+# Reserved discriminator of the program's private event-batch self-CPI. The SDK
+# never builds it; it is listed so no public instruction reuses the value.
+INSTRUCTION_EVENT_BATCH = 255
 
 
 # Limits
 MAX_OUTCOMES = 6
 MIN_OUTCOMES = 2
-MAX_MAKERS = 5
+# Maximum makers in one MatchOrdersMulti or DepositAndSwap instruction.
+# This encoding ceiling does not guarantee that a transaction fits runtime limits.
+MAX_MAKERS = 11
+# Bit 15 selects the taker in a participant mask.
+TAKER_MASK = 0x8000
+# Encoded participant-mask width in bytes (unsigned 16-bit little-endian).
+PARTICIPANT_MASK_LEN = 2
+# Maximum deposit mints the program registers per market; add_deposit_mint fails
+# with on-chain error 75 (TooManyDepositMints) beyond it.
+MAX_DEPOSIT_MINTS_PER_MARKET = 8
+# Maximum groups accepted by one init_position_tokens instruction.
+# Equal to the per-market cap.
+MAX_DEPOSIT_MINTS_PER_IX = MAX_DEPOSIT_MINTS_PER_MARKET
 MAX_OUTCOME_NAME_LEN = 32
 MAX_OUTCOME_SYMBOL_LEN = 18
 MAX_OUTCOME_URI_LEN = 200

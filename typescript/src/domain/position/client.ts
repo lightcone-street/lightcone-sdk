@@ -1,7 +1,7 @@
+import { V1Transaction, type V1TransactionContext } from "../../program/transaction";
 import {
   PublicKey,
   SystemProgram,
-  Transaction,
   type TransactionInstruction,
 } from "@solana/web3.js";
 import {
@@ -31,12 +31,9 @@ import {
   buildRedeemWinningsIx,
   buildWithdrawConditionalFromPositionIx,
   buildInitPositionTokensIx,
-  buildExtendPositionTokensIx,
   buildDepositToGlobalIx,
-  buildDepositToGlobalIxWithAlt,
   buildGlobalToMarketDepositIx,
   buildWithdrawFromGlobalIx,
-  buildClosePositionAltIx,
   buildClosePositionTokenAccountsIx,
 } from "../../program/instructions";
 import { Rpc } from "../../rpc";
@@ -53,12 +50,9 @@ import type {
   WithdrawConditionalFromPositionParams,
   WithdrawFromPositionParams,
   InitPositionTokensParams,
-  ExtendPositionTokensParams,
   DepositToGlobalParams,
-  DepositToGlobalAltContext,
   GlobalToMarketDepositParams,
   WithdrawFromGlobalParams,
-  ClosePositionAltParams,
   ClosePositionTokenAccountsParams,
 } from "../../program/types";
 import type { Market } from "../market";
@@ -68,7 +62,7 @@ import {
   unwrapAllSolBalanceAvailability,
   type SolActionCosts,
   type SolBalanceAvailability,
-  type SolBalanceComponents,
+  type SolBalanceBreakdown,
   type WalletDepositBalancesState,
 } from "./state";
 import type { MarketPositionsResponse, PositionsResponse } from "./wire";
@@ -79,7 +73,6 @@ import {
   RedeemWinningsBuilder,
   WithdrawFromPositionBuilder,
   InitPositionTokensBuilder,
-  ExtendPositionTokensBuilder,
   DepositToGlobalBuilder,
   WithdrawFromGlobalBuilder,
   GlobalToMarketDepositBuilder,
@@ -105,8 +98,8 @@ export type SolActionKind =
   | "wrap"
   | "unwrapAll";
 
-/** Expected changes to the separately authoritative SOL components. */
-export interface SolComponentDelta {
+/** Expected changes to the separately authoritative SOL balances. */
+export interface SolBalanceDelta {
   /** System-account change in lamports, including unsponsored costs. */
   nativeLamports: bigint;
   /** Persistent canonical WSOL ATA change in lamports. */
@@ -118,13 +111,13 @@ export interface SolActionPlan {
   /** Operation whose balance semantics produced this plan. */
   kind: SolActionKind;
   /** Fee-prepared message that submission must preserve exactly. */
-  transaction: Transaction;
+  transaction: V1Transaction;
   /** Live fee/rent observations and explicit sponsorship capability. */
   costs: SolActionCosts;
-  /** Component totals after action-specific native reserve. */
+  /** Balance totals after action-specific native reserve. */
   availability: SolBalanceAvailability;
-  /** Component-wise projection that does not replace authoritative state. */
-  expectedDelta: SolComponentDelta;
+  /** Balance projection that does not replace authoritative state. */
+  expectedDelta: SolBalanceDelta;
 }
 
 /** Reject non-bigint, non-positive, or non-u64 lamports before any RPC side effect. */
@@ -283,7 +276,7 @@ export class Positions {
   /**
    * Fetch a complete authenticated SPL and native-SOL balance snapshot.
    *
-   * `minContextSlot` lower-bounds the cross-component snapshot. Native SOL is
+   * `minContextSlot` lower-bounds the complete balance snapshot. Native SOL is
    * required canonical nine-decimal text and remains outside the SPL map. The
    * generic HTTP layer trusts that shape at runtime; WebSocket frames are decoded
    * strictly, while malformed REST exact values fail later when state scales them.
@@ -342,7 +335,7 @@ export class Positions {
    * and `SyncNative`. Availability uses the ordinary reserve floor.
    *
    * Callers rebuild immediately before prepared submission. They retain the
-   * returned component projection until a complete snapshot covers the confirmed
+   * returned balance projection until a complete snapshot covers the confirmed
    * slot. An uncertain outcome requires authoritative refresh before another plan.
    */
   async planWrapSol(
@@ -351,18 +344,18 @@ export class Positions {
   ): Promise<SolActionPlan> {
     assertSolActionAmount(amountLamports, "wrap");
     const wallet = this.conversionPlanningWallet(state);
-    const components = state.solComponents();
+    const breakdown = state.solBalanceBreakdown();
     const rpc = new Rpc(this.client);
     const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
     const account = await rpc.canonicalWsolAccountInfo(canonical, wallet);
-    if (!account && components.canonicalWsolLamports > 0n) {
+    if (!account && breakdown.canonicalWsolLamports > 0n) {
       throw SdkError.validation(
         "canonical WSOL balance is positive but its account is unavailable"
       );
     }
     if (
       account &&
-      account.tokenAmountLamports !== components.canonicalWsolLamports
+      account.tokenAmountLamports !== breakdown.canonicalWsolLamports
     ) {
       throw SdkError.validation(
         "live canonical WSOL amount does not match wallet balance state"
@@ -393,7 +386,8 @@ export class Positions {
     const transaction = this.buildWrapSolTransaction(
       wallet,
       amountLamports,
-      createsCanonicalWsolAccount
+      createsCanonicalWsolAccount,
+      await rpc.transactionContext()
     );
     const feeLamports = await rpc.prepareAndEstimateTransactionFee(transaction);
     const costs: SolActionCosts = {
@@ -402,7 +396,7 @@ export class Positions {
       createsCanonicalWsolAccount,
       sponsored: false,
     };
-    const availability = solBalanceAvailability(components, costs);
+    const availability = solBalanceAvailability(breakdown, costs);
     const requiredNativeLamports =
       amountLamports + availability.reserveLamports;
     if (requiredNativeLamports > MAX_U64) {
@@ -410,7 +404,7 @@ export class Positions {
         "wrap amount and transaction reserve exceed u64 lamports"
       );
     }
-    if (components.nativeLamports < requiredNativeLamports) {
+    if (breakdown.nativeLamports < requiredNativeLamports) {
       throw SdkError.validation(
         "native SOL cannot fund the wrap amount and transaction reserve"
       );
@@ -440,7 +434,7 @@ export class Positions {
    * native SOL to fund that fee without relying on the later account transfer.
    *
    * Callers rebuild immediately before prepared submission. They retain the
-   * returned component projection until a complete snapshot covers the confirmed
+   * returned balance projection until a complete snapshot covers the confirmed
    * slot. Signing, submission, or confirmation uncertainty requires authoritative
    * refresh and does not authorize automatic resubmission.
    */
@@ -448,8 +442,8 @@ export class Positions {
     state: WalletDepositBalancesState
   ): Promise<SolActionPlan> {
     const wallet = this.conversionPlanningWallet(state);
-    const components = state.solComponents();
-    if (components.canonicalWsolLamports === 0n) {
+    const breakdown = state.solBalanceBreakdown();
+    if (breakdown.canonicalWsolLamports === 0n) {
       throw SdkError.validation(
         "unwrap-all requires a positive canonical WSOL balance"
       );
@@ -462,12 +456,12 @@ export class Positions {
         "canonical WSOL account is required for unwrap-all"
       );
     }
-    if (account.tokenAmountLamports !== components.canonicalWsolLamports) {
+    if (account.tokenAmountLamports !== breakdown.canonicalWsolLamports) {
       throw SdkError.validation(
         "live canonical WSOL amount does not match wallet balance state"
       );
     }
-    const transaction = this.buildUnwrapWsolAllTransaction(wallet);
+    const transaction = this.buildUnwrapWsolAllTransaction(wallet, await rpc.transactionContext());
     const feeLamports = await rpc.prepareAndEstimateTransactionFee(transaction);
     const costs: SolActionCosts = {
       feeLamports,
@@ -478,11 +472,11 @@ export class Positions {
     // Unwrap-all removes the persistent account, so its availability validates
     // SolActionCosts and reserves the fee without the ordinary account floor.
     const availability = unwrapAllSolBalanceAvailability(
-      components,
+      breakdown,
       costs
     );
     const projectedNativeLamports =
-      components.nativeLamports + account.accountLamports - feeLamports;
+      breakdown.nativeLamports + account.accountLamports - feeLamports;
     if (projectedNativeLamports > MAX_U64) {
       throw SdkError.validation(
         "unwrap-all projected native SOL exceeds the transaction u64 range"
@@ -495,7 +489,7 @@ export class Positions {
       availability,
       expectedDelta: {
         nativeLamports: account.accountLamports - feeLamports,
-        canonicalWsolLamports: -components.canonicalWsolLamports,
+        canonicalWsolLamports: -breakdown.canonicalWsolLamports,
       },
     };
   }
@@ -514,25 +508,25 @@ export class Positions {
     assertUnsponsoredPlan(sponsored);
     assertSolActionAmount(amountLamports, "split");
     const wallet = this.planningWallet(state);
-    const components = state.solComponents();
+    const breakdown = state.solBalanceBreakdown();
     const rpc = new Rpc(this.client);
     const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
     const canonicalExists = await rpc.canonicalWsolAccountExists(canonical, wallet);
-    if (components.canonicalWsolLamports > 0n && !canonicalExists) {
+    if (breakdown.canonicalWsolLamports > 0n && !canonicalExists) {
       throw SdkError.validation(
         "canonical WSOL balance is positive but its account is unavailable"
       );
     }
     const shortfall =
-      amountLamports > components.canonicalWsolLamports
-        ? amountLamports - components.canonicalWsolLamports
+      amountLamports > breakdown.canonicalWsolLamports
+        ? amountLamports - breakdown.canonicalWsolLamports
         : 0n;
     const upfrontRentLamports = canonicalExists
       ? 0n
       : await rpc.minimumBalanceForRentExemption(TOKEN_ACCOUNT_SPACE);
-    const transaction = new Transaction({ feePayer: wallet });
+    const instructions: TransactionInstruction[] = [];
     if (!canonicalExists) {
-      transaction.add(
+      instructions.push(
         createAssociatedTokenAccountIdempotentInstruction(
           wallet,
           canonical,
@@ -543,12 +537,12 @@ export class Positions {
       );
     }
     if (shortfall > 0n) {
-      transaction.add(
+      instructions.push(
         SystemProgram.transfer({ fromPubkey: wallet, toPubkey: canonical, lamports: shortfall }),
         createSyncNativeInstruction(canonical, TOKEN_PROGRAM_ID)
       );
     }
-    transaction.add(
+    instructions.push(
       buildDepositIx(
         {
           user: wallet,
@@ -560,6 +554,7 @@ export class Positions {
         this.client.programId
       )
     );
+    const transaction = V1Transaction.compile(instructions, wallet, await rpc.transactionContext());
     const feeLamports = await rpc.prepareAndEstimateTransactionFee(transaction);
     const costs: SolActionCosts = {
       feeLamports,
@@ -567,13 +562,13 @@ export class Positions {
       createsCanonicalWsolAccount: !canonicalExists,
       sponsored,
     };
-    const availability = solBalanceAvailability(components, costs);
+    const availability = solBalanceAvailability(breakdown, costs);
     if (amountLamports > availability.spendableLamports) {
       throw SdkError.validation(
         "split amount exceeds spendable SOL after transaction reserve"
       );
     }
-    if (shortfall + availability.reserveLamports > components.nativeLamports) {
+    if (shortfall + availability.reserveLamports > breakdown.nativeLamports) {
       throw SdkError.validation(
         "native SOL cannot fund the wrap shortfall and transaction reserve"
       );
@@ -605,13 +600,13 @@ export class Positions {
     assertUnsponsoredPlan(sponsored);
     assertSolActionAmount(amountLamports, "merge");
     const wallet = this.planningWallet(state);
-    const transaction = new Transaction({ feePayer: wallet });
-    const { rpc, components, canonicalExists, upfrontRentLamports } =
+    const instructions: TransactionInstruction[] = [];
+    const { rpc, breakdown, canonicalExists, upfrontRentLamports } =
       await this.receivePlanContext(wallet, state);
     if (!canonicalExists) {
-      transaction.add(this.createCanonicalWsolAccount(wallet));
+      instructions.push(this.createCanonicalWsolAccount(wallet));
     }
-    transaction.add(
+    instructions.push(
       buildMergeIx(
         {
           user: wallet,
@@ -623,12 +618,13 @@ export class Positions {
         this.client.programId
       )
     );
+    const transaction = V1Transaction.compile(instructions, wallet, await rpc.transactionContext());
     return this.finishReceivePlan(
       "merge",
       amountLamports,
       transaction,
       rpc,
-      components,
+      breakdown,
       upfrontRentLamports,
       !canonicalExists,
       sponsored
@@ -653,13 +649,13 @@ export class Positions {
     validateOutcomes(numOutcomes);
     validateOutcomeIndex(outcomeIndex, numOutcomes);
     const wallet = this.planningWallet(state);
-    const transaction = new Transaction({ feePayer: wallet });
-    const { rpc, components, canonicalExists, upfrontRentLamports } =
+    const instructions: TransactionInstruction[] = [];
+    const { rpc, breakdown, canonicalExists, upfrontRentLamports } =
       await this.receivePlanContext(wallet, state);
     if (!canonicalExists) {
-      transaction.add(this.createCanonicalWsolAccount(wallet));
+      instructions.push(this.createCanonicalWsolAccount(wallet));
     }
-    transaction.add(
+    instructions.push(
       buildRedeemWinningsIx(
         {
           user: wallet,
@@ -671,12 +667,13 @@ export class Positions {
         this.client.programId
       )
     );
+    const transaction = V1Transaction.compile(instructions, wallet, await rpc.transactionContext());
     return this.finishReceivePlan(
       "redeem",
       amountLamports,
       transaction,
       rpc,
-      components,
+      breakdown,
       upfrontRentLamports,
       !canonicalExists,
       sponsored
@@ -701,11 +698,11 @@ export class Positions {
     assertUnsponsoredPlan(sponsored);
     assertSolActionAmount(amountLamports, "withdraw");
     const wallet = this.planningWallet(state);
-    const components = state.solComponents();
+    const breakdown = state.solBalanceBreakdown();
     const rpc = new Rpc(this.client);
-    const direct = new Transaction({ feePayer: wallet }).add(
+    const direct = V1Transaction.compile([
       SystemProgram.transfer({ fromPubkey: wallet, toPubkey: recipient, lamports: amountLamports })
-    );
+    ], wallet, await rpc.transactionContext());
     const directFee = await rpc.prepareAndEstimateTransactionFee(direct);
     const directCosts: SolActionCosts = {
       feeLamports: directFee,
@@ -713,14 +710,14 @@ export class Positions {
       createsCanonicalWsolAccount: false,
       sponsored,
     };
-    const directAvailability = solBalanceAvailability(components, directCosts);
+    const directAvailability = solBalanceAvailability(breakdown, directCosts);
     if (amountLamports > directAvailability.spendableLamports) {
       throw SdkError.validation(
         "withdraw amount exceeds spendable SOL after transaction reserve"
       );
     }
     if (
-      components.nativeLamports >=
+      breakdown.nativeLamports >=
       amountLamports + directAvailability.reserveLamports
     ) {
       return {
@@ -742,7 +739,8 @@ export class Positions {
       );
     }
     const temporaryRent = await rpc.minimumBalanceForRentExemption(TOKEN_ACCOUNT_SPACE);
-    const { blockhash, lastValidBlockHeight } = await rpc.getLatestBlockhash();
+    const context = await rpc.transactionContext();
+    const { blockhash } = context;
     let seed: string | undefined;
     let temporary: PublicKey | undefined;
     // Bound account-existence RPCs; the blockhash and attempt byte make eight collisions remote.
@@ -776,10 +774,9 @@ export class Positions {
       1n,
       temporaryRent,
       seed,
-      temporary
+      temporary,
+      context
     );
-    transaction.recentBlockhash = blockhash;
-    transaction.lastValidBlockHeight = lastValidBlockHeight;
     const initialFee = await rpc.estimatePreparedTransactionFee(transaction);
     const initialCosts: SolActionCosts = {
       feeLamports: initialFee,
@@ -787,12 +784,12 @@ export class Positions {
       createsCanonicalWsolAccount: false,
       sponsored,
     };
-    const initialAvailability = solBalanceAvailability(components, initialCosts);
+    const initialAvailability = solBalanceAvailability(breakdown, initialCosts);
     const initialRequired = amountLamports + initialAvailability.reserveLamports;
-    if (initialRequired < components.nativeLamports) {
+    if (initialRequired < breakdown.nativeLamports) {
       throw SdkError.validation("invalid temporary withdrawal requirement");
     }
-    const initialTransfer = initialRequired - components.nativeLamports;
+    const initialTransfer = initialRequired - breakdown.nativeLamports;
     transaction = this.buildTemporaryNativeWithdrawal(
       wallet,
       recipient,
@@ -800,10 +797,9 @@ export class Positions {
       initialTransfer,
       temporaryRent,
       seed,
-      temporary
+      temporary,
+      context
     );
-    transaction.recentBlockhash = blockhash;
-    transaction.lastValidBlockHeight = lastValidBlockHeight;
     const finalFee = await rpc.estimatePreparedTransactionFee(transaction);
     const costs: SolActionCosts = {
       feeLamports: finalFee,
@@ -811,13 +807,13 @@ export class Positions {
       createsCanonicalWsolAccount: false,
       sponsored,
     };
-    const availability = solBalanceAvailability(components, costs);
+    const availability = solBalanceAvailability(breakdown, costs);
     const finalRequired = amountLamports + availability.reserveLamports;
-    if (finalRequired < components.nativeLamports) {
+    if (finalRequired < breakdown.nativeLamports) {
       throw SdkError.validation("invalid temporary withdrawal requirement");
     }
-    const canonicalTransfer = finalRequired - components.nativeLamports;
-    if (canonicalTransfer > components.canonicalWsolLamports) {
+    const canonicalTransfer = finalRequired - breakdown.nativeLamports;
+    if (canonicalTransfer > breakdown.canonicalWsolLamports) {
       throw SdkError.validation(
         "canonical WSOL cannot fund the native withdrawal shortfall"
       );
@@ -830,10 +826,9 @@ export class Positions {
         canonicalTransfer,
         temporaryRent,
         seed,
-        temporary
+        temporary,
+        context
       );
-      transaction.recentBlockhash = blockhash;
-      transaction.lastValidBlockHeight = lastValidBlockHeight;
       const stableFee = await rpc.estimatePreparedTransactionFee(transaction);
       if (stableFee !== finalFee) {
         throw SdkError.validation(
@@ -854,7 +849,11 @@ export class Positions {
     };
   }
 
-  /** Resolve the authenticated wallet only from fresh matching cached authority. */
+  /**
+   * Resolve an unexpired wallet from matching initialized balance state.
+   * This requires the configured signing strategy to control the authenticated
+   * wallet. It does not prove balance freshness.
+   */
   private planningWallet(state: WalletDepositBalancesState): PublicKey {
     // Cached identity is a signing trust boundary: validate expiry, complete
     // state initialization, and wallet equality before constructing a transaction.
@@ -926,17 +925,18 @@ export class Positions {
    * When planning observed no canonical ATA, the first instruction is strict ATA
    * creation. A concurrently created ATA therefore makes execution fail instead of
    * using account state that was absent from the plan. The transfer and `SyncNative`
-   * instructions follow. Fee preparation later attaches the live blockhash.
+   * instructions follow. The explicit context supplies the blockhash and resource limits.
    */
   private buildWrapSolTransaction(
     wallet: PublicKey,
     amountLamports: bigint,
-    createsCanonicalWsolAccount: boolean
-  ): Transaction {
+    createsCanonicalWsolAccount: boolean,
+    context: V1TransactionContext
+  ): V1Transaction {
     const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
-    const transaction = new Transaction({ feePayer: wallet });
+    const instructions: TransactionInstruction[] = [];
     if (createsCanonicalWsolAccount) {
-      transaction.add(
+      instructions.push(
         createAssociatedTokenAccountInstruction(
           wallet,
           canonical,
@@ -946,7 +946,7 @@ export class Positions {
         )
       );
     }
-    return transaction.add(
+    instructions.push(
       SystemProgram.transfer({
         fromPubkey: wallet,
         toPubkey: canonical,
@@ -954,6 +954,7 @@ export class Positions {
       }),
       createSyncNativeInstruction(canonical, TOKEN_PROGRAM_ID)
     );
+    return V1Transaction.compile(instructions, wallet, context);
   }
 
   /**
@@ -962,9 +963,9 @@ export class Positions {
    * The Trading Wallet is the fee payer, close authority, and destination. A later
    * successful submission transfers the complete account balance to that wallet.
    */
-  private buildUnwrapWsolAllTransaction(wallet: PublicKey): Transaction {
+  private buildUnwrapWsolAllTransaction(wallet: PublicKey, context: V1TransactionContext): V1Transaction {
     const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
-    return new Transaction({ feePayer: wallet }).add(
+    return V1Transaction.compile([
       createCloseAccountInstruction(
         canonical,
         wallet,
@@ -972,7 +973,7 @@ export class Positions {
         [],
         TOKEN_PROGRAM_ID
       )
-    );
+    ], wallet, context);
   }
 
   /**
@@ -997,22 +998,22 @@ export class Positions {
     state: WalletDepositBalancesState
   ): Promise<{
     rpc: Rpc;
-    components: SolBalanceComponents;
+    breakdown: SolBalanceBreakdown;
     canonicalExists: boolean;
     upfrontRentLamports: bigint;
   }> {
     const rpc = new Rpc(this.client);
     const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
     const canonicalExists = await rpc.canonicalWsolAccountExists(canonical, wallet);
-    const components = state.solComponents();
-    if (components.canonicalWsolLamports > 0n && !canonicalExists) {
+    const breakdown = state.solBalanceBreakdown();
+    if (breakdown.canonicalWsolLamports > 0n && !canonicalExists) {
       throw SdkError.validation(
         "canonical WSOL balance is positive but its account is unavailable"
       );
     }
     return {
       rpc,
-      components,
+      breakdown,
       canonicalExists,
       upfrontRentLamports: canonicalExists
         ? 0n
@@ -1020,13 +1021,13 @@ export class Positions {
     };
   }
 
-  /** Finish merge/redeem planning with live fee authority and component deltas. */
+  /** Finish merge/redeem planning with live fee authority and balance deltas. */
   private async finishReceivePlan(
     kind: "merge" | "redeem",
     amountLamports: bigint,
-    transaction: Transaction,
+    transaction: V1Transaction,
     rpc: Rpc,
-    components: SolBalanceComponents,
+    breakdown: SolBalanceBreakdown,
     upfrontRentLamports: bigint,
     createsCanonicalWsolAccount: boolean,
     sponsored: boolean
@@ -1038,7 +1039,7 @@ export class Positions {
       createsCanonicalWsolAccount,
       sponsored,
     };
-    const availability = solBalanceAvailability(components, costs);
+    const availability = solBalanceAvailability(breakdown, costs);
     const walletCosts = sponsored ? 0n : feeLamports + upfrontRentLamports;
     return {
       kind,
@@ -1064,10 +1065,11 @@ export class Positions {
     canonicalTransfer: bigint,
     temporaryRent: bigint,
     seed: string,
-    temporary: PublicKey
-  ): Transaction {
+    temporary: PublicKey,
+    context: V1TransactionContext
+  ): V1Transaction {
     const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
-    return new Transaction({ feePayer: wallet }).add(
+    return V1Transaction.compile([
       SystemProgram.createAccountWithSeed({
         fromPubkey: wallet,
         newAccountPubkey: temporary,
@@ -1103,7 +1105,7 @@ export class Positions {
         toPubkey: recipient,
         lamports: amountLamports,
       })
-    );
+    ], wallet, context);
   }
 
   // ── On-chain transaction builders ────────────────────────────────────
@@ -1134,22 +1136,8 @@ export class Positions {
     return buildInitPositionTokensIx(params, numOutcomes, this.client.programId);
   }
 
-  extendPositionTokensIx(
-    params: ExtendPositionTokensParams,
-    numOutcomes: number
-  ): TransactionInstruction {
-    return buildExtendPositionTokensIx(params, numOutcomes, this.client.programId);
-  }
-
   depositToGlobalIx(params: DepositToGlobalParams): TransactionInstruction {
     return buildDepositToGlobalIx(params, this.client.programId);
-  }
-
-  depositToGlobalIxWithAlt(
-    params: DepositToGlobalParams,
-    altContext: DepositToGlobalAltContext
-  ): TransactionInstruction {
-    return buildDepositToGlobalIxWithAlt(params, altContext, this.client.programId);
   }
 
   globalToMarketDepositIx(
@@ -1161,10 +1149,6 @@ export class Positions {
 
   withdrawFromGlobalIx(params: WithdrawFromGlobalParams): TransactionInstruction {
     return buildWithdrawFromGlobalIx(params, this.client.programId);
-  }
-
-  closePositionAltIx(params: ClosePositionAltParams): TransactionInstruction {
-    return buildClosePositionAltIx(params, this.client.programId);
   }
 
   closePositionTokenAccountsIx(
@@ -1182,74 +1166,69 @@ export class Positions {
 
   redeemWinningsTx(
     params: RedeemWinningsParams,
-    outcomeIndex: number
-  ): Transaction {
+    outcomeIndex: number,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.redeemWinningsIx(params, outcomeIndex);
-    return new Transaction({ feePayer: params.user }).add(ix);
+    return V1Transaction.compile([ix], params.user, context);
   }
 
-  withdrawConditionalFromPositionTx(params: WithdrawConditionalFromPositionParams): Transaction {
+  withdrawConditionalFromPositionTx(
+    params: WithdrawConditionalFromPositionParams,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.withdrawConditionalFromPositionIx(params);
-    return new Transaction({ feePayer: params.user }).add(ix);
+    return V1Transaction.compile([ix], params.user, context);
   }
 
-  withdrawFromPositionTx(params: WithdrawFromPositionParams): Transaction {
-    return this.withdrawConditionalFromPositionTx(params);
+  withdrawFromPositionTx(
+    params: WithdrawFromPositionParams,
+    context: V1TransactionContext
+  ): V1Transaction {
+    return this.withdrawConditionalFromPositionTx(params, context);
   }
 
   initPositionTokensTx(
     params: InitPositionTokensParams,
-    numOutcomes: number
-  ): Transaction {
+    numOutcomes: number,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.initPositionTokensIx(params, numOutcomes);
-    return new Transaction({ feePayer: params.payer }).add(ix);
+    return V1Transaction.compile([ix], params.payer, context);
   }
 
-  extendPositionTokensTx(
-    params: ExtendPositionTokensParams,
-    numOutcomes: number
-  ): Transaction {
-    const ix = this.extendPositionTokensIx(params, numOutcomes);
-    return new Transaction({ feePayer: params.operator }).add(ix);
-  }
-
-  depositToGlobalTx(params: DepositToGlobalParams): Transaction {
-    const ix = this.depositToGlobalIx(params);
-    return new Transaction({ feePayer: params.user }).add(ix);
-  }
-
-  depositToGlobalTxWithAlt(
+  depositToGlobalTx(
     params: DepositToGlobalParams,
-    altContext: DepositToGlobalAltContext
-  ): Transaction {
-    const ix = this.depositToGlobalIxWithAlt(params, altContext);
-    return new Transaction({ feePayer: params.user }).add(ix);
+    context: V1TransactionContext
+  ): V1Transaction {
+    const ix = this.depositToGlobalIx(params);
+    return V1Transaction.compile([ix], params.user, context);
   }
 
   globalToMarketDepositTx(
     params: GlobalToMarketDepositParams,
-    numOutcomes: number
-  ): Transaction {
+    numOutcomes: number,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.globalToMarketDepositIx(params, numOutcomes);
-    return new Transaction({ feePayer: params.user }).add(ix);
+    return V1Transaction.compile([ix], params.user, context);
   }
 
-  withdrawFromGlobalTx(params: WithdrawFromGlobalParams): Transaction {
+  withdrawFromGlobalTx(
+    params: WithdrawFromGlobalParams,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.withdrawFromGlobalIx(params);
-    return new Transaction({ feePayer: params.user }).add(ix);
-  }
-
-  closePositionAltTx(params: ClosePositionAltParams): Transaction {
-    const ix = this.closePositionAltIx(params);
-    return new Transaction({ feePayer: params.operator }).add(ix);
+    return V1Transaction.compile([ix], params.user, context);
   }
 
   closePositionTokenAccountsTx(
     params: ClosePositionTokenAccountsParams,
-    numOutcomes: number
-  ): Transaction {
+    numOutcomes: number,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.closePositionTokenAccountsIx(params, numOutcomes);
-    return new Transaction({ feePayer: params.operator }).add(ix);
+    return V1Transaction.compile([ix], params.operator, context);
   }
 
   // ── Builder factories ──────────────────────────────────────────────
@@ -1280,10 +1259,6 @@ export class Positions {
 
   initPositionTokens(): InitPositionTokensBuilder {
     return new InitPositionTokensBuilder(this.client);
-  }
-
-  extendPositionTokens(): ExtendPositionTokensBuilder {
-    return new ExtendPositionTokensBuilder(this.client);
   }
 
   depositToGlobal(): DepositToGlobalBuilder {

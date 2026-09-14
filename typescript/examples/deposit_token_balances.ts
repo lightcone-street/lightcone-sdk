@@ -1,5 +1,5 @@
 /**
- * Fund-moving local/staging example: plan and confirm a native-SOL withdrawal
+ * Fund-moving local/staging example: plan and confirm a native SOL withdrawal
  * without closing the persistent canonical WSOL account, then refresh a complete
  * wallet snapshot covering the confirmation slot.
  */
@@ -31,7 +31,7 @@ async function main() {
   const state = new WalletDepositBalancesState();
   const ws = client.ws();
   // Install the reducer before subscribing so the complete baseline cannot race
-  // the listener; pre-baseline component events remain safely ignored by state.
+  // the listener; pre-baseline balance events remain safely ignored by state.
   const removeListener = ws.on((event) => {
     if (
       event.type === "Message" &&

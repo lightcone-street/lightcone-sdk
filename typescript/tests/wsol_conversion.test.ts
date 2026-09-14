@@ -87,8 +87,8 @@ describe("WSOL conversion example safety", () => {
       requireNonProduction({
         CI: "true",
         LIGHTCONE_ENV: "staging",
-        SDK_API_URL: "https://api.dev.lightcone.xyz",
-        SDK_WS_URL: "wss://ws.dev.lightcone.xyz/ws",
+        SDK_API_URL: "https://api.dev.internalcone.com",
+        SDK_WS_URL: "wss://ws.dev.internalcone.com/ws",
         SDK_RPC_URL: "https://example.invalid",
       })
     );
@@ -152,6 +152,6 @@ describe("WSOL conversion example safety", () => {
       /below confirmed slot 12/,
     );
     assert.equal(state.contextSlot, 11);
-    assert.equal(state.solComponents().nativeLamports, 1_000_000_000n);
+    assert.equal(state.solBalanceBreakdown().nativeLamports, 1_000_000_000n);
   });
 });

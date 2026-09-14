@@ -7,6 +7,10 @@
 //! - Subscription tracking + auto-resubscribe on reconnect
 //! - Message queue when disconnected
 //! - Callback-based event system (`on_event: impl Fn(WsEvent)`)
+//!
+//! Routine lifecycle transitions emit debug breadcrumbs, while transport and
+//! recovery failures remain warnings or errors. The consumer's tracing
+//! subscriber determines which severities are visible.
 
 use std::cell::RefCell;
 
@@ -16,7 +20,7 @@ use gloo_timers::callback::Timeout;
 use gloo_timers::future::IntervalStream;
 use tracing;
 use wasm_bindgen::prelude::*;
-use web_sys::{CloseEvent, ErrorEvent, MessageEvent, WebSocket};
+use web_sys::{CloseEvent, MessageEvent, WebSocket};
 
 use crate::ws::subscriptions::Subscription;
 use crate::ws::{
@@ -109,11 +113,11 @@ impl WsClient {
                 });
             }
             SendDisposition::QueueUntilOpen => {
-                tracing::info!("WebSocket is connecting; queueing message until it opens");
+                tracing::debug!("WebSocket is connecting; queueing message until it opens");
                 Self::queue_message(message);
             }
             SendDisposition::QueueAndReconnect => {
-                tracing::warn!(
+                tracing::debug!(
                     "Cannot send message ({}) - WebSocket not open (state: {:?}). Triggering reconnect...",
                     message,
                     ready_state
@@ -139,7 +143,7 @@ impl WsClient {
     /// Closes any existing connection, cancels pending reconnection,
     /// resets the attempt counter, and initiates a new connection.
     pub fn restart_connection() {
-        tracing::info!("Manual reconnection requested");
+        tracing::debug!("Manual reconnection requested");
         STOPPED.with(|s| {
             let _ = s.try_borrow_mut().map(|mut v| *v = false);
         });
@@ -179,7 +183,7 @@ impl WsClient {
     /// [`clear_authed_subscriptions`](Self::clear_authed_subscriptions)),
     /// the same way an app prunes them on logout.
     pub fn stop() {
-        tracing::info!("WebSocket stopped; auto-reconnect suppressed until an explicit restart");
+        tracing::debug!("WebSocket stopped; auto-reconnect suppressed until an explicit restart");
         STOPPED.with(|s| {
             let _ = s.try_borrow_mut().map(|mut v| *v = true);
         });
@@ -197,7 +201,7 @@ impl WsClient {
         PENDING_MESSAGES.with(|pending| {
             if let Ok(mut queue) = pending.try_borrow_mut() {
                 if !queue.is_empty() {
-                    tracing::info!(
+                    tracing::debug!(
                         "Dropping {} queued message(s) with the stopped session",
                         queue.len()
                     );
@@ -263,7 +267,7 @@ impl WsClient {
                 });
                 let removed = initial_len - subs_ref.len();
                 if removed > 0 {
-                    tracing::info!("Cleared {} authenticated subscription(s)", removed);
+                    tracing::debug!("Cleared {} authenticated subscription(s)", removed);
                 }
             }
         });
@@ -313,13 +317,13 @@ impl WsClient {
     fn do_connect() {
         match Self::ready_state() {
             ReadyState::Connecting | ReadyState::Open => {
-                tracing::info!("Already connected or connecting, skipping");
+                tracing::debug!("Already connected or connecting, skipping");
                 return;
             }
             _ => {}
         }
 
-        tracing::info!("Creating WebSocket connection");
+        tracing::debug!("Creating WebSocket connection");
 
         let url = Self::get_url();
         match WebSocket::new(&url) {
@@ -339,7 +343,7 @@ impl WsClient {
 
     fn setup_connection(ws: WebSocket) {
         let onopen = Closure::<dyn FnMut()>::new(move || {
-            tracing::info!("WebSocket opened");
+            tracing::debug!("WebSocket opened");
 
             RECONNECT_SCHEDULED.with(|s| {
                 let _ = s.try_borrow_mut().map(|mut f| *f = false);
@@ -375,15 +379,27 @@ impl WsClient {
         ws.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
         onmessage.forget();
 
-        let onerror = Closure::<dyn FnMut(_)>::new(move |e: ErrorEvent| {
-            let error = e.error();
+        let onerror = Closure::<dyn FnMut(_)>::new(move |event: JsValue| {
+            let error = js_sys::Reflect::get(&event, &JsValue::from_str("error"))
+                .unwrap_or(JsValue::UNDEFINED);
+            let message = js_sys::Reflect::get(&event, &JsValue::from_str("message"))
+                .ok()
+                .and_then(|value| value.as_string())
+                .unwrap_or_default();
             // Browser transport errors are followed by onclose, which owns
-            // lifecycle details and reconnect behavior. Keep useful payloads
-            // at one telemetry site instead of forwarding a duplicate event.
-            if has_websocket_error_payload(error.is_undefined(), error.is_null()) {
-                tracing::error!("WebSocket error: {}", extract_js_error(&error));
+            // lifecycle details and reconnect behavior. Keep diagnostic payloads
+            // actionable while treating an empty browser event as a breadcrumb.
+            let error = if error.is_undefined() || error.is_null() {
+                None
             } else {
-                tracing::info!("WebSocket error had no diagnostic payload; awaiting close details");
+                Some(extract_js_error(&error))
+            };
+            if let Some(diagnostic) = websocket_error_diagnostic(error, &message) {
+                tracing::error!("WebSocket error: {}", diagnostic);
+            } else {
+                tracing::debug!(
+                    "WebSocket error had no diagnostic payload; awaiting close details"
+                );
             }
         });
         ws.set_onerror(Some(onerror.as_ref().unchecked_ref()));
@@ -392,7 +408,7 @@ impl WsClient {
         let onclose = Closure::<dyn FnMut(_)>::new(move |e: CloseEvent| {
             let close_code = e.code();
             let reason = e.reason();
-            tracing::info!("WebSocket closed: code={}, reason={}", close_code, reason);
+            tracing::debug!("WebSocket closed: code={}, reason={}", close_code, reason);
 
             Self::cleanup_connection();
             Self::emit(WsEvent::Disconnected {
@@ -440,7 +456,7 @@ impl WsClient {
 
                 while interval.next().await.is_some() {
                     if !WsClient::is_connected() {
-                        tracing::info!("WebSocket not connected, stopping health check");
+                        tracing::debug!("WebSocket not connected, stopping health check");
                         break;
                     }
 
@@ -489,7 +505,7 @@ impl WsClient {
     // ── Reconnection ──────────────────────────────────────────────────────
 
     fn reconnect() {
-        tracing::info!("Handling WS disconnection");
+        tracing::debug!("Handling WS disconnection");
         Self::cleanup_connection();
         Self::schedule_reconnect(false);
     }
@@ -497,7 +513,7 @@ impl WsClient {
     fn schedule_reconnect(is_rate_limit: bool) {
         let stopped = STOPPED.with(|s| s.try_borrow().map(|v| *v).unwrap_or(false));
         if stopped {
-            tracing::info!("WebSocket is stopped; suppressing reconnect");
+            tracing::debug!("WebSocket is stopped; suppressing reconnect");
             return;
         }
 
@@ -515,7 +531,7 @@ impl WsClient {
         });
 
         if already_scheduled {
-            tracing::info!("Reconnect already scheduled, skipping");
+            tracing::debug!("Reconnect already scheduled, skipping");
             return;
         }
 
@@ -542,7 +558,7 @@ impl WsClient {
                     calculate_backoff_delay(*attempts_ref, 500, 60_000)
                 };
 
-                tracing::info!(
+                tracing::debug!(
                     "Scheduling reconnect attempt {} in {}ms (rate_limit: {})",
                     *attempts_ref,
                     delay,
@@ -554,7 +570,7 @@ impl WsClient {
                         timeout_ref.take();
 
                         *timeout_ref = Some(Timeout::new(delay, || {
-                            tracing::info!("Reconnect timeout fired");
+                            tracing::debug!("Reconnect timeout fired");
 
                             RECONNECT_SCHEDULED.with(|s| {
                                 let _ = s.try_borrow_mut().map(|mut f| *f = false);
@@ -622,9 +638,9 @@ impl WsClient {
     fn queue_message(message: MessageOut) {
         PENDING_MESSAGES.with(|queue| {
             if let Ok(mut q) = queue.try_borrow_mut() {
-                tracing::info!("Queueing message for delivery when connected: {}", message);
+                tracing::debug!("Queueing message for delivery when connected: {}", message);
                 q.push(message);
-                tracing::info!("Queue size: {} messages", q.len());
+                tracing::debug!("Queue size: {} messages", q.len());
             } else {
                 tracing::error!("Failed to queue message - queue already borrowed");
             }
@@ -638,12 +654,12 @@ impl WsClient {
                     return;
                 }
 
-                tracing::info!("Flushing {} pending messages", q.len());
+                tracing::debug!("Flushing {} pending messages", q.len());
                 let messages = std::mem::take(&mut *q);
                 drop(q);
 
                 for msg in messages {
-                    tracing::info!("Sending queued message: {}", msg);
+                    tracing::debug!("Sending queued message: {}", msg);
                     Self::send(msg);
                 }
             } else {
@@ -661,7 +677,7 @@ impl WsClient {
                     if let Ok(mut subs_ref) = subs.try_borrow_mut() {
                         let key = params.subscription_key();
                         if !subs_ref.iter().any(|sub| sub.subscription_key() == key) {
-                            tracing::info!("Tracking subscription: {:?}", params);
+                            tracing::debug!("Tracking subscription: {:?}", params);
                             subs_ref.push(params.clone());
                         }
                     }
@@ -674,7 +690,7 @@ impl WsClient {
                         subs_ref.retain(|sub| !sub.matches_unsubscribe(unsub_params));
                         let removed = initial_len - subs_ref.len();
                         if removed > 0 {
-                            tracing::info!("Removed {} subscription(s) from tracking", removed);
+                            tracing::debug!("Removed {} subscription(s) from tracking", removed);
                         }
                     }
                 });
@@ -690,7 +706,7 @@ impl WsClient {
                     return;
                 }
 
-                tracing::info!(
+                tracing::debug!(
                     "Resubscribing to {} tracked subscription(s)",
                     subs_ref.len()
                 );
@@ -700,7 +716,7 @@ impl WsClient {
 
                 for sub in subscriptions {
                     let msg = MessageOut::Subscribe(sub.clone());
-                    tracing::info!("Resubscribing: {:?}", sub);
+                    tracing::debug!("Resubscribing: {:?}", sub);
                     Self::send_without_tracking(msg);
                 }
             }
@@ -738,12 +754,24 @@ impl WsClient {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/// Whether `ErrorEvent.error` contains diagnostic data worth extracting.
+/// Combines the diagnostic fields exposed by a browser WebSocket error event.
 ///
-/// Browsers commonly expose null or undefined for WebSocket transport errors;
-/// the subsequent close event carries the actionable connection details.
-fn has_websocket_error_payload(is_undefined: bool, is_null: bool) -> bool {
-    !is_undefined && !is_null
+/// Browsers may deliver a generic `Event` without either property. A missing error
+/// value and blank message is routine transport lifecycle noise; the subsequent
+/// close event supplies its context at debug severity.
+fn websocket_error_diagnostic(error: Option<String>, message: &str) -> Option<String> {
+    let message = message.trim();
+    match (error, message) {
+        (None, "") => None,
+        (None, message) => Some(message.to_string()),
+        (Some(error), "") => Some(error),
+        (Some(error), message)
+            if error == message || error.ends_with(&format!(": {}", message)) =>
+        {
+            Some(error)
+        }
+        (Some(error), message) => Some(format!("{}; {}", error, message)),
+    }
 }
 
 fn extract_js_error(err: &JsValue) -> String {
@@ -816,9 +844,34 @@ mod tests {
     }
 
     #[test]
-    fn websocket_error_payload_requires_present_value() {
-        assert!(!has_websocket_error_payload(true, false));
-        assert!(!has_websocket_error_payload(false, true));
-        assert!(has_websocket_error_payload(false, false));
+    fn websocket_error_diagnostic_preserves_available_fields() {
+        assert_eq!(websocket_error_diagnostic(None, ""), None);
+        assert_eq!(websocket_error_diagnostic(None, " \t"), None);
+        assert_eq!(
+            websocket_error_diagnostic(None, "connection refused"),
+            Some("connection refused".to_string())
+        );
+        assert_eq!(
+            websocket_error_diagnostic(Some("connection refused".to_string()), ""),
+            Some("connection refused".to_string())
+        );
+        assert_eq!(
+            websocket_error_diagnostic(Some("Error".to_string()), "connection refused"),
+            Some("Error; connection refused".to_string())
+        );
+        assert_eq!(
+            websocket_error_diagnostic(
+                Some("connection refused".to_string()),
+                "connection refused"
+            ),
+            Some("connection refused".to_string())
+        );
+        assert_eq!(
+            websocket_error_diagnostic(
+                Some("Error: connection refused".to_string()),
+                "connection refused"
+            ),
+            Some("Error: connection refused".to_string())
+        );
     }
 }

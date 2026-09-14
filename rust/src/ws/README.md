@@ -119,7 +119,7 @@ The `User` channel delivers three event types:
 
 ### `WalletDepositBalancesEvent`
 
-The authenticated outer `wallet_deposit_balances` channel is scoped to a wallet owned by the current user and carries a nested union tagged by `event_type`. `wallet_deposit_balance_snapshot` establishes or replaces the complete baseline; `wallet_deposit_balance_update` replaces one absolute mint balance; `wallet_native_sol_balance_update` replaces the exact native value; and status events report `reconnecting` or `metadata_unavailable` without mutation. Use `WalletDepositBalancesState` so pre-snapshot and wrong-wallet component updates cannot cross lifecycle boundaries.
+The authenticated outer `wallet_deposit_balances` channel is scoped to a wallet owned by the current user and carries a nested union tagged by `event_type`. `wallet_deposit_balance_snapshot` establishes or replaces the complete baseline; `wallet_deposit_balance_update` replaces one absolute mint balance; `wallet_native_sol_balance_update` replaces the exact native value; and status events report `reconnecting` or `metadata_unavailable` without mutation. Use `WalletDepositBalancesState` so pre-snapshot and wrong-wallet balance updates cannot cross lifecycle boundaries.
 
 ## WsEvent
 

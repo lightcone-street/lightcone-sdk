@@ -44,8 +44,8 @@ impl LightconeEnv {
             return override_url;
         }
         match self {
-            Self::Local => "https://api.local.lightcone.xyz",
-            Self::Staging => "https://api.staging.lightcone.xyz",
+            Self::Local => "https://api.local.internalcone.com",
+            Self::Staging => "https://api.staging.internalcone.com",
             Self::Prod => "https://api.lightcone.xyz",
         }
         .to_string()
@@ -60,8 +60,8 @@ impl LightconeEnv {
             return override_url;
         }
         match self {
-            Self::Local => "wss://ws.local.lightcone.xyz/ws",
-            Self::Staging => "wss://ws.staging.lightcone.xyz/ws",
+            Self::Local => "wss://ws.local.internalcone.com/ws",
+            Self::Staging => "wss://ws.staging.internalcone.com/ws",
             Self::Prod => "wss://ws.lightcone.xyz/ws",
         }
         .to_string()
@@ -123,17 +123,49 @@ mod tests {
     use super::*;
 
     #[test]
-    fn local_environment_targets_local_backend() {
-        let environment = LightconeEnv::Local;
+    fn environment_defaults_target_expected_backends() -> Result<(), Box<dyn std::error::Error>> {
+        // Isolate overrides in a child rather than mutate the parallel test process.
+        if std::env::var_os("SDK_API_URL").is_some() || std::env::var_os("SDK_WS_URL").is_some() {
+            let output = std::process::Command::new(std::env::current_exe()?)
+                .args([
+                    "--exact",
+                    "env::tests::environment_defaults_target_expected_backends",
+                ])
+                .env_remove("SDK_API_URL")
+                .env_remove("SDK_WS_URL")
+                .output()?;
+            assert!(
+                output.status.success(),
+                "isolated environment defaults test failed"
+            );
+            assert!(
+                String::from_utf8(output.stdout)?.contains("test result: ok. 1 passed;"),
+                "isolated environment defaults test did not run exactly one test"
+            );
+            return Ok(());
+        }
 
-        assert_eq!(
-            environment.api_url(),
-            "https://api.local.lightcone.xyz".to_string()
-        );
-        assert_eq!(
-            environment.ws_url(),
-            "wss://ws.local.lightcone.xyz/ws".to_string()
-        );
+        for (environment, api_url, ws_url) in [
+            (
+                LightconeEnv::Local,
+                "https://api.local.internalcone.com",
+                "wss://ws.local.internalcone.com/ws",
+            ),
+            (
+                LightconeEnv::Staging,
+                "https://api.staging.internalcone.com",
+                "wss://ws.staging.internalcone.com/ws",
+            ),
+            (
+                LightconeEnv::Prod,
+                "https://api.lightcone.xyz",
+                "wss://ws.lightcone.xyz/ws",
+            ),
+        ] {
+            assert_eq!(environment.api_url(), api_url, "{environment} API URL");
+            assert_eq!(environment.ws_url(), ws_url, "{environment} WebSocket URL");
+        }
+        Ok(())
     }
 
     #[test]

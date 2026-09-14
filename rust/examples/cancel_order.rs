@@ -5,9 +5,9 @@ use common::{
     ExampleResult,
 };
 use lightcone::prelude::*;
+use lightcone::program::V1Transaction;
 use lightcone::{program::types::OrderSide, shared::scale_price_size};
 use solana_signer::Signer;
-use solana_transaction::Transaction;
 
 #[tokio::main]
 async fn main() -> ExampleResult {
@@ -66,8 +66,6 @@ async fn main() -> ExampleResult {
     )?
     .quote_atoms;
     let mint = quote_deposit_mint(&orderbook)?;
-    let rpc_sub = client.rpc();
-    let rpc = rpc_sub.inner().await?;
     let withdraw_ix = client
         .positions()
         .withdraw_from_global()
@@ -75,10 +73,16 @@ async fn main() -> ExampleResult {
         .mint(mint)
         .amount(order_quote_amount)
         .build_ix()?;
-    let blockhash = rpc_sub.get_latest_blockhash().await?;
-    let mut withdraw_tx = Transaction::new_with_payer(&[withdraw_ix], Some(&keypair.pubkey()));
-    withdraw_tx.try_sign(&[&keypair], blockhash)?;
-    let withdraw_sig = rpc.send_and_confirm_transaction(&withdraw_tx).await?;
+    let context = client.transaction_context().await?;
+    let withdraw_tx = V1Transaction::compile(&[withdraw_ix], &keypair.pubkey(), &context)?;
+    let withdraw_tx = withdraw_tx.sign(&[&keypair])?;
+    let withdraw_sig = client.submit_signed_transaction(&withdraw_tx).await?;
+    client
+        .confirm_signature(
+            &withdraw_sig,
+            Some(withdraw_tx.context().last_valid_block_height),
+        )
+        .await?;
     println!("withdraw_from_global: confirmed {withdraw_sig}");
 
     Ok(())

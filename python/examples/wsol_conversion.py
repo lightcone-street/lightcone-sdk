@@ -11,15 +11,15 @@ import os
 from collections.abc import Awaitable, Callable
 
 from common import get_keypair, login, rest_client
-from solders.transaction import Transaction
 
 from lightcone_sdk.client import ConfirmedTransaction
 from lightcone_sdk.domain.position import (
     DepositTokenBalancesSnapshot,
-    SolBalanceComponents,
-    SolComponentDelta,
+    SolBalanceBreakdown,
+    SolBalanceDelta,
     WalletDepositBalancesState,
 )
+from lightcone_sdk.program.transaction import V1Transaction
 from lightcone_sdk.shared.signing import SigningStrategy
 from lightcone_sdk.ws import WsEventType
 from lightcone_sdk.ws.subscriptions import WalletDepositBalancesParams
@@ -90,8 +90,8 @@ async def main() -> None:
         print(
             f"final wrap upfront rent: {wrap_plan.costs.upfront_rent_lamports} lamports"
         )
-        frozen_wrap = project_components(
-            wrap_plan.availability.components, wrap_plan.expected_delta
+        frozen_wrap = project_breakdown(
+            wrap_plan.availability.breakdown, wrap_plan.expected_delta
         )
         wrap_confirmed = await submit_prepared_once(
             wrap_plan.transaction,
@@ -125,8 +125,8 @@ async def main() -> None:
 
         # No pause or cached plan crosses this boundary. Preserve and submit that
         # exact prepared message.
-        frozen_unwrap = project_components(
-            unwrap_plan.availability.components, unwrap_plan.expected_delta
+        frozen_unwrap = project_breakdown(
+            unwrap_plan.availability.breakdown, unwrap_plan.expected_delta
         )
         unwrap_confirmed = await submit_prepared_once(
             unwrap_plan.transaction,
@@ -152,22 +152,22 @@ async def main() -> None:
         await client.close()
 
 
-def project_components(
-    components: SolBalanceComponents, delta: SolComponentDelta
-) -> SolBalanceComponents:
-    """Freeze a plan projection without mutation, rejecting negative components."""
-    native_lamports = components.native_lamports + delta.native_lamports
+def project_breakdown(
+    breakdown: SolBalanceBreakdown, delta: SolBalanceDelta
+) -> SolBalanceBreakdown:
+    """Freeze a plan projection without mutation, rejecting negative balances."""
+    native_lamports = breakdown.native_lamports + delta.native_lamports
     canonical_wsol_lamports = (
-        components.canonical_wsol_lamports + delta.canonical_wsol_lamports
+        breakdown.canonical_wsol_lamports + delta.canonical_wsol_lamports
     )
     if native_lamports < 0 or canonical_wsol_lamports < 0:
         raise ValueError("planner produced a negative frozen SOL projection")
-    return SolBalanceComponents(native_lamports, canonical_wsol_lamports)
+    return SolBalanceBreakdown(native_lamports, canonical_wsol_lamports)
 
 
 async def submit_prepared_once(
-    transaction: Transaction,
-    submit: Callable[[Transaction], Awaitable[ConfirmedTransaction]],
+    transaction: V1Transaction,
+    submit: Callable[[V1Transaction], Awaitable[ConfirmedTransaction]],
 ) -> ConfirmedTransaction:
     """Submit one prepared message exactly once and propagate uncertain failure."""
     return await submit(transaction)

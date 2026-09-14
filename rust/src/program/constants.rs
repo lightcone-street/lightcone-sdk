@@ -10,16 +10,11 @@ use std::str::FromStr;
 // Program IDs
 // ============================================================================
 
-lazy_static::lazy_static! {
-    /// Address Lookup Table Program ID
-    pub static ref ALT_PROGRAM_ID: Pubkey = Pubkey::from_str("AddressLookupTab1e1111111111111111111111111").unwrap();
-}
-
 /// SPL Token Program ID
-pub const TOKEN_PROGRAM_ID: Pubkey = spl_token::ID;
+pub const TOKEN_PROGRAM_ID: Pubkey = spl_token_interface::ID;
 
 /// Associated Token Account Program ID
-pub const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey = spl_associated_token_account::ID;
+pub const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey = spl_associated_token_account_interface::program::ID;
 
 /// System Program ID
 pub const SYSTEM_PROGRAM_ID: Pubkey = solana_sdk_ids::system_program::ID;
@@ -33,7 +28,7 @@ lazy_static::lazy_static! {
         Pubkey::from_str("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s").unwrap();
     /// Pubkey allowed by the on-chain program to initialize the exchange.
     pub static ref INITIALIZE_AUTHORITY: Pubkey =
-        Pubkey::from_str("2m6iAtMVmd3jE2BpNxoa9E79Kj7NeE6UxBFNyCBp6QEb").unwrap();
+        Pubkey::from_str("3vYRAzr5X41hrmKMnDCoQJJmPH89S4LLwmFpk8UtwCqr").unwrap();
 }
 
 // ============================================================================
@@ -65,12 +60,9 @@ pub mod instruction {
     pub const GLOBAL_TO_MARKET_DEPOSIT: u8 = 18;
     pub const INIT_POSITION_TOKENS: u8 = 19;
     pub const DEPOSIT_AND_SWAP: u8 = 20;
-    pub const EXTEND_POSITION_TOKENS: u8 = 21;
     pub const WITHDRAW_FROM_GLOBAL: u8 = 22;
-    pub const CLOSE_POSITION_ALT: u8 = 23;
     pub const CLOSE_ORDER_STATUS: u8 = 24;
     pub const CLOSE_POSITION_TOKEN_ACCOUNTS: u8 = 25;
-    pub const CLOSE_ORDERBOOK_ALT: u8 = 26;
     pub const CLOSE_ORDERBOOK: u8 = 27;
     pub const SET_MANAGER: u8 = 28;
     pub const SET_MARKET_FEES: u8 = 29;
@@ -78,11 +70,16 @@ pub mod instruction {
     pub const CREATE_CONDITIONAL_METADATA: u8 = 31;
     pub const UPDATE_CONDITIONAL_METADATA: u8 = 32;
     pub const SET_ORACLE: u8 = 33;
-    pub const REFRESH_ORDERBOOK_ALT: u8 = 34;
     pub const ACCEPT_AUTHORITY: u8 = 35;
     pub const ACCEPT_MANAGER: u8 = 36;
     pub const ACCEPT_OPERATOR: u8 = 37;
     pub const SET_DEPOSIT_TOKEN_STATUS: u8 = 38;
+    /// Reserved discriminator of the program's private event-batch self-CPI.
+    ///
+    /// The program dispatches this value before the public instruction table
+    /// and accepts it only when signed by the event-authority PDA. The SDK
+    /// never builds it; it is listed so no public instruction reuses the value.
+    pub const EVENT_BATCH: u8 = u8::MAX;
 }
 
 // ============================================================================
@@ -135,6 +132,11 @@ pub const GLOBAL_DEPOSIT_TOKEN_SEED: &[u8] = b"global_deposit";
 pub const FEE_RECEIVER_SEED: &[u8] = b"fee_receiver";
 /// Metaplex metadata PDA seed.
 pub const MPL_METADATA_SEED: &[u8] = b"metadata";
+/// Event-authority PDA seed.
+///
+/// The program signs its final event-batch self-CPI with this PDA and requires
+/// every public instruction to list it as a read-only, non-signer trailer.
+pub const EVENT_AUTHORITY_SEED: &[u8] = b"__event_authority";
 
 // ============================================================================
 // Account Sizes
@@ -151,7 +153,7 @@ pub const USER_NONCE_SIZE: usize = 16;
 /// Position account size in bytes
 pub const POSITION_SIZE: usize = 80;
 /// Orderbook account size in bytes
-pub const ORDERBOOK_SIZE: usize = 144;
+pub const ORDERBOOK_SIZE: usize = 176;
 /// GlobalDepositToken account size in bytes
 pub const GLOBAL_DEPOSIT_TOKEN_SIZE: usize = 47;
 
@@ -174,5 +176,42 @@ pub const SIGNATURE_SIZE: usize = 64;
 pub const MAX_OUTCOMES: u8 = 6;
 /// Minimum outcomes per market
 pub const MIN_OUTCOMES: u8 = 2;
-/// Maximum makers in a single match_orders_multi instruction
-pub const MAX_MAKERS: usize = 5;
+/// Parser ceiling for matching instructions. Transactions must also fit runtime limits.
+pub const MAX_MAKERS: usize = 11;
+/// Little-endian participant-mask width in bytes.
+pub const PARTICIPANT_MASK_LEN: usize = 2;
+/// Taker bit in the full-fill and deposit masks. Maker bits occupy positions 0 through 10.
+pub const TAKER_MASK: u16 = 1 << 15;
+/// Maximum deposit mints the program registers per market.
+///
+/// `AddDepositMint` rejects a further mint with on-chain error 75
+/// (`TooManyDepositMints`).
+pub const MAX_DEPOSIT_MINTS_PER_MARKET: u8 = 8;
+/// Maximum deposit-mint groups accepted by one `InitPositionTokens`
+/// instruction. Equal to the per-market cap so a single
+/// call can name every mint on a market.
+pub const MAX_DEPOSIT_MINTS_PER_IX: usize = MAX_DEPOSIT_MINTS_PER_MARKET as usize;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_transport_constants_match_program() {
+        assert_eq!(MAX_MAKERS, 11);
+        assert_eq!(PARTICIPANT_MASK_LEN, 2);
+        assert_eq!(TAKER_MASK, 0x8000);
+        assert_eq!(
+            INITIALIZE_AUTHORITY.to_string(),
+            "3vYRAzr5X41hrmKMnDCoQJJmPH89S4LLwmFpk8UtwCqr"
+        );
+        assert_eq!(EVENT_AUTHORITY_SEED, b"__event_authority");
+        assert_eq!(instruction::EVENT_BATCH, 255);
+    }
+
+    #[test]
+    fn deposit_mint_limits_match_program() {
+        assert_eq!(MAX_DEPOSIT_MINTS_PER_MARKET, 8);
+        assert_eq!(MAX_DEPOSIT_MINTS_PER_IX, 8);
+    }
+}

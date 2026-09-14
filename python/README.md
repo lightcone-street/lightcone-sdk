@@ -20,6 +20,8 @@ Python SDK for the Lightcone impact market protocol on Solana.
 
 ## Installation
 
+Requires Python 3.11 or newer. Official v1 bindings require `solders>=0.29,<0.30` and `solana>=0.40,<0.41`; solana 0.40 requires Python 3.11.
+
 ```bash
 pip install git+https://github.com/lightcone-street/lightcone-sdk.git@prod#subdirectory=python
 ```
@@ -36,12 +38,67 @@ checks.
 
 `LightconeClientBuilder().transaction_sponsorship(True)` and
 `client.set_transaction_sponsorship_enabled(True)` are trusted application
-assertions for wallet-adapter and Privy signing. The default is false, each
-transaction captures its signer and capability before asynchronous RPC work, and
-local-keypair submission rejects an enabled capability. Unsponsored shared Privy
-submission best-effort installs blockhash evidence for the fee check; lookup
-failure preserves backend forwarding. Raw `Privy.sign_and_send_tx` forwarding and
-off-chain order-message signing are outside this contract.
+assertions for external signing. The default is false, each transaction captures
+its signer and capability before asynchronous RPC work, and local-keypair
+submission rejects an enabled capability. Off-chain order-message signing remains
+outside this contract. Privy's backend transaction endpoint cannot expose its final
+signed bytes and is rejected by both shared submission and `Privy.sign_and_send_tx`.
+
+## Solana v1 transactions
+
+Every transaction builder and submission API accepts only `V1Transaction`.
+Legacy/v0 imports, ComputeBudget instructions, messages with more than 64 distinct
+accounts, and wire transactions larger than 4096 bytes (including every signature)
+are rejected. Instruction encoders continue to return solders `Instruction` values.
+
+The following async usage excerpt assumes an initialized, funded `keypair` and
+runs inside your application's async function.
+
+```python
+from lightcone_sdk import LightconeClientBuilder, V1ResourceConfig, V1Transaction
+
+# Explicit example limits; select budgets for your own workload.
+resources = V1ResourceConfig(
+    compute_unit_limit=200_000,
+    loaded_accounts_data_size_limit=1_048_576,
+    priority_fee_lamports=0,  # Total lamports, not micro-lamports per compute unit.
+)
+client = (LightconeClientBuilder().native_signer(keypair)
+          .transaction_resources(resources).build())
+context = await client.transaction_context()
+tx = client.orders().increment_nonce_tx(keypair.pubkey(), context)
+# Fluent builders use .build_tx(context); .sign_and_submit() obtains configured context.
+confirmed = await client.sign_and_submit_tx_confirmed_with_slot(tx)
+```
+
+Offline compilation uses `V1Transaction.compile(instructions, payer, context)`.
+`V1TransactionContext` stores the blockhash and last valid block height returned
+by one `getLatestBlockhash` response. `client.transaction_context_with_resources`
+fetches a context for a specific explicit budget. No SDK resource defaults are
+selected. Optional `heap_size` is bytes, 32–256 KiB in 1-KiB steps.
+
+Transactions and contexts are immutable. `tx.sign(keypairs)` returns a new signed
+transaction and requires every signer; it never changes the original transaction.
+Use `tx.to_wire_bytes()` for canonical version-prefixed wire encoding and
+`tx.message_bytes()` for signing/fee bytes. `from_wire_bytes(wire, context)` rejects
+noncanonical encodings, legacy/v0 data, and context mismatches. An external signer's
+`sign_transaction(bytes)` must return valid signatures over the exact original
+message; changing budgets, instructions, accounts, payer, or blockhash is rejected.
+
+Submission requires active runtime v1 support, verifies all signatures, simulates
+the exact signed bytes with signature verification and no blockhash replacement,
+and sends once with preflight and `maxRetries=0`. It never retries or changes
+endpoints after an uncertain send. Definite request or preflight rejections raise
+`SubmissionRejected` with the signature, RPC code, and reason. `AlreadyProcessed`
+and uncertain sends raise `SubmissionUnknown`, which retains `signature`,
+`last_valid_block_height`, and `reason`; reconcile the signature before another
+attempt. Confirmation retains the original expiry for ordinary and SOL-prepared
+transactions. A changed budget requires a fresh plan and signatures.
+
+The Privy backend only returns a submission hash, so it cannot satisfy these
+checks. Use a v1-capable `ExternalSigner` that returns signed bytes; Privy off-chain
+order signing remains available. See the [v1 ADR](../docs/adr/0004-solana-v1.md).
+
 
 
 ## Quick Start
@@ -310,13 +367,16 @@ separate from the mint-keyed SPL `balances` mapping. Use
 `wallet_deposit_balances` WebSocket events, and to derive exact native plus
 canonical WSOL without floating-point arithmetic:
 
-The nested `wallet_deposit_balance_snapshot` replaces all stored SPL and native
-state even after a higher component slot. `wallet_deposit_balance_update`
+The reducer methods accept an optional `minimum_snapshot_slot`; only a complete
+REST or stream snapshot below that floor is ignored without mutation. Equal-slot
+snapshots and all individual balance/status events keep their existing behavior. Without
+a floor, the nested `wallet_deposit_balance_snapshot` replaces all stored SPL and
+native state even after a higher individual balance slot. `wallet_deposit_balance_update`
 replaces one absolute SPL balance and removes explicit zero, while
 `wallet_native_sol_balance_update` replaces the absolute native value rather
 than applying a delta. Pre-baseline updates, wrong-wallet updates, and
 `wallet_deposit_balance_status` do not mutate state. `context_slot` records the
-latest accepted component observation rather than enforcing global monotonicity.
+latest accepted balance observation rather than enforcing global monotonicity.
 Matching SPL updates with invalid or negative idle balances return `REJECTED`
 without changing balances or the context slot.
 
@@ -397,14 +457,16 @@ match the live token amount exactly. Unlike exact wrap, unwrap-all accepts
 unsynchronized excess because close returns it directly without changing the
 token amount. Its `SolActionCosts` fields are always the live fee, zero upfront rent, no
 account creation, and no sponsorship. Availability is the unchanged
-native/canonical component pair with displayed SOL checked in the common
+native/canonical balance breakdown with displayed SOL checked in the common
 unsigned 64-bit range, reserve equal to the fee only, and spendable equal to
 displayed minus fee after native SOL proves it can pay that fee. The native delta
 is the complete account balance minus fee; the canonical delta removes the full
-token amount. Wallet-adapter and Privy strategies are rejected only for these
-explicit conversion planners, not for ordinary actions.
+token amount. These explicit conversion planners require native-keypair signing.
+Ordinary SOL planning keeps its separate wallet-identity rules, and v1-capable
+external signers can submit ordinary plans. All Privy transaction submission is
+rejected because its backend cannot expose the final signed bytes for validation.
 
-`SolBalanceAvailability.from_unwrap_all_costs(components, costs)` is the
+`SolBalanceAvailability.from_unwrap_all_costs(breakdown, costs)` is the
 conversion-specific fee-only constructor. It accepts the complete factual cost
 tuple and rejects any nonzero upfront rent, canonical-account creation, or
 sponsorship before deriving the exact fee reserve; ordinary availability keeps
@@ -412,7 +474,7 @@ using `from_costs` and its configured reserve floors.
 
 Rebuild every plan immediately before signing, submit with
 `sign_and_submit_prepared_tx_confirmed_with_slot` so the fee-estimated message is
-preserved, hold its component projection frozen, and refresh a complete snapshot
+preserved, hold its balance projection frozen, and refresh a complete snapshot
 covering the confirmed slot before restoring action authority. After unwrap-all,
 that refresh is mandatory before another attempt because the canonical account
 no longer exists. Prepared submission is unavailable for Privy because its final
@@ -490,9 +552,14 @@ The authenticated markets client provides paginated `favorite_markets(limit=None
 
 | Example | Description |
 |---------|-------------|
-| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.py) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, withdraw from global, and merge back to keep the run net-neutral |
+| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.py) | Deposit to the global pool, move capital into a market, withdraw from global, and merge the complete set |
 | [`read_onchain`](examples/read_onchain.py) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.py) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
+
+Every instruction builder appends the program's event transport trailer (the
+event-authority PDA, then the program account) automatically, and public
+instructions require transaction-level invocation except for the governance CPI allowlist. See the
+[program module README](src/lightcone_sdk/program/README.md#event-transport-trailer).
 
 ### WebSocket Streaming
 
@@ -500,7 +567,7 @@ The authenticated markets client provides paginated `favorite_markets(limit=None
 |---------|-------------|
 | [`ws_book_and_trades`](examples/ws_book_and_trades.py) | Live orderbook depth with `OrderbookState` state + rolling `TradeHistory` buffer |
 | [`ws_ticker_and_prices`](examples/ws_ticker_and_prices.py) | Best bid/ask ticker + price history line data with `PriceHistoryState` |
-| [`ws_user_and_market`](examples/ws_user_and_market.py) | Authenticated user stream (orders, balances) + market lifecycle events |
+| [`ws_user_and_market`](examples/ws_user_and_market.py) | Read-only authenticated user/market subscriptions plus one reduced Trading Wallet balance snapshot |
 
 ## Error Handling
 
@@ -517,6 +584,8 @@ or one of its subclasses:
 | `MissingMarketContext` | Market context not provided for operation requiring `DepositSource.MARKET` |
 | `SigningError` | Signing operation failures |
 | `UserCancelled` | User cancelled wallet signing prompt |
+| `SubmissionRejected` | RPC rejected the request or preflight before queuing; retains `signature`, `code`, and `reason` |
+| `SubmissionUnknown` | A send acknowledgement failed or was invalid; retains `signature`, `last_valid_block_height`, and `reason` for reconciliation before retrying |
 | `SdkError` | Catch-all for other SDK failures |
 
 Strict wallet-balance REST and nested WebSocket decoders raise `TypeError` for

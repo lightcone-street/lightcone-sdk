@@ -4,12 +4,12 @@ from solders.pubkey import Pubkey
 
 from ..env import PROGRAM_ID
 from .constants import (
-    ALT_PROGRAM_ID,
     MPL_TOKEN_METADATA_PROGRAM_ID,
     ORDERBOOK_SEED,
     SEED_CENTRAL_STATE,
     SEED_CONDITION,
     SEED_CONDITIONAL_MINT,
+    SEED_EVENT_AUTHORITY,
     SEED_GLOBAL_DEPOSIT,
     SEED_MARKET,
     SEED_MINT_AUTHORITY,
@@ -28,6 +28,18 @@ def get_exchange_pda(program_id: Pubkey = PROGRAM_ID) -> tuple[Pubkey, int]:
     Seeds: ["central_state"]
     """
     return Pubkey.find_program_address([SEED_CENTRAL_STATE], program_id)
+
+
+def get_event_authority_pda(program_id: Pubkey = PROGRAM_ID) -> tuple[Pubkey, int]:
+    """Derive the event-authority PDA.
+
+    Seeds: ["__event_authority"]
+
+    The program signs its event-batch self-CPI with this PDA and requires every
+    public instruction to pass it as a read-only, non-signer trailer account
+    immediately before the program account. The account holds no data.
+    """
+    return Pubkey.find_program_address([SEED_EVENT_AUTHORITY], program_id)
 
 
 def get_market_pda(
@@ -188,18 +200,6 @@ def get_global_deposit_pda(
     )
 
 
-def get_alt_pda(authority: Pubkey, recent_slot: int) -> tuple[Pubkey, int]:
-    """Derive the Address Lookup Table PDA.
-
-    Seeds: [authority, recent_slot (u64 LE)]
-    Uses the ALT_PROGRAM_ID as the program.
-    """
-    return Pubkey.find_program_address(
-        [bytes(authority), encode_u64(recent_slot)],
-        ALT_PROGRAM_ID,
-    )
-
-
 def get_all_conditional_mint_pdas(
     market: Pubkey,
     deposit_mint: Pubkey,
@@ -240,7 +240,10 @@ def get_all_conditional_mints(
 ) -> list[Pubkey]:
     """Deprecated: Use get_all_conditional_mint_pdas instead."""
     return [
-        addr for addr, _ in get_all_conditional_mint_pdas(market, deposit_mint, num_outcomes, program_id)
+        addr
+        for addr, _ in get_all_conditional_mint_pdas(
+            market, deposit_mint, num_outcomes, program_id
+        )
     ]
 
 
@@ -256,18 +259,4 @@ def get_user_global_deposit_pda(
     return Pubkey.find_program_address(
         [SEED_GLOBAL_DEPOSIT, bytes(user), bytes(mint)],
         program_id,
-    )
-
-
-def get_position_alt_pda(
-    position: Pubkey,
-    recent_slot: int,
-) -> tuple[Pubkey, int]:
-    """Derive the Address Lookup Table PDA for a position.
-
-    Seeds: [position, slot_le], program: ALT_PROGRAM_ID
-    """
-    return Pubkey.find_program_address(
-        [bytes(position), encode_u64(recent_slot)],
-        ALT_PROGRAM_ID,
     )

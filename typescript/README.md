@@ -17,6 +17,7 @@ TypeScript SDK for the Lightcone impact market protocol on Solana.
 - [Environment Configuration](#environment-configuration)
 - [Examples](#examples)
 - [Error Handling](#error-handling)
+- [Solana v1 transactions](#solana-v1-transactions)
 - [Transaction Fee Funding](#transaction-fee-funding)
 - [Retry Strategy](#retry-strategy)
 
@@ -25,6 +26,83 @@ TypeScript SDK for the Lightcone impact market protocol on Solana.
 ```bash
 npm install @lightconexyz/lightcone-sdk
 ```
+
+## Solana v1 transactions
+
+All transaction builders and submission methods now use `V1Transaction`. Legacy
+and v0 envelopes are rejected. Instruction builders still return web3.js
+`TransactionInstruction`, and addresses remain web3.js `PublicKey` values.
+The official `@solana/kit` 8.0.0 codec owns v1 wire serialization.
+
+Configure explicit resources before using fluent submission or SOL planners:
+
+```typescript
+const client = LightconeClient.builder()
+  .nativeSigner(keypair)
+  .transactionResources({
+    computeUnitLimit: 200_000,               // choose the limit for this workload
+    loadedAccountsDataSizeLimit: 65_536,     // bytes
+    priorityFeeLamports: 0n,                 // total lamports, not a CU price
+  })
+  .build();
+const context = await client.transactionContext();
+const tx = client.positions().depositToGlobal()
+  .user(keypair.publicKey).mint(mint).amount(1_000_000n)
+  .buildTx(context);
+const confirmed = await client.signAndSubmitTxConfirmedWithSlot(tx);
+```
+
+`client.transactionContextWithResources(resources)` supplies limits for one
+context. Direct `build*Tx` instruction helpers take a required context before the
+optional program ID; domain `*Tx` methods and fluent `buildTx` take it last.
+Use `V1Transaction.compile(instructions, payer, context)` to compose instructions.
+Resources have no SDK defaults: compute units must be 1–1,400,000, loaded account
+data 1–67,108,864 bytes, optional heap 32–256 KiB in 1-KiB increments, and priority
+fees unsigned 64-bit `bigint` total lamports. Context expiry heights are exact
+positive safe integers returned alongside their blockhash.
+
+The transaction owns its immutable message and includes every required signature
+slot when enforcing the 4,096-byte limit. It supports at most 64 distinct addresses,
+12 signers, and 64 instructions. ComputeBudget instructions and address lookup
+tables are unsupported. Split large account-initialization requests into batches;
+an instruction valid by itself can exceed a transaction's account or byte limit.
+`toWireBytes()` and `messageBytes()` return copies. `sign([keypair, ...])` returns a
+new transaction; `fromWireBytes(bytes, context)` validates canonical imports.
+
+Wallet adapters must implement `ExternalSigner.signTransaction` with v1 byte
+support, return every required valid Ed25519 signature, and preserve the exact
+message, including resources, fee payer, accounts, instructions, and blockhash.
+Unsponsored external signers must report their `walletAddress`. Both shared and
+raw Privy transaction methods fail before network activity because the current
+Privy sign-and-send endpoint cannot expose its signed bytes for validation; use
+an `ExternalSigner` that returns signed v1 bytes. Privy off-chain orders remain
+available.
+
+Before prompting a wallet the SDK checks the cluster's v1 feature activation.
+Submission verifies all signatures, checks activation again, simulates the exact
+signed bytes with `sigVerify: true` and `replaceRecentBlockhash: false`, then sends
+once with preflight enabled and `maxRetries: 0`. There is no send retry or RPC
+failover. Definite request or preflight rejections return `SubmissionRejected`
+with `signature` and `rpcCode`. `AlreadyProcessed` and uncertain sends return
+`SubmissionUnknown`, preserving `signature` and `lastValidBlockHeight` for
+reconciliation. Confirmation uses the original expiry for ordinary and prepared
+transactions. Rebuild and obtain new signatures when the message or budget changes;
+a timeout or expired status does not authorize automatic resubmission.
+
+Canonical v1 RPC uses a direct `fetch` transport to avoid web3.js's internal
+rate-limit retry. Fee estimation, feature checks, and simulation use read-only
+retry and failover with their exact parameters. Sends use one HTTP attempt.
+Use `.rpcFetch(customFetch)` on the builder when RPC access needs custom headers or
+a transport override. The supplied transport must also avoid resending requests.
+Existing account reads and confirmation retain their read-only failover behavior.
+
+Legacy `Connection`
+constructor headers/middleware are not copied into the v1 transport; configure
+v1 authentication in `rpcFetch`, including when supplying your own Connection.
+SDK-managed connections (including clones and backups) share that fetch for
+blockhash acquisition and other reads.
+
+See the [cross-language transaction ADR](../docs/adr/0004-solana-v1.md).
 
 ## Transaction Fee Funding
 
@@ -38,11 +116,10 @@ actions retain fail-closed live fee, rent, and reserve checks.
 
 `LightconeClient.builder().transactionSponsorship(true)` and
 `client.setTransactionSponsorshipEnabled(true)` are trusted application assertions
-for wallet-adapter and Privy signing. The default is false, each transaction
+for wallet-adapter transaction signing. The default is false, each transaction
 captures its signer and capability before asynchronous RPC work, `clone()` copies
-the current value, and local-keypair submission rejects an enabled capability. Raw
-`Privy.signAndSendTx` forwarding and off-chain order-message signing are outside
-this contract.
+the current value, and local-keypair submission rejects an enabled capability. Off-chain order-message signing is outside this contract. Privy transaction
+submission is unavailable until signed v1 bytes can be verified.
 
 ## Quick Start
 
@@ -57,6 +134,11 @@ import {
 async function main() {
   const client = LightconeClient.builder()
     .depositSource(DepositSource.Market)
+    .transactionResources({
+      computeUnitLimit: 200_000,
+      loadedAccountsDataSizeLimit: 65_536,
+      priorityFeeLamports: 0n,
+    })
     .build();
   const keypair = Keypair.generate();
 
@@ -229,12 +311,15 @@ signed-64-bit admission rules; no tick or size normalization is implicit.
 `native_sol_balance` alongside the separate mint-keyed SPL map. Initialize
 `WalletDepositBalancesState` with `applyRestSnapshot(wallet, snapshot)` and feed
 the outer `wallet_deposit_balances` channel's nested snapshot, absolute SPL,
-absolute native-SOL, and status events to `applyEvent()`. Complete snapshots
-replace state even after a higher component slot; status and wrong-wallet events
-do not mutate it, pre-baseline component updates are ignored, and explicit-zero
-SPL updates remove their mint. Matching SPL updates with invalid or negative
+absolute native-SOL, and status events to `applyEvent()`. Both methods accept an
+optional minimum snapshot slot; only a complete snapshot below that floor is
+ignored without mutation, while an equal slot and every balance/status event
+keep their existing behavior. Without a floor, complete snapshots replace state
+even after a higher incremental-update slot. Status and wrong-wallet events do not mutate
+it, pre-baseline balance updates are ignored, and explicit-zero SPL updates
+remove their mint. Matching SPL updates with invalid or negative
 idle balances return `rejected` without mutation. `contextSlot` records the latest accepted
-component observation rather than enforcing global monotonic ordering.
+balance observation rather than enforcing global monotonic ordering.
 `combinedSolBalance()` sums native SOL and canonical WSOL with `bigint` precision
 while retaining both stored values. REST response types are trusted rather than
 runtime-decoded; WebSocket frames are validated strictly, while malformed REST
@@ -281,7 +366,7 @@ Unwrap-all accepts no partial amount and closes the entire positive canonical
 account back to the same wallet. Its `SolActionCosts` fields contain the fresh fee, zero
 upfront rent, no account creation, and no sponsorship. Availability reserves
 only that fee rather than the ordinary persistent-account floor;
-`unwrapAllSolBalanceAvailability(components, costs)` validates that complete
+`unwrapAllSolBalanceAvailability(breakdown, costs)` validates that complete
 cost tuple before deriving fee-only fields. The
 native delta credits every live account lamport, including refunded rent or
 direct donations, minus the fee and removes the full canonical token amount.
@@ -343,7 +428,8 @@ await client.orders().cancel({
 ### Step 6: Exit a Position
 
 ```typescript
-// signAndSubmit builds the tx, signs it using the client's signing strategy, and submits
+// Uses the explicit transaction resources configured on the client.
+// The signature means RPC acceptance; confirm before dependent account operations.
 const txHash = await client.positions().merge()
   .user(keypair.publicKey)
   .market(market)
@@ -482,7 +568,12 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 |---------|-------------|
 | [`read_onchain`](examples/read_onchain.ts) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.ts) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
-| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.ts) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, withdraw from global, and merge back to keep the run net-neutral |
+| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.ts) | Deposit to the global pool, move collateral into a market, withdraw from global, and merge the complete set back |
+
+Every instruction builder appends the program's event transport trailer (the
+event-authority PDA, then the program account) automatically, and public
+instructions require transaction-level invocation except for the governance CPI allowlist. See the
+[program module README](src/program/README.md#event-transport-trailer).
 
 ### Manual Fund-Moving Operations
 
@@ -500,7 +591,7 @@ excluded from routine example runs.
 |---------|-------------|
 | [`ws_book_and_trades`](examples/ws_book_and_trades.ts) | Live orderbook depth with `OrderbookState` state + rolling `TradeHistory` buffer |
 | [`ws_ticker_and_prices`](examples/ws_ticker_and_prices.ts) | Best bid/ask ticker + price history candles with `PriceHistoryState` |
-| [`ws_user_and_market`](examples/ws_user_and_market.ts) | Authenticated user stream (orders, balances) + market lifecycle events |
+| [`ws_user_and_market`](examples/ws_user_and_market.ts) | Read-only authenticated user/market subscriptions plus one reduced Trading Wallet balance snapshot |
 
 ## Error Handling
 
@@ -511,11 +602,17 @@ All SDK operations reject with `SdkError`:
 | `Http` | REST request failures |
 | `Ws` | WebSocket connection/protocol errors |
 | `Auth` | Authentication failures |
-| `Validation` | Domain type conversion failures |
+| `Validation` | Invalid v1 resources/messages, unsupported cluster or wallet capabilities, and domain conversion failures |
+| `InsufficientSolForTransactionFees` | Proven fee-payer shortfall, with exact available and required lamports |
 | `Serde` | Serialization errors |
 | `MissingMarketContext` | Market context not provided for an operation requiring `DepositSource.Market` |
 | `Signing` | Signing operation failures |
 | `UserCancelled` | User cancelled wallet signing prompt |
+| `SubmissionRejected` | RPC rejected the request or preflight before queuing; inspect `signature`, `rpcCode`, and the error message |
+| `SubmissionUnknown` | Send outcome is uncertain; inspect `signature` and `lastValidBlockHeight` before rebuilding |
+| `TransactionFailed` | Transaction confirmed with an on-chain error |
+| `TransactionExpired` | Expiry is past and final history evidence has no signature; reconcile before rebuilding |
+| `ConfirmationTimeout` | Confirmation could not establish the outcome |
 | `ApiRejected` | Backend rejected the request (see [API Rejections](#api-rejections)) |
 | `Program` | On-chain program errors (RPC, account parsing) |
 | `Other` | Catch-all |

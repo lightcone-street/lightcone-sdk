@@ -2,6 +2,19 @@
 //!
 //! This module provides functions to build transaction instructions for interacting
 //! with the Lightcone Pinocchio program.
+//!
+//! # Event transport trailer
+//!
+//! Every public instruction ends with two read-only, non-signer accounts that the
+//! program requires for its authenticated event transport: the event-authority
+//! PDA (seed `__event_authority`) followed by the executable program account.
+//! The program pops both before dispatch, signs one final event-batch self-CPI
+//! with the PDA, and rejects a missing, wrong, or writable trailer before any
+//! state change (on-chain errors 46 and 68). Public instructions require
+//! transaction-level invocation except for the governance allowlist documented
+//! in this module's README. Unsupported CPI calls fail with on-chain error 73. Every builder here appends the trailer through the
+//! private `public_instruction` constructor, so it always occupies the last
+//! two account slots.
 
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
@@ -12,32 +25,32 @@ fn system_program_id() -> Pubkey {
 }
 
 use crate::program::constants::{
-    instruction, ALT_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, MAX_MAKERS, MAX_OUTCOMES,
-    MIN_OUTCOMES, MPL_TOKEN_METADATA_PROGRAM_ID, RENT_SYSVAR_ID, TOKEN_PROGRAM_ID,
+    instruction, ASSOCIATED_TOKEN_PROGRAM_ID, MAX_MAKERS, MAX_OUTCOMES, MIN_OUTCOMES,
+    MPL_TOKEN_METADATA_PROGRAM_ID, PARTICIPANT_MASK_LEN, RENT_SYSVAR_ID, TAKER_MASK,
+    TOKEN_PROGRAM_ID,
 };
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::orders::OrderPayload;
 use crate::program::pda::{
-    get_alt_pda, get_condition_tombstone_pda, get_conditional_mint_pda, get_exchange_pda,
-    get_global_deposit_token_pda, get_market_pda, get_mint_authority_pda, get_mpl_metadata_pda,
-    get_order_status_pda, get_orderbook_pda, get_position_alt_pda, get_position_pda,
+    get_condition_tombstone_pda, get_conditional_mint_pda, get_event_authority_pda,
+    get_exchange_pda, get_global_deposit_token_pda, get_market_pda, get_mint_authority_pda,
+    get_mpl_metadata_pda, get_order_status_pda, get_orderbook_pda, get_position_pda,
     get_user_global_deposit_pda, get_user_nonce_pda, get_vault_pda,
 };
 use crate::program::types::{
     AcceptRoleParams, ActivateMarketParams, AddDepositMintParams, BuildDepositParams,
-    BuildMergeParams, CloseOrderStatusParams, CloseOrderbookAltParams, CloseOrderbookParams,
-    ClosePositionAltParams, ClosePositionTokenAccountsParams, ConditionalMetadataParams,
-    CreateMarketParams, CreateOrderbookParams, DepositAndSwapParams, DepositToGlobalAltContext,
-    DepositToGlobalParams, ExtendPositionTokensParams, GlobalToMarketDepositParams,
-    InitPositionTokensParams, MatchOrdersMultiParams, RedeemWinningsParams,
-    RefreshOrderbookAltParams, SetAuthorityParams, SetDepositTokenStatusParams,
-    SetFeeReceiverParams, SetFeeReceiverWithAtasParams, SetManagerParams, SetMarketFeesParams,
-    SetOracleParams, SettleMarketParams, WhitelistDepositTokenParams,
-    WithdrawConditionalFromPositionParams, WithdrawFromGlobalParams, WithdrawFromPositionParams,
+    BuildMergeParams, CloseOrderStatusParams, CloseOrderbookParams,
+    ClosePositionTokenAccountsParams, ConditionalMetadataParams, CreateMarketParams,
+    CreateOrderbookParams, DepositAndSwapParams, DepositToGlobalParams,
+    GlobalToMarketDepositParams, InitPositionTokensParams, MatchOrdersMultiParams,
+    RedeemWinningsParams, SetAuthorityParams, SetDepositTokenStatusParams, SetFeeReceiverParams,
+    SetFeeReceiverWithAtasParams, SetManagerParams, SetMarketFeesParams, SetOracleParams,
+    SettleMarketParams, WhitelistDepositTokenParams, WithdrawConditionalFromPositionParams,
+    WithdrawFromGlobalParams, WithdrawFromPositionParams,
 };
 use crate::program::utils::{
     get_conditional_token_ata, get_deposit_token_ata, serialize_conditional_metadata,
-    validate_fee_pair, validate_outcome_count,
+    validate_fee_pair, validate_oracle, validate_outcome_count,
 };
 use crate::program::{derive_condition_id, ORDER_SIZE, SIGNATURE_SIZE};
 
@@ -45,8 +58,8 @@ use crate::program::{derive_condition_id, ORDER_SIZE, SIGNATURE_SIZE};
 // Helper Functions
 // ============================================================================
 
-const MATCH_ORDER_HEADER_SIZE: usize = ORDER_SIZE + SIGNATURE_SIZE + 2;
-const DEPOSIT_AND_SWAP_HEADER_SIZE: usize = ORDER_SIZE + SIGNATURE_SIZE + 3;
+const MATCH_ORDER_HEADER_SIZE: usize = ORDER_SIZE + SIGNATURE_SIZE + 1 + PARTICIPANT_MASK_LEN;
+const DEPOSIT_AND_SWAP_HEADER_SIZE: usize = MATCH_ORDER_HEADER_SIZE + PARTICIPANT_MASK_LEN;
 const MAKER_MATCH_SIZE: usize = ORDER_SIZE + SIGNATURE_SIZE + 16;
 
 /// Create an account meta for a signer+writable account.
@@ -69,6 +82,30 @@ fn readonly(pubkey: Pubkey) -> AccountMeta {
     AccountMeta::new_readonly(pubkey, false)
 }
 
+/// Build a public Lightcone instruction, appending the event transport trailer.
+///
+/// The program pops the last two accounts of every public instruction before
+/// dispatch: the event-authority PDA (`["__event_authority"]`, read-only, never
+/// a signer) and the executable program account itself (read-only). It signs
+/// its final event-batch self-CPI with that PDA, so an instruction without the
+/// trailer fails closed before any state change. Routing every builder through
+/// this constructor keeps that invariant in one place.
+fn public_instruction(
+    program_id: &Pubkey,
+    mut accounts: Vec<AccountMeta>,
+    data: Vec<u8>,
+) -> Instruction {
+    let (event_authority, _) = get_event_authority_pda(program_id);
+    accounts.reserve_exact(2);
+    accounts.push(readonly(event_authority));
+    accounts.push(readonly(*program_id));
+    Instruction {
+        program_id: *program_id,
+        accounts,
+        data,
+    }
+}
+
 fn zero_pubkey() -> Pubkey {
     Pubkey::new_from_array([0u8; 32])
 }
@@ -76,7 +113,6 @@ fn zero_pubkey() -> Pubkey {
 struct OrderbookMintInput {
     mint: Pubkey,
     deposit_mint: Pubkey,
-    outcome_index: u8,
     is_base: bool,
 }
 
@@ -97,16 +133,24 @@ impl CanonicalOrderbookMints {
             return Err(SdkError::InvalidMintOrder);
         }
 
+        if params.mint_a_deposit_mint == params.mint_b_deposit_mint {
+            return Err(SdkError::DepositMintMismatch);
+        }
+        if params.outcome_index >= MAX_OUTCOMES {
+            return Err(SdkError::InvalidOutcomeIndex {
+                index: params.outcome_index,
+                max: MAX_OUTCOMES - 1,
+            });
+        }
+
         let left = OrderbookMintInput {
             mint: params.mint_a,
             deposit_mint: params.mint_a_deposit_mint,
-            outcome_index: params.mint_a_outcome_index,
             is_base: params.base_index == 0,
         };
         let right = OrderbookMintInput {
             mint: params.mint_b,
             deposit_mint: params.mint_b_deposit_mint,
-            outcome_index: params.mint_b_outcome_index,
             is_base: params.base_index == 1,
         };
 
@@ -128,6 +172,69 @@ impl CanonicalOrderbookMints {
     }
 }
 
+/// Derive fixed trading GDTs in canonical conditional-mint order.
+fn trading_gdts(
+    base_mint: &Pubkey,
+    quote_mint: &Pubkey,
+    base_deposit_mint: &Pubkey,
+    quote_deposit_mint: &Pubkey,
+    program_id: &Pubkey,
+) -> SdkResult<(Pubkey, Pubkey)> {
+    if base_mint == quote_mint {
+        return Err(SdkError::InvalidOrderbook);
+    }
+    if base_deposit_mint == quote_deposit_mint {
+        return Err(SdkError::DepositMintMismatch);
+    }
+    let (deposit_a, deposit_b) = if base_mint.as_ref() < quote_mint.as_ref() {
+        (base_deposit_mint, quote_deposit_mint)
+    } else {
+        (quote_deposit_mint, base_deposit_mint)
+    };
+    Ok((
+        get_global_deposit_token_pda(deposit_a, program_id).0,
+        get_global_deposit_token_pda(deposit_b, program_id).0,
+    ))
+}
+
+fn validate_participant_mask(mask: u16, maker_count: usize) -> SdkResult<()> {
+    let allowed = ((1u16 << maker_count) - 1) | TAKER_MASK;
+    if mask & !allowed != 0 {
+        return Err(SdkError::Serialization(format!(
+            "invalid participant mask {mask:#06x} for {maker_count} makers"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_trade_order(
+    order: &OrderPayload,
+    market: &Pubkey,
+    base_mint: &Pubkey,
+    quote_mint: &Pubkey,
+) -> SdkResult<()> {
+    if order.market != *market || order.base_mint != *base_mint || order.quote_mint != *quote_mint {
+        return Err(SdkError::InvalidOrderbook);
+    }
+    Ok(())
+}
+
+fn validate_funding_mint(
+    order: &OrderPayload,
+    deposit_mint: &Pubkey,
+    base_deposit_mint: &Pubkey,
+    quote_deposit_mint: &Pubkey,
+) -> SdkResult<()> {
+    let expected = match order.side {
+        crate::program::types::OrderSide::Bid => quote_deposit_mint,
+        crate::program::types::OrderSide::Ask => base_deposit_mint,
+    };
+    if deposit_mint != expected {
+        return Err(SdkError::DepositMintMismatch);
+    }
+    Ok(())
+}
+
 // ============================================================================
 // Instruction Builders
 // ============================================================================
@@ -141,6 +248,8 @@ impl CanonicalOrderbookMints {
 /// 0. authority (signer, mut) - Initial admin
 /// 1. exchange (mut) - Exchange PDA
 /// 2. system_program (readonly)
+/// 3. event_authority (readonly) - Event transport trailer
+/// 4. program (readonly) - Event transport trailer
 pub fn build_initialize_ix(authority: &Pubkey, program_id: &Pubkey) -> Instruction {
     let (exchange, _) = get_exchange_pda(program_id);
 
@@ -152,16 +261,12 @@ pub fn build_initialize_ix(authority: &Pubkey, program_id: &Pubkey) -> Instructi
 
     let data = vec![instruction::INITIALIZE];
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build CreateMarket instruction.
 ///
-/// Creates a new market in Pending status.
+/// Creates a new market in Pending status. Rejects zero or off-curve oracles.
 ///
 /// Accounts:
 /// 0. manager (signer, mut) - Must be exchange manager
@@ -169,12 +274,15 @@ pub fn build_initialize_ix(authority: &Pubkey, program_id: &Pubkey) -> Instructi
 /// 2. market (mut) - Market PDA
 /// 3. system_program (readonly)
 /// 4. condition_tombstone (mut) - Condition uniqueness PDA
+/// 5. event_authority (readonly) - Event transport trailer
+/// 6. program (readonly) - Event transport trailer
 pub fn build_create_market_ix(
     params: &CreateMarketParams,
     market_id: u64,
     program_id: &Pubkey,
 ) -> SdkResult<Instruction> {
     validate_outcome_count(params.num_outcomes)?;
+    validate_oracle(&params.oracle)?;
     validate_fee_pair(params.maker_fee_bps, params.taker_fee_bps)?;
 
     let (exchange, _) = get_exchange_pda(program_id);
@@ -200,11 +308,7 @@ pub fn build_create_market_ix(
     data.extend_from_slice(&params.maker_fee_bps.to_le_bytes());
     data.extend_from_slice(&params.taker_fee_bps.to_le_bytes());
 
-    Ok(Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    })
+    Ok(public_instruction(program_id, keys, data))
 }
 
 /// Build AddDepositMint instruction.
@@ -215,7 +319,7 @@ pub fn build_create_market_ix(
 /// Accounts:
 /// 0. manager (signer, mut) - Must be exchange manager
 /// 1. exchange (readonly) - Exchange PDA
-/// 2. market (readonly)
+/// 2. market (mut) - deposit_mint_count is incremented
 /// 3. deposit_mint (readonly)
 /// 4. vault (mut)
 /// 5. mint_authority (readonly)
@@ -223,6 +327,7 @@ pub fn build_create_market_ix(
 /// 7. system_program
 /// 8. global_deposit_token
 /// 9+ conditional_mints\[0..num_outcomes\]
+/// + event_authority (readonly), program (readonly) - Event transport trailer
 pub fn build_add_deposit_mint_ix(
     params: &AddDepositMintParams,
     market: &Pubkey,
@@ -239,7 +344,7 @@ pub fn build_add_deposit_mint_ix(
     let mut keys = vec![
         signer_mut(params.manager),
         readonly(exchange),
-        readonly(*market),
+        writable(*market),
         readonly(params.deposit_mint),
         writable(vault),
         readonly(mint_authority),
@@ -256,11 +361,7 @@ pub fn build_add_deposit_mint_ix(
 
     let data = vec![instruction::ADD_DEPOSIT_MINT];
 
-    Ok(Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    })
+    Ok(public_instruction(program_id, keys, data))
 }
 
 /// Build Deposit (MintCompleteSet) instruction.
@@ -280,6 +381,7 @@ pub fn build_add_deposit_mint_ix(
 /// 9. associated_token_program
 /// 10. system_program
 /// + remaining accounts (conditional_mint, position_conditional_ata) pairs
+/// + event_authority (readonly), program (readonly) - Event transport trailer
 pub fn build_deposit_ix(
     params: &BuildDepositParams,
     num_outcomes: u8,
@@ -319,11 +421,7 @@ pub fn build_deposit_ix(
     data.push(instruction::MINT_COMPLETE_SET);
     data.extend_from_slice(&params.amount.to_le_bytes());
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build Merge (MergeCompleteSet) instruction.
@@ -365,11 +463,7 @@ pub fn build_merge_ix(
     data.push(instruction::MERGE_COMPLETE_SET);
     data.extend_from_slice(&params.amount.to_le_bytes());
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build CancelOrder instruction.
@@ -381,6 +475,8 @@ pub fn build_merge_ix(
 /// 1. exchange (readonly)
 /// 2. market (readonly)
 /// 3. order_status (mut)
+/// 4. event_authority (readonly) - Event transport trailer
+/// 5. program (readonly) - Event transport trailer
 pub fn build_cancel_order_ix(
     operator: &Pubkey,
     market: &Pubkey,
@@ -404,11 +500,7 @@ pub fn build_cancel_order_ix(
     data.extend_from_slice(&order_hash);
     data.extend_from_slice(&order.serialize());
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build IncrementNonce instruction.
@@ -427,11 +519,7 @@ pub fn build_increment_nonce_ix(user: &Pubkey, program_id: &Pubkey) -> Instructi
 
     let data = vec![instruction::INCREMENT_NONCE];
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build SettleMarket instruction.
@@ -455,11 +543,7 @@ pub fn build_settle_market_ix(
         data.extend_from_slice(&numerator.to_le_bytes());
     }
 
-    Ok(Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    })
+    Ok(public_instruction(program_id, keys, data))
 }
 
 fn validate_payout_numerators(payout_numerators: &[u32]) -> SdkResult<()> {
@@ -524,11 +608,7 @@ pub fn build_redeem_winnings_ix(
     data.extend_from_slice(&params.amount.to_le_bytes());
     data.push(outcome_index);
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build SetPaused instruction.
@@ -541,11 +621,7 @@ pub fn build_set_paused_ix(authority: &Pubkey, paused: bool, program_id: &Pubkey
 
     let data = vec![instruction::SET_PAUSED, if paused { 1 } else { 0 }];
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build SetOperator instruction.
@@ -565,11 +641,7 @@ pub fn build_set_operator_ix(
     data.push(instruction::SET_OPERATOR);
     data.extend_from_slice(new_operator.as_ref());
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build WithdrawConditionalFromPosition instruction.
@@ -577,7 +649,7 @@ pub fn build_set_operator_ix(
 /// Withdraw conditional tokens from a position ATA to the user's canonical ATA.
 /// The conditional mint is derived from `(market, deposit_mint, outcome_index)`.
 ///
-/// Accounts (9):
+/// Accounts (11):
 /// 0. user (signer, writable)
 /// 1. exchange (readonly)
 /// 2. market (readonly)
@@ -587,6 +659,8 @@ pub fn build_set_operator_ix(
 /// 6. position_conditional_ata (writable)
 /// 7. user_conditional_ata (writable)
 /// 8. token_program (readonly)
+/// 9. event_authority (readonly) - Event transport trailer
+/// 10. program (readonly) - Event transport trailer
 pub fn build_withdraw_conditional_from_position_ix(
     params: &WithdrawConditionalFromPositionParams,
     program_id: &Pubkey,
@@ -620,11 +694,7 @@ pub fn build_withdraw_conditional_from_position_ix(
     data.extend_from_slice(&params.amount.to_le_bytes());
     data.push(params.outcome_index);
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build WithdrawConditionalFromPosition instruction.
@@ -652,11 +722,7 @@ pub fn build_activate_market_ix(params: &ActivateMarketParams, program_id: &Pubk
 
     let data = vec![instruction::ACTIVATE_MARKET];
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build MatchOrdersMulti instruction.
@@ -668,7 +734,7 @@ pub fn build_activate_market_ix(params: &ActivateMarketParams, program_id: &Pubk
 /// [1..38]   taker Order (37 bytes)
 /// [38..102] taker_signature (64 bytes)
 /// [102]     num_makers
-/// [103]     full_fill_bitmask
+/// [103..105] full_fill_bitmask (u16, little-endian)
 /// Per maker (117 bytes each):
 ///   [+0..+37]    maker Order (37)
 ///   [+37..+101]  maker_signature (64)
@@ -676,6 +742,7 @@ pub fn build_activate_market_ix(params: &ActivateMarketParams, program_id: &Pubk
 ///   [+109..+117] taker_fill_amount (8)
 ///
 /// Account construction uses bitmask to determine if order_status is included.
+/// The event transport trailer (event_authority, program) is always appended last.
 pub fn build_match_orders_multi_ix(
     params: &MatchOrdersMultiParams,
     program_id: &Pubkey,
@@ -695,6 +762,27 @@ pub fn build_match_orders_multi_ix(
         return Err(SdkError::MissingField("taker_fill_amounts".to_string()));
     }
 
+    validate_trade_order(
+        &params.taker_order,
+        &params.market,
+        &params.base_mint,
+        &params.quote_mint,
+    )?;
+    for maker in &params.maker_orders {
+        validate_trade_order(maker, &params.market, &params.base_mint, &params.quote_mint)?;
+        if maker.side == params.taker_order.side {
+            return Err(SdkError::InvalidSide(maker.side as u8));
+        }
+    }
+    validate_participant_mask(params.full_fill_bitmask, params.maker_orders.len())?;
+    let (gdt_a, gdt_b) = trading_gdts(
+        &params.base_mint,
+        &params.quote_mint,
+        &params.base_deposit_mint,
+        &params.quote_deposit_mint,
+        program_id,
+    )?;
+
     let (exchange, _) = get_exchange_pda(program_id);
     let (orderbook, _) = get_orderbook_pda(&params.base_mint, &params.quote_mint, program_id);
     let taker_order_hash = params.taker_order.hash();
@@ -706,7 +794,7 @@ pub fn build_match_orders_multi_ix(
     let fee_receiver_quote_ata =
         get_conditional_token_ata(&params.fee_receiver, &params.quote_mint);
 
-    let taker_full_fill = (params.full_fill_bitmask >> 7) & 1 == 1;
+    let taker_full_fill = params.full_fill_bitmask & TAKER_MASK != 0;
 
     let mut keys = Vec::new();
 
@@ -715,15 +803,17 @@ pub fn build_match_orders_multi_ix(
     keys.push(readonly(exchange));
     keys.push(readonly(params.market));
     keys.push(readonly(orderbook));
+    keys.push(readonly(gdt_a));
+    keys.push(readonly(gdt_b));
 
     if !taker_full_fill {
-        // bit 7 = 0: needs order_status (12 accounts)
+        // A clear taker bit includes its writable status account.
         let (taker_order_status, _) = get_order_status_pda(&taker_order_hash, program_id);
         keys.push(writable(taker_order_status));
     }
     // Remaining taker accounts
     keys.push(readonly(taker_nonce));
-    keys.push(writable(taker_position));
+    keys.push(readonly(taker_position));
     keys.push(readonly(params.base_mint));
     keys.push(readonly(params.quote_mint));
     keys.push(writable(taker_base_ata));
@@ -751,7 +841,7 @@ pub fn build_match_orders_multi_ix(
         let maker_quote_ata = get_conditional_token_ata(&maker_position, &params.quote_mint);
 
         keys.push(readonly(maker_nonce));
-        keys.push(writable(maker_position));
+        keys.push(readonly(maker_position));
         keys.push(writable(maker_base_ata));
         keys.push(writable(maker_quote_ata));
     }
@@ -767,7 +857,7 @@ pub fn build_match_orders_multi_ix(
     data.extend_from_slice(&taker_compact.serialize());
     data.extend_from_slice(&params.taker_order.signature);
     data.push(num_makers);
-    data.push(params.full_fill_bitmask);
+    data.extend_from_slice(&params.full_fill_bitmask.to_le_bytes());
 
     for (i, maker_order) in params.maker_orders.iter().enumerate() {
         let maker_compact = maker_order.to_order();
@@ -778,43 +868,43 @@ pub fn build_match_orders_multi_ix(
         data.extend_from_slice(&params.taker_fill_amounts[i].to_le_bytes());
     }
 
-    Ok(Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    })
+    Ok(public_instruction(program_id, keys, data))
 }
 
-/// Build CreateOrderbook instruction.
+/// Build an orderbook for one market outcome and two distinct collateral assets.
 ///
-/// Creates an on-chain orderbook with address lookup table.
-/// Manager-only — must be called by the exchange manager.
+/// Canonicalize the supplied conditional pair while preserving collateral and
+/// base orientation. The manager pays for the book and fee receiver quote ATA.
+/// Registered collateral may be inactive at creation. Trading validates activity.
 ///
-/// Accounts (15):
-/// 0. manager (signer, mut) - Must be exchange manager
-/// 1. market (readonly)
-/// 2. mint_a (readonly, canonical order)
-/// 3. mint_b (readonly, canonical order)
-/// 4. orderbook (mut)
-/// 5. lookup_table (mut)
-/// 6. exchange (readonly)
-/// 7. alt_program (readonly)
-/// 8. system_program (readonly)
-/// 9. mint_a_deposit_mint
-/// 10. mint_b_deposit_mint
-/// 11. token_program
-/// 12. associated_token_program
-/// 13. fee_receiver
-/// 14. fee_receiver_quote_ata
+/// Business accounts: manager, market, mint A, mint B, book, GDT A, GDT B,
+/// exchange, system program, collateral A, collateral B, token program,
+/// ATA program, fee receiver, fee receiver quote ATA. The event trailers follow.
 pub fn build_create_orderbook_ix(
     params: &CreateOrderbookParams,
     program_id: &Pubkey,
 ) -> SdkResult<Instruction> {
     let canonical = CanonicalOrderbookMints::from_params(params)?;
+    for (mint, deposit_mint) in [
+        (&params.mint_a, &params.mint_a_deposit_mint),
+        (&params.mint_b, &params.mint_b_deposit_mint),
+    ] {
+        if get_conditional_mint_pda(
+            &params.market,
+            deposit_mint,
+            params.outcome_index,
+            program_id,
+        )
+        .0 != *mint
+        {
+            return Err(SdkError::InvalidConditionalMint);
+        }
+    }
     let (exchange, _) = get_exchange_pda(program_id);
     let (orderbook, _) =
         get_orderbook_pda(&canonical.mint_a.mint, &canonical.mint_b.mint, program_id);
-    let (lookup_table, _) = get_alt_pda(&orderbook, params.recent_slot);
+    let (gdt_a, _) = get_global_deposit_token_pda(&canonical.mint_a.deposit_mint, program_id);
+    let (gdt_b, _) = get_global_deposit_token_pda(&canonical.mint_b.deposit_mint, program_id);
     let quote_mint = if canonical.base_index() == 0 {
         canonical.mint_b.mint
     } else {
@@ -828,9 +918,9 @@ pub fn build_create_orderbook_ix(
         readonly(canonical.mint_a.mint),
         readonly(canonical.mint_b.mint),
         writable(orderbook),
-        writable(lookup_table),
+        readonly(gdt_a),
+        readonly(gdt_b),
         readonly(exchange),
-        readonly(*ALT_PROGRAM_ID),
         readonly(system_program_id()),
         readonly(canonical.mint_a.deposit_mint),
         readonly(canonical.mint_b.deposit_mint),
@@ -840,53 +930,13 @@ pub fn build_create_orderbook_ix(
         writable(fee_receiver_quote_ata),
     ];
 
-    // Data: [discriminator(1), recent_slot(8), base_index(1), mint_a_outcome_index(1), mint_b_outcome_index(1)] = 12 bytes
-    let mut data = Vec::with_capacity(12);
-    data.push(instruction::CREATE_ORDERBOOK);
-    data.extend_from_slice(&params.recent_slot.to_le_bytes());
-    data.push(canonical.base_index());
-    data.push(canonical.mint_a.outcome_index);
-    data.push(canonical.mint_b.outcome_index);
-
-    Ok(Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    })
-}
-
-/// Build RefreshOrderbookAlt instruction.
-///
-/// Manager-only. Ensures the current fee receiver quote ATA exists and appends
-/// it to the orderbook ALT when absent. This does not fully reshape old ALTs.
-pub fn build_refresh_orderbook_alt_ix(
-    params: &RefreshOrderbookAltParams,
-    program_id: &Pubkey,
-) -> Instruction {
-    let (exchange, _) = get_exchange_pda(program_id);
-    let fee_receiver_quote_ata =
-        get_conditional_token_ata(&params.fee_receiver, &params.quote_mint);
-
-    let keys = vec![
-        signer_mut(params.manager),
-        readonly(exchange),
-        readonly(params.market),
-        readonly(params.orderbook),
-        writable(params.lookup_table),
-        readonly(params.quote_mint),
-        readonly(params.fee_receiver),
-        writable(fee_receiver_quote_ata),
-        readonly(TOKEN_PROGRAM_ID),
-        readonly(ASSOCIATED_TOKEN_PROGRAM_ID),
-        readonly(*ALT_PROGRAM_ID),
-        readonly(system_program_id()),
+    let data = vec![
+        instruction::CREATE_ORDERBOOK,
+        canonical.base_index(),
+        params.outcome_index,
     ];
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data: vec![instruction::REFRESH_ORDERBOOK_ALT],
-    }
+    Ok(public_instruction(program_id, keys, data))
 }
 
 /// Build SetAuthority instruction.
@@ -894,9 +944,11 @@ pub fn build_refresh_orderbook_alt_ix(
 /// Propose a new exchange authority. The active authority changes only after
 /// the proposed authority signs `AcceptAuthority`.
 ///
-/// Accounts (2):
+/// Accounts (4):
 /// 0. authority (signer)
 /// 1. exchange (mut)
+/// 2. event_authority (readonly) - Event transport trailer
+/// 3. program (readonly) - Event transport trailer
 pub fn build_set_authority_ix(params: &SetAuthorityParams, program_id: &Pubkey) -> Instruction {
     let (exchange, _) = get_exchange_pda(program_id);
 
@@ -907,11 +959,7 @@ pub fn build_set_authority_ix(params: &SetAuthorityParams, program_id: &Pubkey) 
     data.push(instruction::SET_AUTHORITY);
     data.extend_from_slice(params.new_authority.as_ref());
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build SetManager instruction.
@@ -919,9 +967,11 @@ pub fn build_set_authority_ix(params: &SetAuthorityParams, program_id: &Pubkey) 
 /// Propose a new exchange manager. The active manager changes only after the
 /// proposed manager signs `AcceptManager`.
 ///
-/// Accounts (2):
+/// Accounts (4):
 /// 0. authority (signer)
 /// 1. exchange (mut)
+/// 2. event_authority (readonly) - Event transport trailer
+/// 3. program (readonly) - Event transport trailer
 pub fn build_set_manager_ix(params: &SetManagerParams, program_id: &Pubkey) -> Instruction {
     let (exchange, _) = get_exchange_pda(program_id);
 
@@ -931,11 +981,7 @@ pub fn build_set_manager_ix(params: &SetManagerParams, program_id: &Pubkey) -> I
     data.push(instruction::SET_MANAGER);
     data.extend_from_slice(params.new_manager.as_ref());
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 fn build_accept_role_ix(
@@ -947,11 +993,7 @@ fn build_accept_role_ix(
 
     let keys = vec![signer(params.incoming_role), writable(exchange)];
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data: vec![discriminator],
-    }
+    public_instruction(program_id, keys, vec![discriminator])
 }
 
 /// Build AcceptAuthority instruction.
@@ -972,14 +1014,12 @@ pub fn build_accept_operator_ix(params: &AcceptRoleParams, program_id: &Pubkey) 
 /// Build SetOracle instruction.
 ///
 /// Authority-only. Reassigns a market oracle while the market is not resolved
-/// or cancelled. The market condition ID is not changed by the program.
+/// or cancelled. Rejects zero or off-curve oracles. The condition ID stays unchanged.
 pub fn build_set_oracle_ix(
     params: &SetOracleParams,
     program_id: &Pubkey,
 ) -> SdkResult<Instruction> {
-    if params.new_oracle == zero_pubkey() {
-        return Err(SdkError::InvalidOracle);
-    }
+    validate_oracle(&params.new_oracle)?;
 
     let (exchange, _) = get_exchange_pda(program_id);
     let keys = vec![
@@ -992,11 +1032,7 @@ pub fn build_set_oracle_ix(
     data.push(instruction::SET_ORACLE);
     data.extend_from_slice(params.new_oracle.as_ref());
 
-    Ok(Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    })
+    Ok(public_instruction(program_id, keys, data))
 }
 
 /// Build SetMarketFees instruction.
@@ -1011,7 +1047,7 @@ pub fn build_set_market_fees_ix(
     }
 
     let (exchange, _) = get_exchange_pda(program_id);
-    let mut keys = Vec::with_capacity(2 + params.updates.len());
+    let mut keys = Vec::with_capacity(4 + params.updates.len());
     keys.push(signer_mut(params.manager));
     keys.push(readonly(exchange));
 
@@ -1024,11 +1060,7 @@ pub fn build_set_market_fees_ix(
         data.extend_from_slice(&update.taker_fee_bps.to_le_bytes());
     }
 
-    Ok(Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    })
+    Ok(public_instruction(program_id, keys, data))
 }
 
 /// Build SetFeeReceiver instruction.
@@ -1049,11 +1081,7 @@ pub fn build_set_fee_receiver_ix(
     data.push(instruction::SET_FEE_RECEIVER);
     data.extend_from_slice(params.new_fee_receiver.as_ref());
 
-    Ok(Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    })
+    Ok(public_instruction(program_id, keys, data))
 }
 
 /// Build SetFeeReceiver instruction with optional ATA creation accounts.
@@ -1073,7 +1101,7 @@ pub fn build_set_fee_receiver_with_atas_ix(
     }
 
     let (exchange, _) = get_exchange_pda(program_id);
-    let mut keys = Vec::with_capacity(6 + params.quote_mints.len() * 2);
+    let mut keys = Vec::with_capacity(8 + params.quote_mints.len() * 2);
     keys.push(signer_mut(params.authority));
     keys.push(writable(exchange));
     keys.push(readonly(params.new_fee_receiver));
@@ -1092,11 +1120,7 @@ pub fn build_set_fee_receiver_with_atas_ix(
     data.push(instruction::SET_FEE_RECEIVER);
     data.extend_from_slice(params.new_fee_receiver.as_ref());
 
-    Ok(Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    })
+    Ok(public_instruction(program_id, keys, data))
 }
 
 /// Build CreateConditionalMetadata instruction.
@@ -1171,23 +1195,21 @@ fn build_conditional_metadata_ix(
         keys.push(readonly(RENT_SYSVAR_ID));
     }
 
-    Ok(Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    })
+    Ok(public_instruction(program_id, keys, data))
 }
 
 /// Build WhitelistDepositToken instruction.
 ///
 /// Admin: whitelist a token mint for global deposits.
 ///
-/// Accounts (5):
+/// Accounts (7):
 /// 0. authority (signer, mut) - Must be exchange authority
-/// 1. exchange (readonly) - Exchange PDA
+/// 1. exchange (mut) - Exchange PDA; increments deposit_token_count
 /// 2. mint (readonly) - Token mint to whitelist
 /// 3. global_deposit_token (mut) - PDA to create ["global_deposit", mint]
 /// 4. system_program (readonly)
+/// 5. event_authority (readonly) - Event transport trailer
+/// 6. program (readonly) - Event transport trailer
 pub fn build_whitelist_deposit_token_ix(
     params: &WhitelistDepositTokenParams,
     program_id: &Pubkey,
@@ -1205,17 +1227,14 @@ pub fn build_whitelist_deposit_token_ix(
 
     let data = vec![instruction::WHITELIST_DEPOSIT_TOKEN];
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build SetDepositTokenStatus instruction.
 ///
-/// Manager-only. Updates the backend-visible active flag on a whitelisted
-/// GlobalDepositToken. Current on-chain user flows do not gate on this flag.
+/// Manager-only. Enable or disable trading backed by the registered collateral.
+/// Deposits, preparation, splits, merges, withdrawals, and redemption retain
+/// their existing rules and do not require an active collateral flag.
 pub fn build_set_deposit_token_status_ix(
     params: &SetDepositTokenStatusParams,
     program_id: &Pubkey,
@@ -1234,18 +1253,14 @@ pub fn build_set_deposit_token_status_ix(
         if params.active { 1 } else { 0 },
     ];
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build DepositToGlobal instruction.
 ///
 /// Deposit tokens from user's token account into their global deposit PDA.
 ///
-/// Accounts (8):
+/// Accounts (10 including the event trailers):
 /// 0. user (signer, mut)
 /// 1. global_deposit_token (readonly) - Whitelist PDA
 /// 2. mint (readonly)
@@ -1254,25 +1269,9 @@ pub fn build_set_deposit_token_status_ix(
 /// 5. token_program (readonly)
 /// 6. system_program (readonly)
 /// 7. exchange (readonly) - Exchange PDA for pause validation
+/// + event_authority (readonly), program (readonly) - Event transport trailer (always last)
 pub fn build_deposit_to_global_ix(
     params: &DepositToGlobalParams,
-    program_id: &Pubkey,
-) -> Instruction {
-    build_deposit_to_global_ix_inner(params, None, program_id)
-}
-
-/// Build DepositToGlobal instruction with user deposit ALT create/extend accounts.
-pub fn build_deposit_to_global_ix_with_alt(
-    params: &DepositToGlobalParams,
-    alt_context: DepositToGlobalAltContext,
-    program_id: &Pubkey,
-) -> Instruction {
-    build_deposit_to_global_ix_inner(params, Some(alt_context), program_id)
-}
-
-fn build_deposit_to_global_ix_inner(
-    params: &DepositToGlobalParams,
-    alt_context: Option<DepositToGlobalAltContext>,
     program_id: &Pubkey,
 ) -> Instruction {
     let (global_deposit_token, _) = get_global_deposit_token_pda(&params.mint, program_id);
@@ -1281,7 +1280,7 @@ fn build_deposit_to_global_ix_inner(
     let (exchange, _) = get_exchange_pda(program_id);
     let user_token_account = get_deposit_token_ata(&params.user, &params.mint);
 
-    let mut keys = vec![
+    let keys = vec![
         signer_mut(params.user),
         readonly(global_deposit_token),
         readonly(params.mint),
@@ -1296,33 +1295,14 @@ fn build_deposit_to_global_ix_inner(
     data.push(instruction::DEPOSIT_TO_GLOBAL);
     data.extend_from_slice(&params.amount.to_le_bytes());
 
-    if let Some(alt_context) = alt_context {
-        let (user_nonce, _) = get_user_nonce_pda(&params.user, program_id);
-        let lookup_table = match alt_context {
-            DepositToGlobalAltContext::Create { recent_slot } => {
-                data.extend_from_slice(&recent_slot.to_le_bytes());
-                get_alt_pda(&user_nonce, recent_slot).0
-            }
-            DepositToGlobalAltContext::Extend { lookup_table } => lookup_table,
-        };
-
-        keys.push(readonly(user_nonce));
-        keys.push(writable(lookup_table));
-        keys.push(readonly(*ALT_PROGRAM_ID));
-    }
-
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build GlobalToMarketDeposit instruction.
 ///
 /// Transfer from user's global deposit to market vault + mint conditional tokens.
 ///
-/// Accounts (12 + num_outcomes*2):
+/// Accounts (14 + num_outcomes*2):
 /// 0. user (signer, mut)
 /// 1. exchange (readonly)
 /// 2. market (readonly)
@@ -1336,6 +1316,7 @@ fn build_deposit_to_global_ix_inner(
 /// 10. ata_program (readonly)
 /// 11. system_program (readonly)
 /// + per outcome: conditional_mint[i] (mut), position_conditional_ata[i] (mut)
+/// + event_authority (readonly), program (readonly) - Event transport trailer
 pub fn build_global_to_market_deposit_ix(
     params: &GlobalToMarketDepositParams,
     num_outcomes: u8,
@@ -1376,31 +1357,23 @@ pub fn build_global_to_market_deposit_ix(
     data.push(instruction::GLOBAL_TO_MARKET_DEPOSIT);
     data.extend_from_slice(&params.amount.to_le_bytes());
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
-/// Build InitPositionTokens instruction.
+/// Build idempotent position and conditional-ATA preparation.
 ///
-/// Create position, all conditional token ATAs, and an Address Lookup Table.
-/// Permissionless — anyone (e.g., backend operator) can pay.
+/// The signing payer may sponsor an on-curve user who does not sign. Each call
+/// validates every requested collateral group and creates missing accounts.
+/// Supply groups in strictly increasing GDT index order and outcomes from zero.
 ///
-/// Accounts (11 + per deposit_mint: 3 + num_outcomes*2):
-/// 0. payer (signer, mut) - Pays for account creation
-/// 1. user (readonly) - Position owner
-/// 2. exchange (readonly)
-/// 3. market (readonly)
-/// 4. position (mut)
-/// 5. lookup_table (mut)
-/// 6. mint_authority (readonly)
-/// 7. token_program (readonly)
-/// 8. ata_program (readonly)
-/// 9. alt_program (readonly)
-/// 10. system_program (readonly)
-/// + per deposit_mint: deposit_mint, vault, gdt, [cond_mint, ata] × num_outcomes
+/// This infallible raw API leaves input validation to the program. Use
+/// `InitPositionTokensBuilder::build_ix` or `Positions::init_position_tokens_tx`
+/// for local beneficiary, group-count, and outcome-count validation.
+///
+/// Business prefix: payer, user, exchange, market, position, mint authority,
+/// token program, ATA program, system program. Each group adds collateral,
+/// vault, GDT, and conditional mint/position ATA pairs for every outcome.
+/// The event trailers always follow all groups.
 pub fn build_init_position_tokens_ix(
     params: &InitPositionTokensParams,
     num_outcomes: u8,
@@ -1408,7 +1381,6 @@ pub fn build_init_position_tokens_ix(
 ) -> Instruction {
     let (exchange, _) = get_exchange_pda(program_id);
     let (position, _) = get_position_pda(&params.user, &params.market, program_id);
-    let (lookup_table, _) = get_position_alt_pda(&position, params.recent_slot);
     let (mint_authority, _) = get_mint_authority_pda(&params.market, program_id);
 
     let mut keys = vec![
@@ -1417,11 +1389,9 @@ pub fn build_init_position_tokens_ix(
         readonly(exchange),
         readonly(params.market),
         writable(position),
-        writable(lookup_table),
         readonly(mint_authority),
         readonly(TOKEN_PROGRAM_ID),
         readonly(ASSOCIATED_TOKEN_PROGRAM_ID),
-        readonly(*ALT_PROGRAM_ID),
         readonly(system_program_id()),
     ];
 
@@ -1440,16 +1410,11 @@ pub fn build_init_position_tokens_ix(
         }
     }
 
-    let mut data = Vec::with_capacity(10);
+    let mut data = Vec::with_capacity(2);
     data.push(instruction::INIT_POSITION_TOKENS);
-    data.extend_from_slice(&params.recent_slot.to_le_bytes());
     data.push(params.deposit_mints.len() as u8);
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build DepositAndSwap instruction.
@@ -1459,7 +1424,7 @@ pub fn build_init_position_tokens_ix(
 /// on the deposit_bitmask.
 ///
 /// Account layout:
-///   Fixed (9): operator, exchange, market, orderbook, mint_authority, token_program,
+///   Fixed (11): operator, exchange, market, orderbook, GDT A, GDT B, mint_authority, token_program,
 ///              fee_receiver_quote_ata, fee_receiver, ata_program
 ///   Taker block: [order_status], nonce, position, base_mint, quote_mint,
 ///                taker_receive_ata, taker_give_ata, system_program
@@ -1468,6 +1433,7 @@ pub fn build_init_position_tokens_ix(
 ///   Per-maker blocks: [order_status], nonce, position,
 ///                      [deposit block if depositing],
 ///                      maker_receive_ata, maker_give_ata
+///   Trailer (2): event_authority, program (always last)
 pub fn build_deposit_and_swap_ix(
     params: &DepositAndSwapParams,
     program_id: &Pubkey,
@@ -1479,6 +1445,50 @@ pub fn build_deposit_and_swap_ix(
         return Err(SdkError::TooManyMakers {
             count: params.makers.len(),
         });
+    }
+
+    validate_outcome_count(params.num_outcomes)?;
+    validate_trade_order(
+        &params.taker_order,
+        &params.market,
+        &params.base_mint,
+        &params.quote_mint,
+    )?;
+    for maker in &params.makers {
+        validate_trade_order(
+            &maker.order,
+            &params.market,
+            &params.base_mint,
+            &params.quote_mint,
+        )?;
+        if maker.order.side == params.taker_order.side {
+            return Err(SdkError::InvalidSide(maker.order.side as u8));
+        }
+    }
+    let (gdt_a, gdt_b) = trading_gdts(
+        &params.base_mint,
+        &params.quote_mint,
+        &params.base_deposit_mint,
+        &params.quote_deposit_mint,
+        program_id,
+    )?;
+    if params.taker_is_deposit {
+        validate_funding_mint(
+            &params.taker_order,
+            &params.taker_deposit_mint,
+            &params.base_deposit_mint,
+            &params.quote_deposit_mint,
+        )?;
+    }
+    for maker in &params.makers {
+        if maker.is_deposit {
+            validate_funding_mint(
+                &maker.order,
+                &maker.deposit_mint,
+                &params.base_deposit_mint,
+                &params.quote_deposit_mint,
+            )?;
+        }
     }
 
     let (exchange, _) = get_exchange_pda(program_id);
@@ -1498,13 +1508,13 @@ pub fn build_deposit_and_swap_ix(
     };
 
     // Build bitmasks
-    let mut full_fill_bitmask: u8 = 0;
-    let mut deposit_bitmask: u8 = 0;
+    let mut full_fill_bitmask: u16 = 0;
+    let mut deposit_bitmask: u16 = 0;
     if params.taker_is_full_fill {
-        full_fill_bitmask |= 0x80;
+        full_fill_bitmask |= TAKER_MASK;
     }
     if params.taker_is_deposit {
-        deposit_bitmask |= 0x80;
+        deposit_bitmask |= TAKER_MASK;
     }
     for (i, maker) in params.makers.iter().enumerate() {
         if maker.is_full_fill {
@@ -1517,11 +1527,13 @@ pub fn build_deposit_and_swap_ix(
 
     let mut keys = Vec::new();
 
-    // Fixed accounts (9)
+    // Fixed accounts (11)
     keys.push(signer_mut(params.operator));
     keys.push(readonly(exchange));
     keys.push(readonly(params.market));
     keys.push(readonly(orderbook));
+    keys.push(readonly(gdt_a));
+    keys.push(readonly(gdt_b));
     keys.push(readonly(mint_authority));
     keys.push(readonly(TOKEN_PROGRAM_ID));
     keys.push(writable(fee_receiver_quote_ata));
@@ -1539,7 +1551,7 @@ pub fn build_deposit_and_swap_ix(
     let taker_receive_ata = get_conditional_token_ata(&taker_position, receive_mint);
     let taker_give_ata = get_conditional_token_ata(&taker_position, give_mint);
     keys.push(readonly(taker_nonce));
-    keys.push(writable(taker_position));
+    keys.push(readonly(taker_position));
     keys.push(readonly(params.base_mint));
     keys.push(readonly(params.quote_mint));
     keys.push(writable(taker_receive_ata));
@@ -1578,7 +1590,7 @@ pub fn build_deposit_and_swap_ix(
         }
 
         keys.push(readonly(maker_nonce));
-        keys.push(writable(maker_position));
+        keys.push(readonly(maker_position));
 
         // Maker deposit block (only if maker deposits)
         if maker.is_deposit {
@@ -1618,8 +1630,8 @@ pub fn build_deposit_and_swap_ix(
     data.extend_from_slice(&taker_compact.serialize());
     data.extend_from_slice(&params.taker_order.signature);
     data.push(num_makers);
-    data.push(full_fill_bitmask);
-    data.push(deposit_bitmask);
+    data.extend_from_slice(&full_fill_bitmask.to_le_bytes());
+    data.extend_from_slice(&deposit_bitmask.to_le_bytes());
 
     for maker in &params.makers {
         let maker_compact = maker.order.to_order();
@@ -1629,83 +1641,7 @@ pub fn build_deposit_and_swap_ix(
         data.extend_from_slice(&maker.taker_fill_amount.to_le_bytes());
     }
 
-    Ok(Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    })
-}
-
-/// Build ExtendPositionTokens instruction.
-///
-/// Extend an existing position ALT with entries for new deposit mints.
-/// Operator-only — the exchange operator pays to extend ALTs for users.
-///
-/// Accounts (10 + per deposit_mint: 3 + num_outcomes*2):
-/// 0. operator (signer, mut)
-/// 1. user (readonly) - Position owner
-/// 2. exchange (readonly)
-/// 3. market (readonly)
-/// 4. position (readonly) - Existing Position PDA
-/// 5. lookup_table (mut) - Existing ALT (authority = position PDA)
-/// 6. token_program (readonly)
-/// 7. ata_program (readonly)
-/// 8. alt_program (readonly)
-/// 9. system_program (readonly)
-/// + per deposit_mint: deposit_mint, vault, global_deposit_token,
-///   then per outcome: conditional_mint, position_conditional_ata
-pub fn build_extend_position_tokens_ix(
-    params: &ExtendPositionTokensParams,
-    num_outcomes: u8,
-    program_id: &Pubkey,
-) -> SdkResult<Instruction> {
-    if params.deposit_mints.is_empty() {
-        return Err(SdkError::MissingField("deposit_mints".to_string()));
-    }
-
-    let (exchange, _) = get_exchange_pda(program_id);
-    let (position, _) = get_position_pda(&params.user, &params.market, program_id);
-
-    let mut keys = vec![
-        signer_mut(params.operator),
-        readonly(params.user),
-        readonly(exchange),
-        readonly(params.market),
-        readonly(position),
-        writable(params.lookup_table),
-        readonly(TOKEN_PROGRAM_ID),
-        readonly(ASSOCIATED_TOKEN_PROGRAM_ID),
-        readonly(*ALT_PROGRAM_ID),
-        readonly(system_program_id()),
-    ];
-
-    for deposit_mint in &params.deposit_mints {
-        let (vault, _) = get_vault_pda(deposit_mint, &params.market, program_id);
-        let (global_deposit_token, _) = get_global_deposit_token_pda(deposit_mint, program_id);
-
-        keys.push(readonly(*deposit_mint));
-        keys.push(readonly(vault));
-        keys.push(readonly(global_deposit_token));
-
-        for i in 0..num_outcomes {
-            let (cond_mint, _) =
-                get_conditional_mint_pda(&params.market, deposit_mint, i, program_id);
-            let position_ata = get_conditional_token_ata(&position, &cond_mint);
-            keys.push(readonly(cond_mint));
-            keys.push(writable(position_ata));
-        }
-    }
-
-    let data = vec![
-        instruction::EXTEND_POSITION_TOKENS,
-        params.deposit_mints.len() as u8,
-    ];
-
-    Ok(Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    })
+    Ok(public_instruction(program_id, keys, data))
 }
 
 // ============================================================================
@@ -1738,36 +1674,7 @@ pub fn build_withdraw_from_global_ix(
     let mut data = vec![instruction::WITHDRAW_FROM_GLOBAL];
     data.extend_from_slice(&params.amount.to_le_bytes());
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
-}
-
-/// Build ClosePositionAlt instruction.
-///
-/// Deactivates an active position ALT, or closes an already-deactivated ALT.
-pub fn build_close_position_alt_ix(
-    params: &ClosePositionAltParams,
-    program_id: &Pubkey,
-) -> Instruction {
-    let (exchange, _) = get_exchange_pda(program_id);
-
-    let keys = vec![
-        signer_mut(params.operator),
-        readonly(exchange),
-        readonly(params.position),
-        readonly(params.market),
-        writable(params.lookup_table),
-        readonly(*ALT_PROGRAM_ID),
-    ];
-
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data: vec![instruction::CLOSE_POSITION_ALT],
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build CloseOrderStatus instruction.
@@ -1791,11 +1698,7 @@ pub fn build_close_order_status_ix(
     data.push(instruction::CLOSE_ORDER_STATUS);
     data.extend_from_slice(&params.order_hash);
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data,
-    }
+    public_instruction(program_id, keys, data)
 }
 
 /// Build ClosePositionTokenAccounts instruction.
@@ -1832,42 +1735,16 @@ pub fn build_close_position_token_accounts_ix(
         }
     }
 
-    Ok(Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data: vec![instruction::CLOSE_POSITION_TOKEN_ACCOUNTS],
-    })
-}
-
-/// Build CloseOrderbookAlt instruction.
-///
-/// Deactivates an active orderbook ALT, or closes an already-deactivated ALT.
-pub fn build_close_orderbook_alt_ix(
-    params: &CloseOrderbookAltParams,
-    program_id: &Pubkey,
-) -> Instruction {
-    let (exchange, _) = get_exchange_pda(program_id);
-
-    let keys = vec![
-        signer_mut(params.operator),
-        readonly(exchange),
-        readonly(params.orderbook),
-        readonly(params.market),
-        writable(params.lookup_table),
-        readonly(*ALT_PROGRAM_ID),
-    ];
-
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data: vec![instruction::CLOSE_ORDERBOOK_ALT],
-    }
+    Ok(public_instruction(
+        program_id,
+        keys,
+        vec![instruction::CLOSE_POSITION_TOKEN_ACCOUNTS],
+    ))
 }
 
 /// Build CloseOrderbook instruction.
 ///
-/// Closes an orderbook PDA after its recorded lookup table has already been
-/// closed by the ALT program.
+/// Close the orderbook PDA after its market resolves and refund its operator.
 pub fn build_close_orderbook_ix(params: &CloseOrderbookParams, program_id: &Pubkey) -> Instruction {
     let (exchange, _) = get_exchange_pda(program_id);
 
@@ -1876,14 +1753,9 @@ pub fn build_close_orderbook_ix(params: &CloseOrderbookParams, program_id: &Pubk
         readonly(exchange),
         writable(params.orderbook),
         readonly(params.market),
-        readonly(params.lookup_table),
     ];
 
-    Instruction {
-        program_id: *program_id,
-        accounts: keys,
-        data: vec![instruction::CLOSE_ORDERBOOK],
-    }
+    public_instruction(program_id, keys, vec![instruction::CLOSE_ORDERBOOK])
 }
 
 #[cfg(test)]
@@ -1906,7 +1778,7 @@ mod tests {
         let ix = build_initialize_ix(&authority, &program_id);
 
         assert_eq!(ix.program_id, program_id);
-        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(ix.accounts.len(), 5);
         assert_eq!(ix.data, vec![instruction::INITIALIZE]);
     }
 
@@ -1918,7 +1790,7 @@ mod tests {
         let ix = build_increment_nonce_ix(&user, &program_id);
 
         assert_eq!(ix.program_id, program_id);
-        assert_eq!(ix.accounts.len(), 4);
+        assert_eq!(ix.accounts.len(), 6);
         assert_eq!(ix.data, vec![instruction::INCREMENT_NONCE]);
     }
 
@@ -1952,7 +1824,7 @@ mod tests {
         let params = CreateMarketParams {
             manager: Pubkey::new_unique(),
             num_outcomes: 3,
-            oracle: Pubkey::new_unique(),
+            oracle: *crate::program::constants::INITIALIZE_AUTHORITY,
             question_id: [42u8; 32],
             maker_fee_bps: 10,
             taker_fee_bps: 20,
@@ -1961,7 +1833,7 @@ mod tests {
 
         let ix = build_create_market_ix(&params, 0, &program_id).unwrap();
 
-        assert_eq!(ix.accounts.len(), 5);
+        assert_eq!(ix.accounts.len(), 7);
         assert_eq!(ix.data.len(), 70); // 1 + 1 + 32 + 32 + 2 + 2
         assert_eq!(ix.data[0], instruction::CREATE_MARKET);
         assert_eq!(ix.data[1], 3);
@@ -1974,7 +1846,7 @@ mod tests {
         let params = CreateMarketParams {
             manager: Pubkey::new_unique(),
             num_outcomes: 7, // Invalid - max is 6
-            oracle: Pubkey::new_unique(),
+            oracle: *crate::program::constants::INITIALIZE_AUTHORITY,
             question_id: [0u8; 32],
             maker_fee_bps: 0,
             taker_fee_bps: 0,
@@ -1996,8 +1868,9 @@ mod tests {
 
         let ix = build_add_deposit_mint_ix(&params, &market, 2, &program_id).unwrap();
 
-        assert_eq!(ix.accounts.len(), 11);
-        assert!(!ix.accounts[2].is_writable);
+        assert_eq!(ix.accounts.len(), 13);
+        assert_eq!(ix.accounts[2].pubkey, market);
+        assert!(ix.accounts[2].is_writable);
         assert_eq!(ix.data, vec![instruction::ADD_DEPOSIT_MINT]);
     }
 
@@ -2011,14 +1884,14 @@ mod tests {
 
         let ix = build_activate_market_ix(&params, &program_id);
 
-        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(ix.accounts.len(), 5);
         assert_eq!(ix.data, vec![instruction::ACTIVATE_MARKET]);
     }
 
     #[test]
     fn test_build_settle_market_ix() {
         let params = SettleMarketParams {
-            oracle: Pubkey::new_unique(),
+            oracle: *crate::program::constants::INITIALIZE_AUTHORITY,
             market_id: 1,
             payout_numerators: vec![7, 3],
         };
@@ -2026,7 +1899,7 @@ mod tests {
 
         let ix = build_settle_market_ix(&params, &program_id).unwrap();
 
-        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(ix.accounts.len(), 5);
         assert!(ix.accounts[0].is_signer);
         assert!(!ix.accounts[0].is_writable);
         assert_eq!(ix.data.len(), 9);
@@ -2038,7 +1911,7 @@ mod tests {
     #[test]
     fn test_build_settle_market_rejects_invalid_vectors() {
         let program_id = test_program_id();
-        let oracle = Pubkey::new_unique();
+        let oracle = *crate::program::constants::INITIALIZE_AUTHORITY;
 
         for payout_numerators in [vec![], vec![0, 0], vec![1], vec![1; 7]] {
             let params = SettleMarketParams {
@@ -2105,7 +1978,7 @@ mod tests {
     fn test_build_redeem_winnings_ix_includes_outcome_and_exchange() {
         let program_id = test_program_id();
         let params = RedeemWinningsParams {
-            user: Pubkey::new_unique(),
+            user: *crate::program::constants::INITIALIZE_AUTHORITY,
             market: Pubkey::new_unique(),
             deposit_mint: Pubkey::new_unique(),
             amount: 1_000,
@@ -2114,7 +1987,7 @@ mod tests {
 
         let ix = build_redeem_winnings_ix(&params, 1, &program_id);
 
-        assert_eq!(ix.accounts.len(), 11);
+        assert_eq!(ix.accounts.len(), 13);
         assert_eq!(ix.accounts[10].pubkey, exchange);
         assert!(!ix.accounts[5].is_writable);
         assert_eq!(ix.data.len(), 10);
@@ -2146,7 +2019,7 @@ mod tests {
         let operator = Pubkey::new_unique();
         let ix = build_cancel_order_ix(&operator, &market, &order, &program_id);
 
-        assert_eq!(ix.accounts.len(), 4);
+        assert_eq!(ix.accounts.len(), 6);
         assert_eq!(ix.data.len(), 266); // 1 + 32 + 233
         assert_eq!(ix.data[0], instruction::CANCEL_ORDER);
     }
@@ -2175,7 +2048,7 @@ mod tests {
         let position_conditional_ata = get_conditional_token_ata(&position, &conditional_mint);
         let user_conditional_ata = get_conditional_token_ata(&user, &conditional_mint);
 
-        assert_eq!(ix.accounts.len(), 9);
+        assert_eq!(ix.accounts.len(), 11);
         assert_eq!(ix.accounts[0], signer_mut(user));
         assert_eq!(ix.accounts[1], readonly(exchange));
         assert_eq!(ix.accounts[2], readonly(market));
@@ -2192,67 +2065,6 @@ mod tests {
     }
 
     #[test]
-    fn test_build_create_orderbook_ix() {
-        let program_id = test_program_id();
-        let params = CreateOrderbookParams {
-            manager: Pubkey::new_unique(),
-            market: Pubkey::new_unique(),
-            mint_a: Pubkey::new_from_array([2u8; 32]),
-            mint_b: Pubkey::new_from_array([1u8; 32]),
-            fee_receiver: Pubkey::new_unique(),
-            mint_a_deposit_mint: Pubkey::new_from_array([12u8; 32]),
-            mint_b_deposit_mint: Pubkey::new_from_array([11u8; 32]),
-            recent_slot: 12345,
-            base_index: 0,
-            mint_a_outcome_index: 2,
-            mint_b_outcome_index: 1,
-        };
-
-        let ix = build_create_orderbook_ix(&params, &program_id).unwrap();
-
-        assert_eq!(ix.accounts.len(), 15);
-        assert_eq!(ix.data.len(), 12); // 1 + 8 + 1 + 1 + 1
-        assert_eq!(ix.data[0], instruction::CREATE_ORDERBOOK);
-        assert_eq!(ix.accounts[2].pubkey, params.mint_b);
-        assert_eq!(ix.accounts[3].pubkey, params.mint_a);
-        assert_eq!(ix.accounts[13].pubkey, params.fee_receiver);
-        assert_eq!(ix.data[9], 1); // base_index after canonical sorting
-        assert_eq!(ix.data[10], 1); // canonical mint_a outcome index
-        assert_eq!(ix.data[11], 2); // canonical mint_b outcome index
-    }
-
-    #[test]
-    fn test_build_refresh_orderbook_alt_ix() {
-        let program_id = test_program_id();
-        let params = RefreshOrderbookAltParams {
-            manager: Pubkey::new_unique(),
-            market: Pubkey::new_unique(),
-            orderbook: Pubkey::new_unique(),
-            lookup_table: Pubkey::new_unique(),
-            quote_mint: Pubkey::new_unique(),
-            fee_receiver: Pubkey::new_unique(),
-        };
-
-        let ix = build_refresh_orderbook_alt_ix(&params, &program_id);
-
-        assert_eq!(ix.accounts.len(), 12);
-        assert_eq!(ix.accounts[0].pubkey, params.manager);
-        assert!(ix.accounts[0].is_signer);
-        assert!(ix.accounts[0].is_writable);
-        assert_eq!(ix.accounts[2].pubkey, params.market);
-        assert_eq!(ix.accounts[3].pubkey, params.orderbook);
-        assert_eq!(ix.accounts[4].pubkey, params.lookup_table);
-        assert!(ix.accounts[4].is_writable);
-        assert_eq!(ix.accounts[5].pubkey, params.quote_mint);
-        assert_eq!(ix.accounts[6].pubkey, params.fee_receiver);
-        assert_eq!(
-            ix.accounts[7].pubkey,
-            get_conditional_token_ata(&params.fee_receiver, &params.quote_mint)
-        );
-        assert_eq!(ix.data, vec![instruction::REFRESH_ORDERBOOK_ALT]);
-    }
-
-    #[test]
     fn test_build_set_authority_ix() {
         let program_id = test_program_id();
         let params = SetAuthorityParams {
@@ -2262,7 +2074,7 @@ mod tests {
 
         let ix = build_set_authority_ix(&params, &program_id);
 
-        assert_eq!(ix.accounts.len(), 2);
+        assert_eq!(ix.accounts.len(), 4);
         assert_eq!(ix.data.len(), 33); // 1 + 32
         assert_eq!(ix.data[0], instruction::SET_AUTHORITY);
         assert_eq!(&ix.data[1..33], params.new_authority.as_ref());
@@ -2278,7 +2090,7 @@ mod tests {
 
         let ix = build_set_manager_ix(&params, &program_id);
 
-        assert_eq!(ix.accounts.len(), 2);
+        assert_eq!(ix.accounts.len(), 4);
         assert_eq!(ix.data.len(), 33);
         assert_eq!(ix.data[0], instruction::SET_MANAGER);
         assert_eq!(&ix.data[1..33], params.new_manager.as_ref());
@@ -2295,7 +2107,7 @@ mod tests {
         let operator_ix = build_accept_operator_ix(&params, &program_id);
 
         for ix in [&authority_ix, &manager_ix, &operator_ix] {
-            assert_eq!(ix.accounts.len(), 2);
+            assert_eq!(ix.accounts.len(), 4);
             assert_eq!(ix.accounts[0].pubkey, incoming_role);
             assert!(ix.accounts[0].is_signer);
             assert!(!ix.accounts[0].is_writable);
@@ -2313,12 +2125,12 @@ mod tests {
         let params = SetOracleParams {
             authority: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
-            new_oracle: Pubkey::new_unique(),
+            new_oracle: *crate::program::constants::INITIALIZE_AUTHORITY,
         };
 
         let ix = build_set_oracle_ix(&params, &program_id).unwrap();
 
-        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(ix.accounts.len(), 5);
         assert_eq!(ix.accounts[0].pubkey, params.authority);
         assert!(ix.accounts[0].is_signer);
         assert!(!ix.accounts[0].is_writable);
@@ -2358,7 +2170,7 @@ mod tests {
 
         let ix = build_set_market_fees_ix(&params, &program_id).unwrap();
 
-        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(ix.accounts.len(), 5);
         assert_eq!(ix.accounts[2].pubkey, market);
         assert_eq!(ix.data[0], instruction::SET_MARKET_FEES);
         assert_eq!(&ix.data[1..3], &(-10i16).to_le_bytes());
@@ -2375,7 +2187,7 @@ mod tests {
 
         let ix = build_set_fee_receiver_ix(&params, &program_id).unwrap();
 
-        assert_eq!(ix.accounts.len(), 2);
+        assert_eq!(ix.accounts.len(), 4);
         assert_eq!(ix.data.len(), 33);
         assert_eq!(ix.data[0], instruction::SET_FEE_RECEIVER);
         assert_eq!(&ix.data[1..33], params.new_fee_receiver.as_ref());
@@ -2394,7 +2206,7 @@ mod tests {
 
         let ix = build_set_fee_receiver_with_atas_ix(&params, &program_id).unwrap();
 
-        assert_eq!(ix.accounts.len(), 10);
+        assert_eq!(ix.accounts.len(), 12);
         assert_eq!(ix.accounts[0].pubkey, params.authority);
         assert!(ix.accounts[0].is_signer);
         assert!(ix.accounts[0].is_writable);
@@ -2443,7 +2255,7 @@ mod tests {
         };
 
         let create_ix = build_create_conditional_metadata_ix(&params, &program_id).unwrap();
-        assert_eq!(create_ix.accounts.len(), 10);
+        assert_eq!(create_ix.accounts.len(), 12);
         assert_eq!(create_ix.data[0], instruction::CREATE_CONDITIONAL_METADATA);
         assert_eq!(create_ix.data[1], 1);
         assert_eq!(
@@ -2452,7 +2264,7 @@ mod tests {
         );
 
         let update_ix = build_update_conditional_metadata_ix(&params, &program_id).unwrap();
-        assert_eq!(update_ix.accounts.len(), 8);
+        assert_eq!(update_ix.accounts.len(), 10);
         assert_eq!(update_ix.data[0], instruction::UPDATE_CONDITIONAL_METADATA);
         assert!(!update_ix.accounts[0].is_writable);
     }
@@ -2494,6 +2306,8 @@ mod tests {
         };
 
         let params = MatchOrdersMultiParams {
+            base_deposit_mint: base_mint,
+            quote_deposit_mint: quote_mint,
             operator,
             market,
             base_mint,
@@ -2508,13 +2322,13 @@ mod tests {
 
         let ix = build_match_orders_multi_ix(&params, &program_id).unwrap();
 
-        // Data: 1 + 37 + 64 + 1 + 1 + 117 = 221
-        assert_eq!(ix.data.len(), 221);
+        // Data: 1 + 37 + 64 + 1 + 2 + 117 = 222
+        assert_eq!(ix.data.len(), 222);
         assert_eq!(ix.data[0], instruction::MATCH_ORDERS_MULTI);
 
         // With bitmask=0 (no full fills):
-        // Taker: 16 accounts, Maker: 5 accounts = 21 total
-        assert_eq!(ix.accounts.len(), 21);
+        // Taker: 18 accounts, Maker: 5 accounts, trailer: 2 accounts = 25 total
+        assert_eq!(ix.accounts.len(), 25);
     }
 
     #[test]
@@ -2553,8 +2367,10 @@ mod tests {
             signature: [2u8; 64],
         };
 
-        // bit 0 = 1 (maker 0 full fill), bit 7 = 1 (taker full fill)
+        // bit 0 = 1 (maker 0 full fill), bit 15 = 1 (taker full fill)
         let params = MatchOrdersMultiParams {
+            base_deposit_mint: base_mint,
+            quote_deposit_mint: quote_mint,
             operator,
             market,
             base_mint,
@@ -2564,14 +2380,58 @@ mod tests {
             maker_orders: vec![maker],
             maker_fill_amounts: vec![50],
             taker_fill_amounts: vec![100],
-            full_fill_bitmask: 0b10000001,
+            full_fill_bitmask: 0x8001,
         };
 
         let ix = build_match_orders_multi_ix(&params, &program_id).unwrap();
 
-        // With bitmask=0x81 (taker + maker 0 full fill):
-        // Taker: 15 accounts (no order_status), Maker: 4 accounts (no order_status) = 19 total
-        assert_eq!(ix.accounts.len(), 19);
+        // With bitmask=0x8001 (taker + maker 0 full fill):
+        // Taker: 17 accounts (no order_status), Maker: 4 accounts (no order_status),
+        // trailer: 2 accounts = 23 total
+        assert_eq!(ix.accounts.len(), 23);
+    }
+
+    #[test]
+    fn test_match_orders_multi_eleven_makers_and_u16_mask() {
+        let program_id = test_program_id();
+        let mut params = eleven_maker_params();
+        let ix = build_match_orders_multi_ix(&params, &program_id).unwrap();
+
+        assert_eq!(ix.data[0], instruction::MATCH_ORDERS_MULTI);
+        assert_eq!(ix.data.len(), 1392);
+        assert_eq!(&ix.data[103..105], &[0x81, 0x85]);
+        assert_eq!(
+            u16::from_le_bytes(ix.data[103..105].try_into().unwrap()),
+            0x8581
+        );
+        assert_trade_records(
+            &ix.data,
+            105,
+            &params.taker_order,
+            &params.maker_orders,
+            &params.maker_fill_amounts,
+            &params.taker_fill_amounts,
+        );
+        // 18 + 5*11 - 5 full fills, followed by the two-account trailer.
+        assert_eq!(ix.accounts.len(), 70);
+        assert_eleven_maker_account_sequence(&ix, &params, &program_id, false);
+
+        for invalid_mask in [0x0800, 0x1000, 0x2000, 0x4000] {
+            params.full_fill_bitmask = invalid_mask;
+            assert!(matches!(
+                build_match_orders_multi_ix(&params, &program_id),
+                Err(SdkError::Serialization(_))
+            ));
+        }
+
+        params.full_fill_bitmask = 0x8581;
+        params.maker_orders.push(params.maker_orders[0].clone());
+        params.maker_fill_amounts.push(1);
+        params.taker_fill_amounts.push(2);
+        assert!(matches!(
+            build_match_orders_multi_ix(&params, &program_id),
+            Err(SdkError::TooManyMakers { count: 12 })
+        ));
     }
 
     #[test]
@@ -2584,7 +2444,7 @@ mod tests {
 
         let ix = build_whitelist_deposit_token_ix(&params, &program_id);
 
-        assert_eq!(ix.accounts.len(), 5);
+        assert_eq!(ix.accounts.len(), 7);
         assert!(ix.accounts[1].is_writable);
         assert_eq!(ix.data, vec![instruction::WHITELIST_DEPOSIT_TOKEN]);
     }
@@ -2600,7 +2460,7 @@ mod tests {
 
         let ix = build_set_deposit_token_status_ix(&params, &program_id);
 
-        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(ix.accounts.len(), 5);
         assert_eq!(ix.accounts[0].pubkey, params.manager);
         assert!(ix.accounts[0].is_signer);
         assert!(!ix.accounts[0].is_writable);
@@ -2612,56 +2472,30 @@ mod tests {
     fn test_build_deposit_to_global_ix() {
         let program_id = test_program_id();
         let params = DepositToGlobalParams {
-            user: Pubkey::new_unique(),
+            user: *crate::program::constants::INITIALIZE_AUTHORITY,
             mint: Pubkey::new_unique(),
             amount: 1_000_000,
         };
 
         let ix = build_deposit_to_global_ix(&params, &program_id);
 
-        assert_eq!(ix.accounts.len(), 8);
+        assert_eq!(ix.accounts.len(), 10);
         assert_eq!(ix.data.len(), 9);
         assert_eq!(ix.data[0], instruction::DEPOSIT_TO_GLOBAL);
-    }
-
-    #[test]
-    fn test_build_deposit_to_global_ix_with_alt_create() {
-        let program_id = test_program_id();
-        let recent_slot = 12345;
-        let params = DepositToGlobalParams {
-            user: Pubkey::new_unique(),
-            mint: Pubkey::new_unique(),
-            amount: 1_000_000,
-        };
-        let (user_nonce, _) = get_user_nonce_pda(&params.user, &program_id);
-        let (lookup_table, _) = get_alt_pda(&user_nonce, recent_slot);
-
-        let ix = build_deposit_to_global_ix_with_alt(
-            &params,
-            DepositToGlobalAltContext::Create { recent_slot },
-            &program_id,
-        );
-
-        assert_eq!(ix.accounts.len(), 11);
-        assert_eq!(ix.accounts[8].pubkey, user_nonce);
-        assert_eq!(ix.accounts[9].pubkey, lookup_table);
-        assert_eq!(ix.data.len(), 17);
-        assert_eq!(ix.data[0], instruction::DEPOSIT_TO_GLOBAL);
-        assert_eq!(&ix.data[9..17], &recent_slot.to_le_bytes());
     }
 
     #[test]
     fn test_build_withdraw_from_global_ix() {
         let program_id = test_program_id();
         let params = WithdrawFromGlobalParams {
-            user: Pubkey::new_unique(),
+            user: *crate::program::constants::INITIALIZE_AUTHORITY,
             mint: Pubkey::new_unique(),
             amount: 1_000_000,
         };
 
         let ix = build_withdraw_from_global_ix(&params, &program_id);
 
-        assert_eq!(ix.accounts.len(), 7);
+        assert_eq!(ix.accounts.len(), 9);
         assert_eq!(ix.data.len(), 9);
         assert_eq!(ix.data[0], instruction::WITHDRAW_FROM_GLOBAL);
     }
@@ -2670,7 +2504,7 @@ mod tests {
     fn test_build_global_to_market_deposit_ix() {
         let program_id = test_program_id();
         let params = GlobalToMarketDepositParams {
-            user: Pubkey::new_unique(),
+            user: *crate::program::constants::INITIALIZE_AUTHORITY,
             market: Pubkey::new_unique(),
             deposit_mint: Pubkey::new_unique(),
             amount: 500_000,
@@ -2678,8 +2512,8 @@ mod tests {
 
         let ix = build_global_to_market_deposit_ix(&params, 3, &program_id);
 
-        // 12 fixed + 3*2 conditional = 18
-        assert_eq!(ix.accounts.len(), 18);
+        // 12 fixed + 3*2 conditional + 2 trailer = 20
+        assert_eq!(ix.accounts.len(), 20);
         assert_eq!(ix.data.len(), 9);
         assert_eq!(ix.data[0], instruction::GLOBAL_TO_MARKET_DEPOSIT);
     }
@@ -2690,19 +2524,18 @@ mod tests {
         let deposit_mint = Pubkey::new_unique();
         let params = InitPositionTokensParams {
             payer: Pubkey::new_unique(),
-            user: Pubkey::new_unique(),
+            user: *crate::program::constants::INITIALIZE_AUTHORITY,
             market: Pubkey::new_unique(),
             deposit_mints: vec![deposit_mint],
-            recent_slot: 12345,
         };
 
         let ix = build_init_position_tokens_ix(&params, 3, &program_id);
 
-        // 11 fixed + 1*(3 + 3*2) = 11 + 9 = 20
+        // 9 fixed + 1*(3 + 3*2) + 2 trailer = 20
         assert_eq!(ix.accounts.len(), 20);
-        assert_eq!(ix.data.len(), 10); // 1 + 8 + 1
+        assert_eq!(ix.data.len(), 2); // discriminator + group count
         assert_eq!(ix.data[0], instruction::INIT_POSITION_TOKENS);
-        assert_eq!(ix.data[9], 1); // num_deposit_mints
+        assert_eq!(ix.data[1], 1); // num_deposit_mints
     }
 
     #[test]
@@ -2742,6 +2575,8 @@ mod tests {
         };
 
         let params = DepositAndSwapParams {
+            base_deposit_mint: base_mint,
+            quote_deposit_mint: deposit_mint,
             operator: Pubkey::new_unique(),
             market,
             base_mint,
@@ -2758,18 +2593,18 @@ mod tests {
                 taker_fill_amount: 100,
                 is_full_fill: false,
                 is_deposit: true,
-                deposit_mint,
+                deposit_mint: base_mint,
             }],
         };
 
         let ix = build_deposit_and_swap_ix(&params, &program_id).unwrap();
 
-        // Data: 1 + 37 + 64 + 1 + 1 + 1 + 117 = 222
-        assert_eq!(ix.data.len(), 222);
+        // Data: 1 + 37 + 64 + 1 + 2 + 2 + 117 = 224
+        assert_eq!(ix.data.len(), 224);
         assert_eq!(ix.data[0], instruction::DEPOSIT_AND_SWAP);
 
         // Account layout (taker+maker both depositing, no full fills):
-        // Fixed: 9
+        // Fixed: 11
         // Taker order_status: 1
         // Taker common: 7 (nonce, position, base_mint, quote_mint, receive_ata, give_ata, system)
         // Taker deposit: 4 + 3*2 = 10 (dm, vault, gdt, global_deposit, cond_mint+ata*3)
@@ -2777,8 +2612,73 @@ mod tests {
         // Maker common: 2 (nonce, position)
         // Maker deposit: 4 + 3*2 = 10
         // Maker swap: 2 (receive_ata, give_ata)
-        // Total: 9 + 1 + 7 + 10 + 1 + 2 + 10 + 2 = 42
-        assert_eq!(ix.accounts.len(), 42);
+        // Trailer: 2 (event_authority, program)
+        // Total: 11 + 1 + 7 + 10 + 1 + 2 + 10 + 2 + 2 = 46
+        assert_eq!(ix.accounts.len(), 46);
+    }
+
+    #[test]
+    fn test_deposit_and_swap_eleven_makers_and_u16_masks() {
+        let program_id = test_program_id();
+        let matching = eleven_maker_params();
+        let mut params = DepositAndSwapParams {
+            operator: matching.operator,
+            market: matching.market,
+            base_mint: matching.base_mint,
+            quote_mint: matching.quote_mint,
+            base_deposit_mint: matching.base_deposit_mint,
+            quote_deposit_mint: matching.quote_deposit_mint,
+            fee_receiver: matching.fee_receiver,
+            taker_order: matching.taker_order.clone(),
+            taker_is_full_fill: true,
+            taker_is_deposit: true,
+            taker_deposit_mint: matching.quote_deposit_mint,
+            num_outcomes: 6,
+            makers: matching
+                .maker_orders
+                .iter()
+                .enumerate()
+                .map(|(i, order)| MakerFill {
+                    order: order.clone(),
+                    maker_fill_amount: matching.maker_fill_amounts[i],
+                    taker_fill_amount: matching.taker_fill_amounts[i],
+                    is_full_fill: matches!(i, 0 | 7 | 8 | 10),
+                    is_deposit: matches!(i, 1 | 9 | 10),
+                    deposit_mint: matching.base_deposit_mint,
+                })
+                .collect(),
+        };
+        let ix = build_deposit_and_swap_ix(&params, &program_id).unwrap();
+
+        assert_eq!(ix.data[0], instruction::DEPOSIT_AND_SWAP);
+        assert_eq!(ix.data.len(), 1394);
+        assert_eq!(&ix.data[103..107], &[0x81, 0x85, 0x02, 0x86]);
+        assert_eq!(
+            u16::from_le_bytes(ix.data[103..105].try_into().unwrap()),
+            0x8581
+        );
+        assert_eq!(
+            u16::from_le_bytes(ix.data[105..107].try_into().unwrap()),
+            0x8602
+        );
+        assert_trade_records(
+            &ix.data,
+            107,
+            &matching.taker_order,
+            &matching.maker_orders,
+            &matching.maker_fill_amounts,
+            &matching.taker_fill_amounts,
+        );
+        // Four depositors each supply 4 + 2*6 references, including repeated
+        // mints and GDTs: 19 + 5*11 - 5 full fills + 4*16 + 2 trailer accounts.
+        assert_eq!(ix.accounts.len(), 135);
+        assert_eleven_maker_account_sequence(&ix, &matching, &program_id, true);
+
+        params.makers.push(params.makers[0].clone());
+        assert!(matches!(
+            build_deposit_and_swap_ix(&params, &program_id),
+            Err(SdkError::TooManyMakers { count: 12 })
+        ));
     }
 
     #[test]
@@ -2792,7 +2692,7 @@ mod tests {
 
         let ix = build_close_order_status_ix(&params, &program_id);
 
-        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(ix.accounts.len(), 5);
         assert_eq!(ix.data.len(), 33);
         assert_eq!(ix.data[0], instruction::CLOSE_ORDER_STATUS);
         assert_eq!(&ix.data[1..33], &order_hash);
@@ -2813,53 +2713,794 @@ mod tests {
 
         let ix = build_close_position_token_accounts_ix(&params, 3, &program_id).unwrap();
 
-        // 5 fixed + one group of deposit_mint + 3*(conditional_mint, ata)
-        assert_eq!(ix.accounts.len(), 12);
+        // 5 fixed + one group of deposit_mint + 3*(conditional_mint, ata) + 2 trailer
+        assert_eq!(ix.accounts.len(), 14);
         assert_eq!(ix.data, vec![instruction::CLOSE_POSITION_TOKEN_ACCOUNTS]);
     }
 
-    #[test]
-    fn test_build_close_alt_and_orderbook_ixs() {
-        let program_id = test_program_id();
-        let operator = Pubkey::new_unique();
+    fn event_transport_trailer(program_id: &Pubkey) -> [AccountMeta; 2] {
+        let (event_authority, _) = get_event_authority_pda(program_id);
+        [readonly(event_authority), readonly(*program_id)]
+    }
+
+    fn sample_order(
+        market: Pubkey,
+        base_mint: Pubkey,
+        quote_mint: Pubkey,
+        side: OrderSide,
+    ) -> OrderPayload {
+        OrderPayload {
+            nonce: 1,
+            salt: 0,
+            maker: Pubkey::new_unique(),
+            market,
+            base_mint,
+            quote_mint,
+            side,
+            amount_in: 100,
+            amount_out: 50,
+            expiration: 0,
+            signature: [1u8; 64],
+        }
+    }
+
+    fn eleven_maker_params() -> MatchOrdersMultiParams {
         let market = Pubkey::new_unique();
-        let lookup_table = Pubkey::new_unique();
+        // Reverse base/quote relative to canonical mint order so GDT slots 4
+        // and 5 must contain quote collateral first, then base collateral.
+        let base_mint = Pubkey::new_from_array([2; 32]);
+        let quote_mint = Pubkey::new_from_array([1; 32]);
+        let mut taker_order = sample_order(market, base_mint, quote_mint, OrderSide::Bid);
+        taker_order.nonce = 0x1234_5678;
+        taker_order.salt = 0x0102_0304_0506_0708;
+        taker_order.amount_in = u64::MAX - 100;
+        taker_order.amount_out = (1u64 << 53) + 101;
+        taker_order.expiration = -123_456_789;
+        let maker_orders = (0u32..11)
+            .map(|i| {
+                let mut order = sample_order(market, base_mint, quote_mint, OrderSide::Ask);
+                order.nonce = 0x89ab_cd00 + u64::from(i);
+                order.salt = 0x1112_1314_1516_1700 + u64::from(i);
+                order.amount_in = (1u64 << 53) + 201 + u64::from(i);
+                order.amount_out = u64::MAX - 301 - u64::from(i);
+                order.expiration = -987_654_321 - i64::from(i);
+                order.signature = [i as u8 + 2; 64];
+                order
+            })
+            .collect();
+        MatchOrdersMultiParams {
+            operator: Pubkey::new_unique(),
+            market,
+            base_mint,
+            quote_mint,
+            base_deposit_mint: Pubkey::new_unique(),
+            quote_deposit_mint: Pubkey::new_unique(),
+            fee_receiver: Pubkey::new_unique(),
+            taker_order,
+            maker_orders,
+            maker_fill_amounts: (0..11).map(|i| (1u64 << 53) + 401 + i).collect(),
+            taker_fill_amounts: (0..11).map(|i| u64::MAX - 501 - i).collect(),
+            // Full fills for the taker and makers 0, 7, 8, and 10.
+            full_fill_bitmask: 0x8581,
+        }
+    }
 
-        let position_alt = build_close_position_alt_ix(
-            &ClosePositionAltParams {
-                operator,
-                position: Pubkey::new_unique(),
-                market,
-                lookup_table,
+    fn assert_encoded_order(data: &[u8], expected: &OrderPayload) {
+        assert_eq!(data.len(), 101);
+        let order = crate::program::orders::Order::deserialize(&data[..37]).unwrap();
+        assert_eq!(u64::from(order.nonce), expected.nonce);
+        assert_eq!(order.salt, expected.salt);
+        assert_eq!(order.side, expected.side);
+        assert_eq!(order.amount_in, expected.amount_in);
+        assert_eq!(order.amount_out, expected.amount_out);
+        assert_eq!(order.expiration, expected.expiration);
+        assert_eq!(&data[37..101], &expected.signature);
+    }
+
+    fn assert_trade_records(
+        data: &[u8],
+        records_offset: usize,
+        taker: &OrderPayload,
+        makers: &[OrderPayload],
+        maker_fills: &[u64],
+        taker_fills: &[u64],
+    ) {
+        assert_eq!(data[102], 11);
+        assert_encoded_order(&data[1..102], taker);
+        let records = data[records_offset..].chunks_exact(117);
+        assert!(records.remainder().is_empty());
+        assert_eq!(records.len(), 11);
+        for (i, record) in records.enumerate() {
+            assert_encoded_order(&record[..101], &makers[i]);
+            assert_eq!(
+                u64::from_le_bytes(record[101..109].try_into().unwrap()),
+                maker_fills[i]
+            );
+            assert_eq!(
+                u64::from_le_bytes(record[109..117].try_into().unwrap()),
+                taker_fills[i]
+            );
+        }
+    }
+
+    fn assert_eleven_maker_account_sequence(
+        ix: &Instruction,
+        params: &MatchOrdersMultiParams,
+        program_id: &Pubkey,
+        deposit_and_swap: bool,
+    ) {
+        // Expected (pubkey, signer, writable) triples follow the pinned
+        // db552338 program parsers. They do not use SDK account-meta helpers,
+        // mask decoding, or the builders' collateral canonicalization.
+        let taker = params.taker_order.maker;
+        let taker_position = get_position_pda(&taker, &params.market, program_id).0;
+        let taker_nonce = get_user_nonce_pda(&taker, program_id).0;
+        let taker_base_ata = get_conditional_token_ata(&taker_position, &params.base_mint);
+        let taker_quote_ata = get_conditional_token_ata(&taker_position, &params.quote_mint);
+        let fee_ata = get_conditional_token_ata(&params.fee_receiver, &params.quote_mint);
+        let mut expected = vec![
+            (params.operator, true, true),
+            (get_exchange_pda(program_id).0, false, false),
+            (params.market, false, false),
+            (
+                get_orderbook_pda(&params.base_mint, &params.quote_mint, program_id).0,
+                false,
+                false,
+            ),
+            (
+                get_global_deposit_token_pda(&params.quote_deposit_mint, program_id).0,
+                false,
+                false,
+            ),
+            (
+                get_global_deposit_token_pda(&params.base_deposit_mint, program_id).0,
+                false,
+                false,
+            ),
+        ];
+        if deposit_and_swap {
+            expected.extend([
+                (
+                    get_mint_authority_pda(&params.market, program_id).0,
+                    false,
+                    false,
+                ),
+                (TOKEN_PROGRAM_ID, false, false),
+                (fee_ata, false, true),
+                (params.fee_receiver, false, false),
+                (ASSOCIATED_TOKEN_PROGRAM_ID, false, false),
+                // The full-fill taker has no status account. Its BUY order
+                // receives base and gives quote, defining both parties' ATA order.
+                (taker_nonce, false, false),
+                (taker_position, false, false),
+                (params.base_mint, false, false),
+                (params.quote_mint, false, false),
+                (taker_base_ata, false, true),
+                (taker_quote_ata, false, true),
+                (solana_system_interface::program::ID, false, false),
+            ]);
+            expected.extend(expected_six_outcome_deposit_accounts(
+                &params.market,
+                &taker,
+                &params.quote_deposit_mint,
+                program_id,
+            ));
+        } else {
+            expected.extend([
+                (taker_nonce, false, false),
+                (taker_position, false, false),
+                (params.base_mint, false, false),
+                (params.quote_mint, false, false),
+                (taker_base_ata, false, true),
+                (taker_quote_ata, false, true),
+                (TOKEN_PROGRAM_ID, false, false),
+                (solana_system_interface::program::ID, false, false),
+                (fee_ata, false, true),
+                (params.fee_receiver, false, false),
+                (ASSOCIATED_TOKEN_PROGRAM_ID, false, false),
+            ]);
+        }
+
+        for (i, maker) in params.maker_orders.iter().enumerate() {
+            // Literal participants selected by this vector's full-fill mask.
+            if !matches!(i, 0 | 7 | 8 | 10) {
+                expected.push((
+                    get_order_status_pda(&maker.hash(), program_id).0,
+                    false,
+                    true,
+                ));
+            }
+            let position = get_position_pda(&maker.maker, &params.market, program_id).0;
+            expected.extend([
+                (get_user_nonce_pda(&maker.maker, program_id).0, false, false),
+                (position, false, false),
+            ]);
+            if deposit_and_swap && matches!(i, 1 | 9 | 10) {
+                expected.extend(expected_six_outcome_deposit_accounts(
+                    &params.market,
+                    &maker.maker,
+                    &params.base_deposit_mint,
+                    program_id,
+                ));
+            }
+            // Settlement ATAs follow every maker block, including depositors.
+            expected.extend([
+                (
+                    get_conditional_token_ata(&position, &params.base_mint),
+                    false,
+                    true,
+                ),
+                (
+                    get_conditional_token_ata(&position, &params.quote_mint),
+                    false,
+                    true,
+                ),
+            ]);
+        }
+        expected.extend([
+            (get_event_authority_pda(program_id).0, false, false),
+            (*program_id, false, false),
+        ]);
+        assert_eq!(ix.accounts.len(), expected.len());
+        for (index, (actual, expected)) in ix.accounts.iter().zip(expected).enumerate() {
+            assert_eq!(
+                (actual.pubkey, actual.is_signer, actual.is_writable),
+                expected,
+                "account {index} differs from the program ABI"
+            );
+        }
+    }
+
+    fn expected_six_outcome_deposit_accounts(
+        market: &Pubkey,
+        user: &Pubkey,
+        collateral: &Pubkey,
+        program_id: &Pubkey,
+    ) -> Vec<(Pubkey, bool, bool)> {
+        let position = get_position_pda(user, market, program_id).0;
+        let mut expected = vec![
+            (*collateral, false, false),
+            (get_vault_pda(collateral, market, program_id).0, false, true),
+            (
+                get_global_deposit_token_pda(collateral, program_id).0,
+                false,
+                false,
+            ),
+            (
+                get_user_global_deposit_pda(user, collateral, program_id).0,
+                false,
+                true,
+            ),
+        ];
+        for outcome in [0, 1, 2, 3, 4, 5] {
+            let mint = get_conditional_mint_pda(market, collateral, outcome, program_id).0;
+            expected.extend([
+                (mint, false, true),
+                (get_conditional_token_ata(&position, &mint), false, true),
+            ]);
+        }
+        expected
+    }
+
+    /// One representative instruction per public builder. Register new builders
+    /// here so `every_public_builder_ends_with_event_transport_trailer` covers them.
+    fn all_public_builders(program_id: &Pubkey) -> Vec<(&'static str, Instruction)> {
+        let market = Pubkey::new_unique();
+        let deposit_mint = Pubkey::new_unique();
+        let base_deposit_mint = Pubkey::new_unique();
+        let base_mint = get_conditional_mint_pda(&market, &base_deposit_mint, 0, program_id).0;
+        let quote_mint = get_conditional_mint_pda(&market, &deposit_mint, 0, program_id).0;
+        let signer = *crate::program::constants::INITIALIZE_AUTHORITY;
+        let taker = sample_order(market, base_mint, quote_mint, OrderSide::Bid);
+        let maker = sample_order(market, base_mint, quote_mint, OrderSide::Ask);
+        let metadata = ConditionalMetadataParams {
+            manager: signer,
+            market,
+            deposit_mint,
+            outcome_index: 0,
+            name: "Yes".to_string(),
+            symbol: "YES".to_string(),
+            uri: "https://example.com/yes.json".to_string(),
+        };
+        let deposit_to_global = DepositToGlobalParams {
+            user: signer,
+            mint: deposit_mint,
+            amount: 1,
+        };
+        let accept_role = AcceptRoleParams {
+            incoming_role: signer,
+        };
+
+        vec![
+            ("initialize", build_initialize_ix(&signer, program_id)),
+            (
+                "create_market",
+                build_create_market_ix(
+                    &CreateMarketParams {
+                        manager: signer,
+                        num_outcomes: 2,
+                        oracle: *crate::program::constants::INITIALIZE_AUTHORITY,
+                        question_id: [1u8; 32],
+                        maker_fee_bps: 0,
+                        taker_fee_bps: 0,
+                    },
+                    0,
+                    program_id,
+                )
+                .unwrap(),
+            ),
+            (
+                "add_deposit_mint",
+                build_add_deposit_mint_ix(
+                    &AddDepositMintParams {
+                        manager: signer,
+                        deposit_mint,
+                    },
+                    &market,
+                    2,
+                    program_id,
+                )
+                .unwrap(),
+            ),
+            (
+                "deposit",
+                build_deposit_ix(
+                    &BuildDepositParams {
+                        user: signer,
+                        market,
+                        deposit_mint,
+                        amount: 1,
+                    },
+                    2,
+                    program_id,
+                ),
+            ),
+            (
+                "merge",
+                build_merge_ix(
+                    &BuildMergeParams {
+                        user: signer,
+                        market,
+                        deposit_mint,
+                        amount: 1,
+                    },
+                    2,
+                    program_id,
+                ),
+            ),
+            (
+                "cancel_order",
+                build_cancel_order_ix(&signer, &market, &taker, program_id),
+            ),
+            (
+                "increment_nonce",
+                build_increment_nonce_ix(&signer, program_id),
+            ),
+            (
+                "settle_market",
+                build_settle_market_ix(&SettleMarketParams::new(signer, 0, vec![1, 0]), program_id)
+                    .unwrap(),
+            ),
+            (
+                "redeem_winnings",
+                build_redeem_winnings_ix(
+                    &RedeemWinningsParams {
+                        user: signer,
+                        market,
+                        deposit_mint,
+                        amount: 1,
+                    },
+                    0,
+                    program_id,
+                ),
+            ),
+            ("set_paused", build_set_paused_ix(&signer, true, program_id)),
+            (
+                "set_operator",
+                build_set_operator_ix(&signer, &Pubkey::new_unique(), program_id),
+            ),
+            (
+                "withdraw_conditional_from_position",
+                build_withdraw_conditional_from_position_ix(
+                    &WithdrawConditionalFromPositionParams {
+                        user: signer,
+                        market,
+                        deposit_mint,
+                        amount: 1,
+                        outcome_index: 0,
+                    },
+                    program_id,
+                ),
+            ),
+            (
+                "withdraw_from_position",
+                build_withdraw_from_position_ix(
+                    &WithdrawFromPositionParams {
+                        user: signer,
+                        market,
+                        deposit_mint,
+                        amount: 1,
+                        outcome_index: 0,
+                    },
+                    program_id,
+                ),
+            ),
+            (
+                "activate_market",
+                build_activate_market_ix(
+                    &ActivateMarketParams {
+                        manager: signer,
+                        market_id: 0,
+                    },
+                    program_id,
+                ),
+            ),
+            (
+                "match_orders_multi",
+                build_match_orders_multi_ix(
+                    &MatchOrdersMultiParams {
+                        base_deposit_mint: base_mint,
+                        quote_deposit_mint: quote_mint,
+                        operator: signer,
+                        market,
+                        base_mint,
+                        quote_mint,
+                        fee_receiver: Pubkey::new_unique(),
+                        taker_order: taker.clone(),
+                        maker_orders: vec![maker.clone()],
+                        maker_fill_amounts: vec![50],
+                        taker_fill_amounts: vec![100],
+                        full_fill_bitmask: 0,
+                    },
+                    program_id,
+                )
+                .unwrap(),
+            ),
+            (
+                "create_orderbook",
+                build_create_orderbook_ix(
+                    &CreateOrderbookParams {
+                        manager: signer,
+                        market,
+                        mint_a: base_mint,
+                        mint_b: quote_mint,
+                        fee_receiver: Pubkey::new_unique(),
+                        mint_a_deposit_mint: base_deposit_mint,
+                        mint_b_deposit_mint: deposit_mint,
+                        base_index: 0,
+                        outcome_index: 0,
+                    },
+                    program_id,
+                )
+                .unwrap(),
+            ),
+            (
+                "set_authority",
+                build_set_authority_ix(
+                    &SetAuthorityParams {
+                        current_authority: signer,
+                        new_authority: Pubkey::new_unique(),
+                    },
+                    program_id,
+                ),
+            ),
+            (
+                "set_manager",
+                build_set_manager_ix(
+                    &SetManagerParams {
+                        authority: signer,
+                        new_manager: Pubkey::new_unique(),
+                    },
+                    program_id,
+                ),
+            ),
+            (
+                "accept_authority",
+                build_accept_authority_ix(&accept_role, program_id),
+            ),
+            (
+                "accept_manager",
+                build_accept_manager_ix(&accept_role, program_id),
+            ),
+            (
+                "accept_operator",
+                build_accept_operator_ix(&accept_role, program_id),
+            ),
+            (
+                "set_oracle",
+                build_set_oracle_ix(
+                    &SetOracleParams {
+                        authority: signer,
+                        market,
+                        new_oracle: *crate::program::constants::INITIALIZE_AUTHORITY,
+                    },
+                    program_id,
+                )
+                .unwrap(),
+            ),
+            (
+                "set_market_fees",
+                build_set_market_fees_ix(
+                    &SetMarketFeesParams {
+                        manager: signer,
+                        updates: vec![MarketFeeUpdate {
+                            market,
+                            maker_fee_bps: 0,
+                            taker_fee_bps: 0,
+                        }],
+                    },
+                    program_id,
+                )
+                .unwrap(),
+            ),
+            (
+                "set_fee_receiver",
+                build_set_fee_receiver_ix(
+                    &SetFeeReceiverParams {
+                        authority: signer,
+                        new_fee_receiver: Pubkey::new_unique(),
+                    },
+                    program_id,
+                )
+                .unwrap(),
+            ),
+            (
+                "set_fee_receiver_with_atas",
+                build_set_fee_receiver_with_atas_ix(
+                    &SetFeeReceiverWithAtasParams {
+                        authority: signer,
+                        new_fee_receiver: Pubkey::new_unique(),
+                        quote_mints: vec![quote_mint],
+                    },
+                    program_id,
+                )
+                .unwrap(),
+            ),
+            (
+                "create_conditional_metadata",
+                build_create_conditional_metadata_ix(&metadata, program_id).unwrap(),
+            ),
+            (
+                "update_conditional_metadata",
+                build_update_conditional_metadata_ix(&metadata, program_id).unwrap(),
+            ),
+            (
+                "whitelist_deposit_token",
+                build_whitelist_deposit_token_ix(
+                    &WhitelistDepositTokenParams {
+                        authority: signer,
+                        mint: deposit_mint,
+                    },
+                    program_id,
+                ),
+            ),
+            (
+                "set_deposit_token_status",
+                build_set_deposit_token_status_ix(
+                    &SetDepositTokenStatusParams {
+                        manager: signer,
+                        mint: deposit_mint,
+                        active: true,
+                    },
+                    program_id,
+                ),
+            ),
+            (
+                "deposit_to_global",
+                build_deposit_to_global_ix(&deposit_to_global, program_id),
+            ),
+            (
+                "global_to_market_deposit",
+                build_global_to_market_deposit_ix(
+                    &GlobalToMarketDepositParams {
+                        user: signer,
+                        market,
+                        deposit_mint,
+                        amount: 1,
+                    },
+                    2,
+                    program_id,
+                ),
+            ),
+            (
+                "init_position_tokens",
+                build_init_position_tokens_ix(
+                    &InitPositionTokensParams {
+                        payer: signer,
+                        user: *crate::program::constants::INITIALIZE_AUTHORITY,
+                        market,
+                        deposit_mints: vec![deposit_mint],
+                    },
+                    2,
+                    program_id,
+                ),
+            ),
+            (
+                "deposit_and_swap",
+                build_deposit_and_swap_ix(
+                    &DepositAndSwapParams {
+                        base_deposit_mint: base_mint,
+                        quote_deposit_mint: deposit_mint,
+                        operator: signer,
+                        market,
+                        base_mint,
+                        quote_mint,
+                        fee_receiver: Pubkey::new_unique(),
+                        taker_order: taker,
+                        taker_is_full_fill: true,
+                        taker_is_deposit: true,
+                        taker_deposit_mint: deposit_mint,
+                        num_outcomes: 2,
+                        makers: vec![MakerFill {
+                            order: maker,
+                            maker_fill_amount: 50,
+                            taker_fill_amount: 100,
+                            is_full_fill: true,
+                            is_deposit: false,
+                            deposit_mint,
+                        }],
+                    },
+                    program_id,
+                )
+                .unwrap(),
+            ),
+            (
+                "withdraw_from_global",
+                build_withdraw_from_global_ix(
+                    &WithdrawFromGlobalParams {
+                        user: signer,
+                        mint: deposit_mint,
+                        amount: 1,
+                    },
+                    program_id,
+                ),
+            ),
+            (
+                "close_order_status",
+                build_close_order_status_ix(
+                    &CloseOrderStatusParams {
+                        operator: signer,
+                        order_hash: [2u8; 32],
+                    },
+                    program_id,
+                ),
+            ),
+            (
+                "close_position_token_accounts",
+                build_close_position_token_accounts_ix(
+                    &ClosePositionTokenAccountsParams {
+                        operator: signer,
+                        market,
+                        position: Pubkey::new_unique(),
+                        deposit_mints: vec![deposit_mint],
+                    },
+                    2,
+                    program_id,
+                )
+                .unwrap(),
+            ),
+            (
+                "close_orderbook",
+                build_close_orderbook_ix(
+                    &CloseOrderbookParams {
+                        operator: signer,
+                        orderbook: Pubkey::new_unique(),
+                        market,
+                    },
+                    program_id,
+                ),
+            ),
+        ]
+    }
+
+    #[test]
+    fn every_public_builder_ends_with_event_transport_trailer() {
+        let program_id = test_program_id();
+        let expected = event_transport_trailer(&program_id);
+        let built = all_public_builders(&program_id);
+        assert_eq!(
+            built.len(),
+            37,
+            "register new builders in all_public_builders"
+        );
+
+        let actual_ids: std::collections::BTreeSet<_> =
+            built.iter().map(|(_, ix)| ix.data[0]).collect();
+        let expected_ids: std::collections::BTreeSet<_> = (0u8..=38)
+            .filter(|id| ![21, 23, 26, 34].contains(id))
+            .collect();
+        assert_eq!(actual_ids, expected_ids);
+
+        for (name, ix) in built {
+            assert_eq!(ix.program_id, program_id, "{name} program id");
+            let (body, trailer) = ix.accounts.split_at(ix.accounts.len() - 2);
+            assert_eq!(
+                trailer, &expected,
+                "{name} must end with [event_authority, program]"
+            );
+            assert!(
+                trailer
+                    .iter()
+                    .all(|meta| !meta.is_signer && !meta.is_writable),
+                "{name} trailer must be read-only and unsigned"
+            );
+            assert!(
+                body.iter().all(|meta| meta.pubkey != expected[0].pubkey),
+                "{name} lists the event authority before the trailer"
+            );
+        }
+    }
+
+    #[test]
+    fn test_set_fee_receiver_with_atas_keeps_trailer_after_optional_block() {
+        let program_id = test_program_id();
+        let quote_mints = vec![Pubkey::new_unique(), Pubkey::new_unique()];
+        let params = SetFeeReceiverWithAtasParams {
+            authority: Pubkey::new_unique(),
+            new_fee_receiver: Pubkey::new_unique(),
+            quote_mints: quote_mints.clone(),
+        };
+
+        let ix = build_set_fee_receiver_with_atas_ix(&params, &program_id).unwrap();
+
+        let trailer_start = ix.accounts.len() - 2;
+        assert_eq!(
+            &ix.accounts[trailer_start..],
+            &event_transport_trailer(&program_id)
+        );
+        assert_eq!(
+            ix.accounts[trailer_start - 1].pubkey,
+            get_conditional_token_ata(&params.new_fee_receiver, &quote_mints[1])
+        );
+    }
+
+    #[test]
+    fn create_market_and_set_oracle_reject_zero_and_pda_oracles() {
+        let program_id = test_program_id();
+        let (pda, _) = get_exchange_pda(&program_id);
+        for oracle in [Pubkey::default(), pda] {
+            assert!(matches!(
+                build_create_market_ix(
+                    &CreateMarketParams {
+                        manager: pda,
+                        oracle,
+                        num_outcomes: 2,
+                        question_id: [0; 32],
+                        maker_fee_bps: 0,
+                        taker_fee_bps: 0,
+                    },
+                    0,
+                    &program_id
+                ),
+                Err(SdkError::InvalidOracle)
+            ));
+            assert!(matches!(
+                build_set_oracle_ix(
+                    &SetOracleParams {
+                        authority: pda,
+                        market: pda,
+                        new_oracle: oracle,
+                    },
+                    &program_id
+                ),
+                Err(SdkError::InvalidOracle)
+            ));
+        }
+        let oracle = *crate::program::constants::INITIALIZE_AUTHORITY;
+        let ix = build_set_oracle_ix(
+            &SetOracleParams {
+                authority: pda,
+                market: pda,
+                new_oracle: oracle,
             },
             &program_id,
+        )
+        .unwrap();
+        assert_eq!(&ix.data[1..], oracle.as_ref());
+        assert_eq!(ix.accounts[0], signer(pda));
+        assert_eq!(
+            build_set_paused_ix(&pda, true, &program_id).accounts[0],
+            signer_mut(pda)
         );
-        assert_eq!(position_alt.accounts.len(), 6);
-        assert_eq!(position_alt.data, vec![instruction::CLOSE_POSITION_ALT]);
-
-        let orderbook = Pubkey::new_unique();
-        let orderbook_alt = build_close_orderbook_alt_ix(
-            &CloseOrderbookAltParams {
-                operator,
-                orderbook,
-                market,
-                lookup_table,
-            },
-            &program_id,
-        );
-        assert_eq!(orderbook_alt.accounts.len(), 6);
-        assert_eq!(orderbook_alt.data, vec![instruction::CLOSE_ORDERBOOK_ALT]);
-
-        let close_orderbook = build_close_orderbook_ix(
-            &CloseOrderbookParams {
-                operator,
-                orderbook,
-                market,
-                lookup_table,
-            },
-            &program_id,
-        );
-        assert_eq!(close_orderbook.accounts.len(), 5);
-        assert_eq!(close_orderbook.data, vec![instruction::CLOSE_ORDERBOOK]);
     }
 }

@@ -286,13 +286,13 @@ Fetch a user's filled orders with nested fill events. Includes orders where the 
 
 ### On-Chain Instruction & Transaction Builders
 
-Each operation has an `_ix` method returning an `Instruction` and a `_tx` convenience method returning `Result<Transaction, SdkError>`.
+Each operation has an `_ix` method returning an `Instruction` and a `_tx` convenience method returning `Result<V1Transaction, SdkError>`.
 
 #### `cancel_order_ix` / `cancel_order_tx`
 
 ```rust
 fn cancel_order_ix(&self, maker: &Pubkey, market: &Pubkey, order: &OrderPayload) -> Instruction
-fn cancel_order_tx(&self, maker: &Pubkey, market: &Pubkey, order: &OrderPayload) -> Result<Transaction, SdkError>
+fn cancel_order_tx(&self, maker: &Pubkey, market: &Pubkey, order: &OrderPayload, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
 Build a CancelOrder instruction/transaction for on-chain order cancellation.
@@ -301,7 +301,7 @@ Build a CancelOrder instruction/transaction for on-chain order cancellation.
 
 ```rust
 fn increment_nonce_ix(&self, user: &Pubkey) -> Instruction
-fn increment_nonce_tx(&self, user: &Pubkey) -> Result<Transaction, SdkError>
+fn increment_nonce_tx(&self, user: &Pubkey, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
 Build an IncrementNonce instruction/transaction — invalidates all orders with a nonce lower than the new value.
@@ -310,7 +310,7 @@ Build an IncrementNonce instruction/transaction — invalidates all orders with 
 
 ```rust
 fn close_order_status_ix(&self, params: &CloseOrderStatusParams) -> Instruction
-fn close_order_status_tx(&self, params: CloseOrderStatusParams) -> Result<Transaction, SdkError>
+fn close_order_status_tx(&self, params: CloseOrderStatusParams, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
 Build a CloseOrderStatus instruction/transaction — close a fully-filled order status PDA.

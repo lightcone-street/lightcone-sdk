@@ -7,11 +7,18 @@ from typing import cast
 
 import pytest
 
-from lightcone_sdk import SolBalanceComponents, SolComponentDelta
+from lightcone_sdk import SolBalanceBreakdown, SolBalanceDelta
 from lightcone_sdk.domain.position import (
     DepositTokenBalancesSnapshot,
     WalletDepositBalancesState,
 )
+
+
+@pytest.fixture(autouse=True)
+def isolate_ci_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Require each scenario to opt into CI instead of inheriting the test runner."""
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
 
 
 def _example_namespace(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
@@ -93,8 +100,8 @@ def test_wsol_conversion_example_accepts_ci_endpoints_but_not_program_override(
     """Permit workflow endpoints without permitting a different program ID."""
     monkeypatch.setenv("CI", "true")
     monkeypatch.setenv("LIGHTCONE_ENV", "staging")
-    monkeypatch.setenv("SDK_API_URL", "https://api.dev.lightcone.xyz")
-    monkeypatch.setenv("SDK_WS_URL", "wss://ws.dev.lightcone.xyz/ws")
+    monkeypatch.setenv("SDK_API_URL", "https://api.dev.internalcone.com")
+    monkeypatch.setenv("SDK_WS_URL", "wss://ws.dev.internalcone.com/ws")
     monkeypatch.setenv("SDK_RPC_URL", "ci-rpc")
     monkeypatch.delenv("SDK_PROGRAM_ID", raising=False)
     _safety_gate(monkeypatch)()
@@ -178,7 +185,7 @@ async def test_wsol_conversion_example_refreshes_rest_without_stream_event(
             12,
         )
     assert state.context_slot == 11
-    assert state.sol_components().native_lamports == 1_000_000_000
+    assert state.sol_balance_breakdown().native_lamports == 1_000_000_000
 
 
 def test_wsol_conversion_example_rejects_negative_projection(
@@ -186,9 +193,9 @@ def test_wsol_conversion_example_rejects_negative_projection(
 ) -> None:
     """Keep the frozen example projection inside unsigned Solana balance units."""
     project = cast(
-        Callable[[SolBalanceComponents, SolComponentDelta], SolBalanceComponents],
-        _example_namespace(monkeypatch)["project_components"],
+        Callable[[SolBalanceBreakdown, SolBalanceDelta], SolBalanceBreakdown],
+        _example_namespace(monkeypatch)["project_breakdown"],
     )
 
     with pytest.raises(ValueError, match="negative frozen SOL projection"):
-        project(SolBalanceComponents(1, 0), SolComponentDelta(-2, 0))
+        project(SolBalanceBreakdown(1, 0), SolBalanceDelta(-2, 0))

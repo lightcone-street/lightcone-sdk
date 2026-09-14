@@ -136,8 +136,8 @@ class WalletDepositBalanceStatus(str, Enum):
 class WalletDepositBalanceSnapshot:
     """Complete wallet baseline that replaces all SPL and native state.
 
-    The cross-component slot may trail an earlier component update because the
-    backend reports the lower slot valid for the complete snapshot.
+    The cross-balance slot may trail an earlier individual balance update because
+    the backend reports the lower slot valid for the complete snapshot.
     """
 
     event_type: str
@@ -427,7 +427,6 @@ class UserMarketBalanceIndex:
 from .builders import (  # noqa: E402
     DepositBuilder,
     DepositToGlobalBuilder,
-    ExtendPositionTokensBuilder,
     GlobalToMarketDepositBuilder,
     InitPositionTokensBuilder,
     MergeBuilder,
@@ -439,7 +438,7 @@ from .builders import (  # noqa: E402
 from .client import (  # noqa: E402
     SolActionKind,
     SolActionPlan,
-    SolComponentDelta,
+    SolBalanceDelta,
     native_withdraw_seed,
 )
 from .state import (  # noqa: E402
@@ -448,7 +447,7 @@ from .state import (  # noqa: E402
     WRAPPED_SOL_MINT,
     SolActionCosts,
     SolBalanceAvailability,
-    SolBalanceComponents,
+    SolBalanceBreakdown,
     WalletDepositBalancesApplyResult,
     WalletDepositBalancesState,
 )
@@ -459,7 +458,6 @@ from .wire import PositionsResponseWire as PositionsResponse  # noqa: E402
 __all__ = [
     "DepositBuilder",
     "DepositToGlobalBuilder",
-    "ExtendPositionTokensBuilder",
     "GlobalToMarketDepositBuilder",
     "InitPositionTokensBuilder",
     "MergeBuilder",
@@ -469,11 +467,11 @@ __all__ = [
     "WithdrawFromPositionBuilder",
     "SolActionKind",
     "SolActionPlan",
-    "SolComponentDelta",
+    "SolBalanceDelta",
     "native_withdraw_seed",
     "SolActionCosts",
     "SolBalanceAvailability",
-    "SolBalanceComponents",
+    "SolBalanceBreakdown",
     "SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS",
     "SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS",
     "DepositAssetType",

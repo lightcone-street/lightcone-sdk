@@ -7,6 +7,10 @@
 //! - Subscription tracking + auto-resubscribe on reconnect
 //! - Message queue when disconnected (pending messages flushed on reconnect)
 //! - Stream-based event delivery to consumer
+//!
+//! Routine lifecycle transitions emit debug breadcrumbs, while transport and
+//! recovery failures remain warnings or errors. The consumer's tracing
+//! subscriber determines which severities are visible.
 
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU16, Ordering};
@@ -195,11 +199,11 @@ impl WsClient {
     /// counter, and spawns a new background task.
     pub async fn restart_connection(&mut self) {
         if self.ready_state() == ReadyState::Connecting {
-            tracing::info!("Already connecting, skipping restart");
+            tracing::debug!("Already connecting, skipping restart");
             return;
         }
 
-        tracing::info!("Manual reconnection requested");
+        tracing::debug!("Manual reconnection requested");
         self.disconnect().await.ok();
         self.connect().await.ok();
     }
@@ -556,7 +560,7 @@ fn clear_authed_subscriptions(state: &mut TaskState) {
         .retain(|message| !message.is_authed_subscription());
     let removed = before - state.active_subscriptions.len();
     if removed > 0 {
-        tracing::info!("Cleared {} authenticated subscription(s)", removed);
+        tracing::debug!("Cleared {} authenticated subscription(s)", removed);
     }
 }
 
@@ -564,7 +568,7 @@ async fn resubscribe_all(sink: &mut SplitSink<WsStream, Message>, subs: &[Subscr
     if subs.is_empty() {
         return;
     }
-    tracing::info!("Resubscribing to {} tracked subscription(s)", subs.len());
+    tracing::debug!("Resubscribing to {} tracked subscription(s)", subs.len());
     for sub in subs {
         let msg = MessageOut::Subscribe(sub.clone());
         if let Err(e) = send_msg(sink, &msg).await {
@@ -579,7 +583,7 @@ async fn flush_pending(sink: &mut SplitSink<WsStream, Message>, pending: &mut Ve
     if pending.is_empty() {
         return;
     }
-    tracing::info!("Flushing {} pending message(s)", pending.len());
+    tracing::debug!("Flushing {} pending message(s)", pending.len());
     let messages = std::mem::take(pending);
     for msg in &messages {
         if let Err(e) = send_msg(sink, msg).await {
@@ -626,7 +630,7 @@ async fn backoff_sleep(state: &mut TaskState, rate_limited: bool) {
     let jitter = rand::random::<u32>() % jitter_max;
     let delay = base.saturating_add(jitter).min(cap);
 
-    tracing::info!(
+    tracing::debug!(
         "Reconnect attempt {}/{} in {}ms{}",
         state.reconnect_attempts,
         state.config.max_reconnect_attempts,

@@ -95,7 +95,7 @@ export interface DepositTokenBalance {
 
 /** Complete REST snapshot with native SOL separate from the SPL mint map. */
 export interface DepositTokenBalancesSnapshot {
-  /** Non-negative safe-integer lower slot valid for both observed components. */
+  /** Non-negative safe-integer lower slot valid for both observed balance sets. */
   context_slot: number;
   /** Complete SPL map; native SOL never appears under a synthetic mint. */
   balances: Record<PubkeyStr, DepositTokenBalance>;
@@ -110,7 +110,7 @@ export type WalletDepositBalanceStatus = "reconnecting" | "metadata_unavailable"
 export interface WalletDepositBalanceSnapshot {
   event_type: "wallet_deposit_balance_snapshot";
   wallet_address: PubkeyStr;
-  /** Non-negative safe-integer lower slot; it may trail a component update. */
+  /** Non-negative safe-integer lower slot; it may trail an incremental balance update. */
   context_slot: number;
   balances: Record<PubkeyStr, DepositTokenBalance>;
   /** Exact non-negative native SOL with nine fractional digits. */
@@ -121,7 +121,7 @@ export interface WalletDepositBalanceSnapshot {
 export interface WalletDepositBalanceUpdate {
   event_type: "wallet_deposit_balance_update";
   wallet_address: PubkeyStr;
-  /** Non-negative JavaScript safe-integer component observation slot. */
+  /** Non-negative JavaScript safe-integer balance observation slot. */
   context_slot: number;
   /** Complete current balance for the mint, never a delta. */
   balance: DepositTokenBalance;
@@ -131,7 +131,7 @@ export interface WalletDepositBalanceUpdate {
 export interface WalletNativeSolBalanceUpdate {
   event_type: "wallet_native_sol_balance_update";
   wallet_address: PubkeyStr;
-  /** Non-negative JavaScript safe-integer component observation slot. */
+  /** Non-negative JavaScript safe-integer balance observation slot. */
   context_slot: number;
   /** Exact non-negative native SOL with nine fractional digits. */
   native_sol_balance: string;

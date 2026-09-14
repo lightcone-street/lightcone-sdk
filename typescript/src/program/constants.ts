@@ -9,13 +9,6 @@ import {
 } from "@solana/spl-token";
 
 /**
- * Address Lookup Table Program ID
- */
-export const ALT_PROGRAM_ID = new PublicKey(
-  "AddressLookupTab1e1111111111111111111111111"
-);
-
-/**
  * SPL Token Program ID
  */
 export const TOKEN_PROGRAM_ID = SPL_TOKEN_PROGRAM_ID;
@@ -36,7 +29,7 @@ export const MPL_TOKEN_METADATA_PROGRAM_ID = new PublicKey(
  * Pubkey allowed by the on-chain program to initialize the exchange.
  */
 export const INITIALIZE_AUTHORITY = new PublicKey(
-  "2m6iAtMVmd3jE2BpNxoa9E79Kj7NeE6UxBFNyCBp6QEb"
+  "3vYRAzr5X41hrmKMnDCoQJJmPH89S4LLwmFpk8UtwCqr"
 );
 
 /**
@@ -75,12 +68,9 @@ export const INSTRUCTION = {
   GLOBAL_TO_MARKET_DEPOSIT: 18,
   INIT_POSITION_TOKENS: 19,
   DEPOSIT_AND_SWAP: 20,
-  EXTEND_POSITION_TOKENS: 21,
   WITHDRAW_FROM_GLOBAL: 22,
-  CLOSE_POSITION_ALT: 23,
   CLOSE_ORDER_STATUS: 24,
   CLOSE_POSITION_TOKEN_ACCOUNTS: 25,
-  CLOSE_ORDERBOOK_ALT: 26,
   CLOSE_ORDERBOOK: 27,
   SET_MANAGER: 28,
   SET_MARKET_FEES: 29,
@@ -88,11 +78,15 @@ export const INSTRUCTION = {
   CREATE_CONDITIONAL_METADATA: 31,
   UPDATE_CONDITIONAL_METADATA: 32,
   SET_ORACLE: 33,
-  REFRESH_ORDERBOOK_ALT: 34,
   ACCEPT_AUTHORITY: 35,
   ACCEPT_MANAGER: 36,
   ACCEPT_OPERATOR: 37,
   SET_DEPOSIT_TOKEN_STATUS: 38,
+  /**
+   * Reserved: the program's private event-batch self-CPI. The SDK never builds
+   * it; it is listed so no public instruction reuses the value.
+   */
+  EVENT_BATCH: 255,
 } as const;
 
 /**
@@ -118,7 +112,7 @@ export const ACCOUNT_SIZE = {
   ORDER_STATUS: 32,
   USER_NONCE: 16,
   POSITION: 80,
-  ORDERBOOK: 144,
+  ORDERBOOK: 176,
   GLOBAL_DEPOSIT_TOKEN: 47,
 } as const;
 
@@ -142,9 +136,27 @@ export const MAX_OUTCOMES = 6;
 export const MIN_OUTCOMES = 2;
 
 /**
- * Maximum number of makers per match_orders_multi instruction
+ * Maximum makers in one MatchOrdersMulti or DepositAndSwap instruction.
  */
-export const MAX_MAKERS = 5;
+export const MAX_MAKERS = 11;
+
+/** Taker participant bit in each unsigned 16-bit matching mask. */
+export const TAKER_MASK = 0x8000;
+
+/** Encoded byte length of a matching participant mask. */
+export const PARTICIPANT_MASK_LEN = 2;
+
+/**
+ * Maximum deposit mints the program registers per market. addDepositMint fails
+ * with on-chain error 75 (TooManyDepositMints) beyond it.
+ */
+export const MAX_DEPOSIT_MINTS_PER_MARKET = 8;
+
+/**
+ * Maximum deposit-mint groups accepted by one initPositionTokens instruction.
+ * Equal to the per-market cap. Execution limits can require smaller batches.
+ */
+export const MAX_DEPOSIT_MINTS_PER_IX = MAX_DEPOSIT_MINTS_PER_MARKET;
 
 /**
  * PDA Seeds
@@ -163,4 +175,10 @@ export const SEEDS = {
   GLOBAL_DEPOSIT: "global_deposit",
   FEE_RECEIVER: "fee_receiver",
   MPL_METADATA: "metadata",
+  /**
+   * Event-authority PDA seed. The program signs its event-batch self-CPI with
+   * this PDA and requires every public instruction to pass it as a readonly,
+   * non-signer trailer account immediately before the program account.
+   */
+  EVENT_AUTHORITY: "__event_authority",
 } as const;

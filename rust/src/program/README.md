@@ -53,7 +53,8 @@ Individual market state.
 | condition_id | 88 | 32 | `[u8; 32]` | Keccak256(oracle \|\| question_id \|\| num_outcomes) |
 | payout_numerators | 120 | 24 | `[u32; 6]` | Payout numerators; only first `num_outcomes` entries are meaningful |
 | payout_denominator | 144 | 4 | `u32` | Sum of payout numerators |
-| _reserved | 148 | 68 | - | Reserved |
+| deposit_mint_count | 148 | 1 | `u8` | Deposit mints registered via `AddDepositMint`, capped at `MAX_DEPOSIT_MINTS_PER_MARKET`; zero for markets created before the field existed |
+| _reserved | 149 | 67 | - | Reserved |
 
 ### Position (80 bytes)
 
@@ -88,9 +89,9 @@ User's nonce for mass order cancellation.
 | discriminator | 0 | 8 | `[u8; 8]` | `USER_NONCE_DISCRIMINATOR` |
 | nonce | 8 | 8 | `u64` | Current nonce value |
 
-### Orderbook (144 bytes)
+### Orderbook (176 bytes)
 
-On-chain orderbook metadata and lookup table authority.
+The orderbook records one market outcome and two distinct collateral assets. Its decoder requires exactly 176 bytes.
 
 | Field | Offset | Size | Type | Description |
 |-------|--------|------|------|-------------|
@@ -98,10 +99,12 @@ On-chain orderbook metadata and lookup table authority.
 | market | 8 | 32 | `Pubkey` | Market this orderbook belongs to |
 | mint_a | 40 | 32 | `Pubkey` | Canonical mint A |
 | mint_b | 72 | 32 | `Pubkey` | Canonical mint B |
-| lookup_table | 104 | 32 | `Pubkey` | Address lookup table controlled by the orderbook PDA |
-| base_index | 136 | 1 | `u8` | Base mint selector, 0 for mint_a and 1 for mint_b |
-| bump | 137 | 1 | `u8` | PDA bump seed |
-| _padding | 138 | 6 | - | Reserved |
+| deposit_mint_a | 104 | 32 | `Pubkey` | Collateral backing canonical mint A |
+| deposit_mint_b | 136 | 32 | `Pubkey` | Collateral backing canonical mint B |
+| base_index | 168 | 1 | `u8` | Base selector: 0 for mint_a, 1 for mint_b |
+| outcome_index | 169 | 1 | `u8` | Shared market outcome |
+| bump | 170 | 1 | `u8` | PDA bump seed |
+| _padding | 171 | 5 | - | Reserved |
 
 ### GlobalDepositToken (47 bytes)
 
@@ -113,7 +116,7 @@ Whitelisted deposit token metadata for global deposits.
 | mint | 8 | 32 | `Pubkey` | Whitelisted deposit mint |
 | bump | 40 | 1 | `u8` | PDA bump seed |
 | index | 41 | 2 | `u16` | Sequential whitelist index used for mint ordering |
-| active | 43 | 1 | `bool` | Backend-visible status flag; user flows do not gate on it |
+| active | 43 | 1 | `bool` | Whether this collateral may back an executed trade |
 | _padding | 44 | 3 | - | Reserved |
 
 ## LightconeClient — On-Chain Operations
@@ -180,7 +183,7 @@ let solana_rpc = rpc.inner().await?;
 
 ### Instruction Builders
 
-Instruction builders are organized by domain sub-client. `_ix` methods return an `Instruction` (or `Result<Instruction, SdkError>` for fallible builders). `_tx` convenience methods wrap the instruction in a `Transaction` and return `Result<Transaction, SdkError>`.
+Instruction builders are organized by domain sub-client. `_ix` methods return an `Instruction` (or `Result<Instruction, SdkError>` for fallible builders). `_tx` convenience methods wrap the instruction in a validated `V1Transaction` and return `Result<V1Transaction, SdkError>`.
 
 **Positions — Deposit/Merge/Withdraw (`client.positions()`):**
 ```rust
@@ -228,12 +231,8 @@ let ix = client.positions().withdraw_conditional_from_position_ix(&WithdrawCondi
 });
 
 let ix = client.positions().init_position_tokens_ix(&InitPositionTokensParams {
-    payer, user, market, deposit_mints, recent_slot,
+    payer, user, market, deposit_mints,
 }, num_outcomes);
-
-let ix = client.positions().extend_position_tokens_ix(&ExtendPositionTokensParams {
-    payer, user, market, lookup_table, deposit_mints,
-}, num_outcomes)?;
 
 let ix = client.positions().deposit_to_global_ix(&DepositToGlobalParams {
     user, mint, amount,
@@ -243,10 +242,6 @@ let ix = client.positions().global_to_market_deposit_ix(&GlobalToMarketDepositPa
     user, market, deposit_mint, amount,
 }, num_outcomes);
 
-let ix = client.positions().close_position_alt_ix(&ClosePositionAltParams {
-    operator, position, market, lookup_table,
-});
-
 let ix = client.positions().close_position_token_accounts_ix(
     &ClosePositionTokenAccountsParams { operator, market, position, deposit_mints },
     num_outcomes,
@@ -255,12 +250,8 @@ let ix = client.positions().close_position_token_accounts_ix(
 
 **Orderbooks — Cleanup (`client.orderbooks()`):**
 ```rust
-let ix = client.orderbooks().close_orderbook_alt_ix(&CloseOrderbookAltParams {
-    operator, orderbook, market, lookup_table,
-});
-
 let ix = client.orderbooks().close_orderbook_ix(&CloseOrderbookParams {
-    operator, orderbook, market, lookup_table,
+    operator, orderbook, market,
 });
 ```
 
@@ -302,6 +293,7 @@ All functions return `(Pubkey, u8)` (address, bump).
 | Function | Seeds | Description |
 |----------|-------|-------------|
 | `get_exchange_pda(program_id)` | `["central_state"]` | Exchange singleton |
+| `get_event_authority_pda(program_id)` | `["__event_authority"]` | Event-authority PDA appended to every public instruction |
 | `get_market_pda(market_id, program_id)` | `["market", market_id.to_le_bytes()]` | Market account |
 | `get_condition_tombstone_pda(condition_id, program_id)` | `["condition", condition_id]` | Resolved condition tombstone |
 | `get_vault_pda(deposit_mint, market, program_id)` | `["market_deposit_token_account", deposit_mint, market]` | Deposit vault |
@@ -432,36 +424,70 @@ All instructions use a single-byte discriminator.
 | WhitelistDepositToken | 16 | Whitelist a global deposit token |
 | DepositToGlobal | 17 | Deposit collateral to the global pool |
 | GlobalToMarketDeposit | 18 | Move global collateral into a market position |
-| InitPositionTokens | 19 | Initialize position token accounts and ALT |
+| InitPositionTokens | 19 | Validate requested groups and create missing position accounts (permissionless, idempotent) |
 | DepositAndSwap | 20 | Deposit collateral and atomically swap |
-| ExtendPositionTokens | 21 | Extend a position ALT with more deposit mints |
 | WithdrawFromGlobal | 22 | Withdraw collateral from the global pool |
-| ClosePositionAlt | 23 | Deactivate or close a position ALT |
 | CloseOrderStatus | 24 | Close a fully-filled order status PDA |
 | ClosePositionTokenAccounts | 25 | Close empty position token accounts |
-| CloseOrderbookAlt | 26 | Deactivate or close an orderbook ALT |
-| CloseOrderbook | 27 | Close an orderbook PDA after its ALT is closed |
+| CloseOrderbook | 27 | Close a resolved orderbook PDA |
 | SetManager | 28 | Propose a new exchange manager |
 | SetMarketFees | 29 | Update maker/taker fees for one or more markets |
 | SetFeeReceiver | 30 | Update exchange fee receiver, optionally ensuring quote ATAs |
 | CreateConditionalMetadata | 31 | Create Metaplex metadata for a conditional mint |
 | UpdateConditionalMetadata | 32 | Update Metaplex metadata for a conditional mint |
 | SetOracle | 33 | Reassign a market oracle before settlement |
-| RefreshOrderbookAlt | 34 | Append current fee receiver quote ATA to an orderbook ALT if missing |
 | AcceptAuthority | 35 | Accept a pending authority transfer |
 | AcceptManager | 36 | Accept a pending manager transfer |
 | AcceptOperator | 37 | Accept a pending operator transfer |
-| SetDepositTokenStatus | 38 | Update GlobalDepositToken active metadata |
+| SetDepositTokenStatus | 38 | Enable or disable trading backed by this collateral |
 
 `SetAuthority`, `SetManager`, and `SetOperator` only write pending role state.
 The corresponding `Accept*` instruction performs the effective role change.
 
-New orderbook ALTs contain 10 entries: exchange, market, mint_a, mint_b,
-mint_authority, token program, associated token program, fee_receiver,
-fee_receiver_quote_ata, and system program. `RefreshOrderbookAlt` is an
-idempotent migration helper for fee receiver rotation; it only appends the
-current fee receiver quote ATA when missing and does not otherwise rewrite old
-ALT slot maps.
+### Matching and preparation
+
+`CreateOrderbookParams` uses one `outcome_index` for two distinct collateral mints. The builder canonicalizes conditional mints together with their collateral and base orientation. Both conditional mints must derive from that market and outcome. The orderbook PDA seed format remains unchanged.
+
+Both matching parameter types require `base_deposit_mint` and `quote_deposit_mint`, including trades using existing conditional balances. The builders place their GDT accounts at business indices 4 and 5 in canonical conditional-mint order. The program validates both live registrations and activity flags on every trade. Selected global funding must use the participant's signed give-side collateral: quote for BUY and base for SELL.
+
+Full-fill and deposit masks contain two little-endian bytes. Maker index `i` uses bit `i`, and the taker uses bit 15 (`0x8000`). Bits 11–14 and absent-maker bits are invalid. Bit 7 refers to maker 7. For nine makers, maker 8 plus the taker is `0x8100`, encoded as `00 81`.
+
+| Instruction | Full data bytes | Business account references |
+|---|---|---|
+| MatchOrdersMulti | `105 + 117*M` | `18 + 5*M - F` |
+| DepositAndSwap | `107 + 117*M` | `19 + 5*M - F + D*(4 + 2*O)` |
+| CreateOrderbook | `3` | `15` |
+| InitPositionTokens | `2` | `9 + G*(3 + 2*O)` |
+| DepositToGlobal | `9` | `8` |
+| CloseOrderbook | `1` | `4` |
+
+`M` counts makers, `G` counts preparation groups, and `O` counts market outcomes. `F` and `D` count set full-fill and deposit bits, including the taker. Every builder adds two event trailers. Repeated account references retain their instruction positions.
+
+Amounts and fills use integer token units. Order signing, compact orders, 117-byte maker records, and fee arithmetic retain their existing formats. A full-fill bit omits the participant's status account and requires a complete fill. It does not establish the absence of previous or concurrent matching.
+
+`InitPositionTokens` handles initial, partial, repeated, and additional-group preparation. Every call validates all supplied groups and creates missing accounts. Supply 1–8 groups in strictly increasing GDT registration-index order. Preparation does not mint balances or create global custody. Inactive collateral remains available for preparation, deposits, splits, merges, withdrawals, and redemption under their existing rules.
+
+The maker ceiling is eleven. Builders compile Solana v1 transactions and enforce the 4,096-byte signed wire limit and 64 distinct inline addresses. Eleven-maker instruction data alone is 1,392 or 1,394 bytes; the complete account list, signatures, resources, and other instructions must also fit. No legacy or v0 transactions are accepted.
+
+### Event transport trailer
+
+Every instruction builder appends the event-authority PDA and executable program
+account as read-only, non-signer accounts, in that order. These are always the
+last two accounts; callers must not append another trailer.
+`get_event_authority_pda(program_id)` exposes the same derivation for integrations
+that inspect instruction accounts.
+
+Refer to the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules and the governance CPI allowlist. The [program source at `db552338`](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src) defines the current binary interfaces, preparation behavior, limits, and errors.
+
+The program emits authenticated event schema 2. Solana transaction version and event schema version are independent. The SDK neither builds nor decodes event batches. `instruction::EVENT_BATCH` remains reserved. Builders do not add a compute-budget instruction. Callers must include
+the program's final self-CPI when estimating transaction compute.
+
+`InitPositionTokensBuilder::build_ix` and `Positions::init_position_tokens_tx` reject zero or off-curve beneficiaries with
+`InvalidPubkey`, empty mint lists with `MissingField`, and lists exceeding
+`MAX_DEPOSIT_MINTS_PER_IX` with `TooManyDepositMints`. They also validate outcome count and reject duplicate mints. The infallible
+`build_init_position_tokens_ix` and `Positions::init_position_tokens_ix` preserve
+their return types and perform no local input validation. Market creation and
+oracle rotation builders reject zero or off-curve oracle keys with `InvalidOracle`.
 
 ## Constants
 
@@ -503,6 +529,7 @@ USER_NONCE_SEED: &[u8]                // b"user_nonce"
 POSITION_SEED: &[u8]                  // b"position"
 ORDERBOOK_SEED: &[u8]                 // b"orderbook"
 GLOBAL_DEPOSIT_TOKEN_SEED: &[u8]      // b"global_deposit"
+EVENT_AUTHORITY_SEED: &[u8]           // b"__event_authority"
 ```
 
 ### Sizes
@@ -513,7 +540,7 @@ MARKET_SIZE: usize                    // 216
 POSITION_SIZE: usize                  // 80
 ORDER_STATUS_SIZE: usize              // 32
 USER_NONCE_SIZE: usize                // 16
-ORDERBOOK_SIZE: usize                 // 144
+ORDERBOOK_SIZE: usize                 // 176
 GLOBAL_DEPOSIT_TOKEN_SIZE: usize      // 47
 SIGNED_ORDER_SIZE: usize              // 233
 ORDER_SIZE: usize                     // 37
@@ -525,7 +552,11 @@ SIGNATURE_SIZE: usize                 // 64
 ```rust
 MAX_OUTCOMES: u8                      // 6
 MIN_OUTCOMES: u8                      // 2
-MAX_MAKERS: usize                     // 5 (per match_orders_multi instruction)
+MAX_MAKERS: usize                     // 11 (parser ceiling, subject to transaction limits)
+PARTICIPANT_MASK_LEN: usize           // 2 bytes
+TAKER_MASK: u16                        // 0x8000
+MAX_DEPOSIT_MINTS_PER_MARKET: u8      // 8 (enforced by AddDepositMint)
+MAX_DEPOSIT_MINTS_PER_IX: usize       // 8 (per init_position_tokens instruction)
 ```
 
 ## Type Definitions
@@ -630,21 +661,14 @@ pub struct MatchOrdersMultiParams {
     pub market: Pubkey,
     pub base_mint: Pubkey,
     pub quote_mint: Pubkey,
+    pub base_deposit_mint: Pubkey,
+    pub quote_deposit_mint: Pubkey,
     pub fee_receiver: Pubkey,
     pub taker_order: OrderPayload,
     pub maker_orders: Vec<OrderPayload>,
     pub maker_fill_amounts: Vec<u64>,
     pub taker_fill_amounts: Vec<u64>,
-    pub full_fill_bitmask: u8,
-}
-
-pub struct RefreshOrderbookAltParams {
-    pub manager: Pubkey,
-    pub market: Pubkey,
-    pub orderbook: Pubkey,
-    pub lookup_table: Pubkey,
-    pub quote_mint: Pubkey,
-    pub fee_receiver: Pubkey,
+    pub full_fill_bitmask: u16,
 }
 
 pub struct SetDepositTokenStatusParams {
@@ -704,6 +728,9 @@ pub enum SdkError {
     MarketSettled,
     InvalidProgramId,
     InvalidOrderbook,
+    InactiveDepositToken,
+    DepositMintMismatch,
+    InvalidConditionalMint,
     FullFillRequired,
     DivisionByZero,
     Reserved50,
@@ -714,15 +741,20 @@ pub enum SdkError {
     OrderNotFullyFilled,
     PayoutTooSmall,
     TokenAccountNotEmpty,
-    LookupTableNotClosed,
     InvalidManager,
     InvalidFeeRange,
     InvalidFeeSum,
     InvalidFeeReceiver,
     InvalidOracle,
-    LookupTableDeactivated,
     NoPendingRoleTransfer,
     PendingRoleMismatch,
+    InvalidEventAuthority,
+    EventBatchOverflow,
+    InvalidEventBatch,
+    InvalidEventContract,
+    UnsupportedEventSchema,
+    PublicInstructionMustBeTopLevel,
+    TooManyDepositMints { count: usize },
     InvalidPubkey(String),
     Scaling(ScalingError),
     UnsignedOrder,

@@ -47,8 +47,8 @@ case "$choice" in
     1)
         echo ""
         echo "Checking local backend health..."
-        if ! curl -sf https://api.local.lightcone.xyz/health > /dev/null 2>&1; then
-            echo "✗ Local backend is not responding at https://api.local.lightcone.xyz/health"
+        if ! curl -sf https://api.local.internalcone.com/health > /dev/null 2>&1; then
+            echo "✗ Local backend is not responding at https://api.local.internalcone.com/health"
             echo "  Start your local backend and try again."
             exit 1
         fi

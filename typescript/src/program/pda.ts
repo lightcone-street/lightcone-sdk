@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { ALT_PROGRAM_ID, MPL_TOKEN_METADATA_PROGRAM_ID, SEEDS } from "./constants";
+import { MPL_TOKEN_METADATA_PROGRAM_ID, SEEDS } from "./constants";
 import { PROGRAM_ID } from "../env";
 import { ProgramSdkError } from "./error";
 import { toU64Le, toU8 } from "./utils";
@@ -13,6 +13,23 @@ export function getExchangePda(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from(SEEDS.CENTRAL_STATE)],
+    programId
+  );
+}
+
+/**
+ * Derive the event-authority PDA.
+ * Seeds: ["__event_authority"]
+ *
+ * The program signs its event-batch self-CPI with this PDA and requires every
+ * public instruction to pass it as a readonly, non-signer trailer account
+ * immediately before the program account. The account holds no data.
+ */
+export function getEventAuthorityPda(
+  programId: PublicKey = PROGRAM_ID
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from(SEEDS.EVENT_AUTHORITY)],
     programId
   );
 }
@@ -215,21 +232,6 @@ export function getOrderbookPda(
 }
 
 /**
- * Derive Address Lookup Table PDA
- * Seeds: [authority (32 bytes), recent_slot (u64 little-endian)]
- * Program: ALT_PROGRAM_ID
- */
-export function getAltPda(
-  authority: PublicKey,
-  recentSlot: bigint
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [authority.toBuffer(), toU64Le(recentSlot)],
-    ALT_PROGRAM_ID
-  );
-}
-
-/**
  * Derive GlobalDepositToken whitelist PDA.
  * Seeds: ["global_deposit", mint]
  */
@@ -259,25 +261,11 @@ export function getUserGlobalDepositPda(
 }
 
 /**
- * Derive position ALT PDA used by initPositionTokens.
- * Seeds: [position, recent_slot]
- * Program: ALT_PROGRAM_ID
- */
-export function getPositionAltPda(
-  position: PublicKey,
-  recentSlot: bigint
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [position.toBuffer(), toU64Le(recentSlot)],
-    ALT_PROGRAM_ID
-  );
-}
-
-/**
  * Collection of all PDA functions for easy access
  */
 export const pda = {
   getExchangePda,
+  getEventAuthorityPda,
   getMarketPda,
   getConditionTombstonePda,
   getVaultPda,
@@ -290,8 +278,6 @@ export const pda = {
   getPositionPda,
   canonicalMintPair,
   getOrderbookPda,
-  getAltPda,
   getGlobalDepositTokenPda,
   getUserGlobalDepositPda,
-  getPositionAltPda,
 };

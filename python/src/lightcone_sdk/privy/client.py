@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ..error import SdkError
 from ..http.retry import RetryPolicy
 from . import (
+    ExportWalletResponse,
     PrivyOrderEnvelope,
     SignAndSendTxResponse,
-    ExportWalletResponse,
 )
 
 if TYPE_CHECKING:
@@ -23,7 +24,7 @@ class Privy:
     require an active authenticated session.
     """
 
-    def __init__(self, client: "LightconeClient"):
+    def __init__(self, client: LightconeClient):
         self._client = client
 
     async def sign_and_send_tx(
@@ -31,16 +32,10 @@ class Privy:
         wallet_id: str,
         base64_tx: str,
     ) -> SignAndSendTxResponse:
-        """Forward caller-prepared bytes to the Privy signing backend.
-
-        This raw API does not run the shared SDK fee-funding preflight.
-        """
-        data = await self._client._http.post(
-            "/api/privy/sign_and_send_tx",
-            {"wallet_id": wallet_id, "base64_tx": base64_tx},
-            retry_policy=RetryPolicy.NONE,
+        """Reject backend sends that cannot expose their signed v1 message."""
+        raise SdkError(
+            "Privy transaction signing cannot return verifiable v1 signed bytes; use a v1-capable external signer"
         )
-        return SignAndSendTxResponse(hash=data.get("hash", ""))
 
     async def sign_and_send_order(
         self,

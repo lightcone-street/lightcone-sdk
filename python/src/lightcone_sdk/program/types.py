@@ -2,14 +2,13 @@
 
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Optional
 
 from solders.pubkey import Pubkey
-from solders.transaction import Transaction
 
 from ..shared.types import DepositSource, Side
 from .constants import MAX_OUTCOMES, MIN_OUTCOMES
 from .errors import InvalidOutcomeCountError, InvalidOutcomeIndexError
+from .transaction import V1Transaction
 
 
 class MarketStatus(IntEnum):
@@ -73,6 +72,9 @@ class Market:
     condition_id: bytes
     payout_numerators: tuple[int, int, int, int, int, int]
     payout_denominator: int
+    # Deposit mints registered through add_deposit_mint (byte 148, u8). Markets
+    # created before the field existed read zero until a mint is added.
+    deposit_mint_count: int = 0
 
 
 @dataclass
@@ -102,14 +104,26 @@ class UserNonce:
 
 @dataclass
 class Orderbook:
-    """Orderbook account data."""
+    """One market outcome traded between two distinct collateral assets."""
 
     market: Pubkey
     mint_a: Pubkey
     mint_b: Pubkey
-    lookup_table: Pubkey
+    deposit_mint_a: Pubkey
+    deposit_mint_b: Pubkey
     base_index: int
+    outcome_index: int
     bump: int
+
+    @property
+    def base_deposit_mint(self) -> Pubkey:
+        """Collateral backing the approved base conditional mint."""
+        return self.deposit_mint_a if self.base_index == 0 else self.deposit_mint_b
+
+    @property
+    def quote_deposit_mint(self) -> Pubkey:
+        """Collateral backing the approved quote conditional mint."""
+        return self.deposit_mint_b if self.base_index == 0 else self.deposit_mint_a
 
 
 @dataclass
@@ -306,6 +320,8 @@ class MatchOrdersMultiParams:
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
+    base_deposit_mint: Pubkey
+    quote_deposit_mint: Pubkey
     fee_receiver: Pubkey
     taker_order: SignedOrder
     maker_orders: list[SignedOrder]
@@ -325,10 +341,8 @@ class CreateOrderbookParams:
     fee_receiver: Pubkey
     mint_a_deposit_mint: Pubkey
     mint_b_deposit_mint: Pubkey
-    recent_slot: int
     base_index: int
-    mint_a_outcome_index: int
-    mint_b_outcome_index: int
+    outcome_index: int
 
 
 @dataclass
@@ -361,18 +375,6 @@ class SetOracleParams:
     authority: Pubkey
     market: Pubkey
     new_oracle: Pubkey
-
-
-@dataclass
-class RefreshOrderbookAltParams:
-    """Parameters for refreshing an orderbook ALT after fee receiver rotation."""
-
-    manager: Pubkey
-    market: Pubkey
-    orderbook: Pubkey
-    lookup_table: Pubkey
-    quote_mint: Pubkey
-    fee_receiver: Pubkey
 
 
 @dataclass
@@ -472,7 +474,10 @@ class WhitelistDepositTokenParams:
 
 @dataclass
 class SetDepositTokenStatusParams:
-    """Parameters for updating the backend-visible GDT status flag."""
+    """Control live trading admission for every book backed by this collateral.
+
+    Inactivity does not prevent deposits, preparation, splits, merges, or exits.
+    """
 
     manager: Pubkey
     mint: Pubkey
@@ -488,23 +493,6 @@ class DepositToGlobalParams:
     amount: int
 
 
-@dataclass(frozen=True)
-class DepositToGlobalAltContext:
-    """ALT context for adding user global-deposit accounts to a lookup table."""
-
-    kind: str
-    recent_slot: Optional[int] = None
-    lookup_table: Optional[Pubkey] = None
-
-    @classmethod
-    def create(cls, recent_slot: int) -> "DepositToGlobalAltContext":
-        return cls(kind="create", recent_slot=recent_slot)
-
-    @classmethod
-    def extend(cls, lookup_table: Pubkey) -> "DepositToGlobalAltContext":
-        return cls(kind="extend", lookup_table=lookup_table)
-
-
 @dataclass
 class GlobalToMarketDepositParams:
     """Parameters for transferring from global deposit to a market vault."""
@@ -517,13 +505,16 @@ class GlobalToMarketDepositParams:
 
 @dataclass
 class InitPositionTokensParams:
-    """Parameters for initializing position token accounts and ALT."""
+    """Permissionless, idempotent preparation of position and conditional ATAs.
+
+    Supply 1 through 8 unique collateral mints in increasing GDT index order.
+    All requested groups are validated on every call, including successful retries.
+    """
 
     payer: Pubkey
     user: Pubkey
     market: Pubkey
     deposit_mints: list[Pubkey]
-    recent_slot: int
 
 
 @dataclass
@@ -534,6 +525,8 @@ class DepositAndSwapParams:
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
+    base_deposit_mint: Pubkey
+    quote_deposit_mint: Pubkey
     fee_receiver: Pubkey
     taker_order: SignedOrder
     taker_is_full_fill: bool
@@ -544,33 +537,12 @@ class DepositAndSwapParams:
 
 
 @dataclass
-class ExtendPositionTokensParams:
-    """Parameters for extending a position ALT with new deposit mints."""
-
-    operator: Pubkey
-    user: Pubkey
-    market: Pubkey
-    lookup_table: Pubkey
-    deposit_mints: list[Pubkey]
-
-
-@dataclass
 class WithdrawFromGlobalParams:
     """Parameters for withdrawing tokens from a global deposit account."""
 
     user: Pubkey
     mint: Pubkey
     amount: int
-
-
-@dataclass
-class ClosePositionAltParams:
-    """Parameters for deactivating or closing a position ALT."""
-
-    operator: Pubkey
-    position: Pubkey
-    market: Pubkey
-    lookup_table: Pubkey
 
 
 @dataclass
@@ -592,30 +564,19 @@ class ClosePositionTokenAccountsParams:
 
 
 @dataclass
-class CloseOrderbookAltParams:
-    """Parameters for deactivating or closing an orderbook ALT."""
-
-    operator: Pubkey
-    orderbook: Pubkey
-    market: Pubkey
-    lookup_table: Pubkey
-
-
-@dataclass
 class CloseOrderbookParams:
-    """Parameters for closing an orderbook PDA after its ALT has been closed."""
+    """Parameters for closing an orderbook after its market resolves."""
 
     operator: Pubkey
     orderbook: Pubkey
     market: Pubkey
-    lookup_table: Pubkey
 
 
 @dataclass
 class BuildResult:
-    """Result of building a transaction."""
+    """Result of compiling a validated Solana v1 transaction."""
 
-    transaction: Transaction
+    transaction: V1Transaction
     signers: list[Pubkey]
 
 
@@ -637,7 +598,7 @@ class DepositParams:
     mint: Pubkey
     amount: int
     market: object = None  # Optional domain Market (has .pubkey str, .outcomes list)
-    deposit_source: Optional[DepositSource] = None
+    deposit_source: DepositSource | None = None
 
 
 @dataclass
@@ -662,8 +623,8 @@ class WithdrawParams:
     # mint is derived from ``market_context``.
     mint: Pubkey
     amount: int
-    market_context: Optional[MarketWithdrawContext] = None
-    deposit_source: Optional[DepositSource] = None
+    market_context: MarketWithdrawContext | None = None
+    deposit_source: DepositSource | None = None
 
 
 # Aliases matching Rust SDK naming (PR #46)

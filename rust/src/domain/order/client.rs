@@ -11,6 +11,7 @@ use crate::program::envelope::{LimitOrderEnvelope, OrderEnvelope};
 use crate::program::error::{SdkError as ProgramSdkError, SdkResult};
 use crate::program::instructions;
 use crate::program::orders::OrderPayload;
+use crate::program::transaction::{V1Transaction, V1TransactionContext};
 use crate::program::types::{CloseOrderStatusParams, OrderSide};
 use crate::shared::{
     validate_raw_amounts, validate_signed_fields, validate_trigger_price, OrderBookId, PubkeyStr,
@@ -21,7 +22,6 @@ use serde::{Deserialize, Serialize};
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use solana_transaction::Transaction;
 
 #[cfg(feature = "native-auth")]
 use solana_keypair::Keypair;
@@ -641,9 +641,10 @@ impl<'a> Orders<'a> {
         operator: &Pubkey,
         market: &Pubkey,
         order: &OrderPayload,
-    ) -> Result<Transaction, SdkError> {
+        context: &V1TransactionContext,
+    ) -> Result<V1Transaction, SdkError> {
         let ix = self.cancel_order_ix(operator, market, order);
-        Ok(Transaction::new_with_payer(&[ix], Some(operator)))
+        Ok(V1Transaction::compile(&[ix], operator, context)?)
     }
 
     /// Build IncrementNonce instruction.
@@ -653,9 +654,13 @@ impl<'a> Orders<'a> {
     }
 
     /// Build IncrementNonce transaction.
-    pub fn increment_nonce_tx(&self, user: &Pubkey) -> Result<Transaction, SdkError> {
+    pub fn increment_nonce_tx(
+        &self,
+        user: &Pubkey,
+        context: &V1TransactionContext,
+    ) -> Result<V1Transaction, SdkError> {
         let ix = self.increment_nonce_ix(user);
-        Ok(Transaction::new_with_payer(&[ix], Some(user)))
+        Ok(V1Transaction::compile(&[ix], user, context)?)
     }
 
     /// Build CloseOrderStatus instruction.
@@ -668,9 +673,10 @@ impl<'a> Orders<'a> {
     pub fn close_order_status_tx(
         &self,
         params: CloseOrderStatusParams,
-    ) -> Result<Transaction, SdkError> {
+        context: &V1TransactionContext,
+    ) -> Result<V1Transaction, SdkError> {
         let ix = self.close_order_status_ix(&params);
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
+        Ok(V1Transaction::compile(&[ix], &params.operator, context)?)
     }
 
     // ── Order helpers ────────────────────────────────────────────────────

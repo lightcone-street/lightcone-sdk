@@ -31,7 +31,7 @@ pub enum SubscribeParams {
     #[serde(rename = "user")]
     User { wallet_address: PubkeyStr },
     /// Authenticated external-wallet stream with a complete initial snapshot,
-    /// absolute component updates, and recoverable status notifications.
+    /// absolute balance updates, and recoverable status notifications.
     #[serde(rename = "wallet_deposit_balances")]
     WalletDepositBalances { wallet_address: PubkeyStr },
     #[serde(rename = "price_history")]
