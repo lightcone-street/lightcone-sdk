@@ -227,15 +227,40 @@ if (!orderbook) {
 
 The amount is in the deposit mint's smallest units. Instruction construction alone does not transfer collateral. Submit and confirm the transaction, then wait for the API balance to cover the order. Select the deposit mint backing the orderbook's quote token, as shown in the [submit example](examples/submit_order.ts).
 
+Calculate the deposit from the same price and size used by the order. Poll at most 15 times, with two seconds between unsuccessful reads. A timeout or read failure stops before order submission. Check the confirmed deposit before repeating this step.
+
 ```typescript
+import { shared } from "@lightconexyz/lightcone-sdk";
+import { program } from "@lightconexyz/lightcone-sdk";
+
+const rules = await client.orderbooks().decimals(orderbook.orderbookId);
+const orderPrice = "0.55"; // Quote tokens per base token.
+const orderSize = "1"; // Base tokens.
+const quoteAtoms = shared.scalePriceSize(
+  orderPrice, orderSize, program.OrderSide.BID, rules
+).quoteAtoms;
 const depositMint = new PublicKey(orderbook.quote.depositAsset);
 const depositContext = await client.transactionContext();
 const depositTx = client.positions().deposit()
   .user(keypair.publicKey)
   .mint(depositMint)
-  .amount(1_000_000n)
+  .amount(quoteAtoms)
   .buildTx(depositContext);
 await client.signAndSubmitTxConfirmedWithSlot(depositTx);
+
+// Confirmation can precede indexing. Check the available global collateral.
+for (let attempt = 0; attempt < 15; attempt++) {
+  const snapshot = await client.positions().depositTokenBalances();
+  const entry = Object.values(snapshot.balances).find(
+    (balance) => balance.mint === depositMint.toBase58()
+  );
+  const idleAtoms = shared.exactScaledInteger(entry?.idle ?? "0", rules.quoteDecimals);
+  if (idleAtoms >= quoteAtoms) break;
+  if (attempt === 14) {
+    throw new Error("Global collateral is not indexed yet; order was not submitted");
+  }
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+}
 ```
 
 ### Step 3: Place an Order
@@ -244,8 +269,8 @@ await client.signAndSubmitTxConfirmedWithSlot(depositTx);
 const order = await client.orders().limitOrder()
   .maker(keypair.publicKey)
   .bid()
-  .price("0.55")
-  .size("1")
+  .price(orderPrice)
+  .size(orderSize)
   .submit(client, orderbook);
 ```
 
@@ -405,7 +430,7 @@ automatic retry.
 ### Step 5: Cancel an Order
 
 ```typescript
-import { program, asPubkeyStr } from "@lightconexyz/lightcone-sdk";
+// program and asPubkeyStr were imported in the preceding steps.
 
 const signature = program.signCancelOrder(order.order_hash, keypair);
 await client.orders().cancel({

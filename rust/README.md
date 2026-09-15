@@ -191,16 +191,43 @@ let orderbook = market
 
 The amount is in the deposit mint's smallest units. Instruction construction alone does not transfer collateral. Submit and confirm the transaction, then wait for the API balance to cover the order. Select the deposit mint backing the orderbook's quote token, as shown in the [submit example](examples/submit_order.rs).
 
+Calculate the deposit from the same price and size used by the order. Poll at most 15 times, with two seconds between unsuccessful reads. A timeout or read failure stops before order submission. Check the confirmed deposit before repeating this step.
+
 ```rust
+let rules = client.orderbooks().decimals(orderbook.orderbook_id.as_str()).await?;
+let order_price = "0.55"; // Quote tokens per base token.
+let order_size = "1"; // Base tokens.
+let quote_atoms = lightcone::shared::scale_price_size(
+    order_price, order_size, lightcone::program::types::OrderSide::Bid, &rules,
+)?.quote_atoms;
+let required_balance = rust_decimal::Decimal::new(
+    i64::try_from(quote_atoms)?, u32::from(rules.quote_decimals),
+);
 let deposit_mint = orderbook.quote.deposit_asset.to_pubkey()?;
 let deposit_context = client.transaction_context().await?;
 let deposit_tx = client.positions().deposit().await
     .user(payer)
     .mint(deposit_mint)
-    .amount(1_000_000)
+    .amount(quote_atoms)
     .build_tx(&deposit_context)
     .await?;
 client.sign_and_submit_tx_confirmed_with_slot(deposit_tx).await?;
+
+// Confirmation can precede indexing. Check the available global collateral.
+for attempt in 0..15 {
+    let snapshot = client.positions().deposit_token_balances(None).await?;
+    let idle = snapshot.balances.values()
+        .find(|balance| balance.mint == orderbook.quote.deposit_asset)
+        .map(|balance| balance.idle)
+        .unwrap_or_default();
+    if idle >= required_balance {
+        break;
+    }
+    if attempt == 14 {
+        return Err("Global collateral is not indexed yet; order was not submitted".into());
+    }
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+}
 ```
 
 ### Step 3: Place an Order
@@ -209,8 +236,8 @@ client.sign_and_submit_tx_confirmed_with_slot(deposit_tx).await?;
 let order = client.orders().limit_order().await
     .maker(payer)
     .bid()
-    .price("0.55")
-    .size("1")
+    .price(order_price)
+    .size(order_size)
     .submit(&client, &orderbook).await?;
 ```
 

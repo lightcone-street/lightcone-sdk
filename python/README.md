@@ -235,15 +235,43 @@ orderbook = next(
 
 The amount is in the deposit mint's smallest units. Instruction construction alone does not transfer collateral. Submit and confirm the transaction, then wait for the API balance to cover the order. Select the deposit mint backing the orderbook's quote token, as shown in the [submit example](examples/submit_order.py).
 
+Calculate the deposit from the same price and size used by the order. Poll at most 15 times, with two seconds between unsuccessful reads. A timeout or read failure stops before order submission. Check the confirmed deposit before repeating this step.
+
 ```python
+import asyncio
+
+from lightcone_sdk.program.types import OrderSide
+from lightcone_sdk.shared.scaling import exact_scaled_integer, scale_price_size
+
+rules = await client.orderbooks().decimals(orderbook.orderbook_id)
+order_price = "0.55"  # Quote tokens per base token.
+order_size = "2"  # Base tokens.
+quote_atoms = scale_price_size(
+    order_price, order_size, int(OrderSide.BID), rules
+).quote_atoms
 deposit_mint = Pubkey.from_string(orderbook.quote.deposit_asset)
 deposit_context = await client.transaction_context()
 deposit_tx = (client.positions().deposit()
     .user(keypair.pubkey())
     .mint(deposit_mint)
-    .amount(1_000_000)
+    .amount(quote_atoms)
     .build_tx(deposit_context))
 await client.sign_and_submit_tx_confirmed_with_slot(deposit_tx)
+
+# Confirmation can precede indexing. Check the available global collateral.
+for attempt in range(15):
+    snapshot = await client.positions().deposit_token_balances()
+    entry = next(
+        (balance for balance in snapshot.balances.values()
+         if balance.mint == str(deposit_mint)),
+        None,
+    )
+    idle_atoms = exact_scaled_integer(entry.idle, rules.quote_decimals) if entry else 0
+    if idle_atoms >= quote_atoms:
+        break
+    if attempt == 14:
+        raise TimeoutError("Global collateral is not indexed yet; order was not submitted")
+    await asyncio.sleep(2)
 ```
 
 ### Step 3: Place an Order
@@ -253,8 +281,8 @@ order = await (
     client.orders().limit_order()
     .maker(keypair.pubkey())
     .bid()
-    .price("0.55")
-    .size("2")
+    .price(order_price)
+    .size(order_size)
     .submit(client, orderbook)
 )
 ```
