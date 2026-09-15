@@ -98,6 +98,8 @@ signing are outside this contract.
 
 ## Quick Start
 
+This example authenticates and subscribes to public market data. For funded order submission, use the [trading example](examples/submit_order.rs).
+
 ```rust
 use lightcone::prelude::*;
 use lightcone::auth::native::sign_login_message;
@@ -106,9 +108,7 @@ use solana_keypair::Keypair;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Defaults to Prod. Use .env(LightconeEnv::Staging) for staging.
-    let client = LightconeClient::builder()
-        .deposit_source(DepositSource::Market)
-        .build()?;
+    let client = LightconeClient::builder().build()?;
     let keypair = Keypair::new();
 
     // 1. Authenticate
@@ -123,47 +123,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("signed in as {}", session.user.user_id);
 
     // 2. Find a market
-    let market = client.markets().get(None, Some(1)).await?.markets.into_iter().next().unwrap();
-    let orderbook = &market.orderbook_pairs[0];
+    let market = client.markets().get(None, Some(1)).await?.markets
+        .into_iter().next().ok_or("No markets returned by the API")?;
+    let orderbook = market.orderbook_pairs.first().ok_or("Market has no orderbooks")?;
 
-    // 3. Deposit collateral to the global pool
-    let deposit_mint = market.deposit_assets[0].pubkey().to_pubkey()?;
-    let deposit_ix = client.positions().deposit().await
-        .user(keypair.pubkey())
-        .mint(deposit_mint)
-        .amount(1_000_000)
-        .build_ix()
-        .await?;
-
-    // 4. Fetch/cache trading rules, validate exactly, sign, and submit
-    let response = client.orders().limit_order().await
-        .maker(keypair.pubkey())
-        .bid()
-        .price("0.55")
-        .size("100")
-        .submit(&client, orderbook).await?;
-    println!("Order submitted: {:?}", response);
-
-    // 5. Withdraw from the global pool
-    let withdraw_ix = client.positions().withdraw().await
-        .user(keypair.pubkey())
-        .mint(deposit_mint)
-        .amount(1_000_000)
-        .build_ix()
-        .await?;
-
-    // 6. Stream real-time updates
+    // 3. Subscribe to real-time updates for ten seconds.
     let mut ws = client.ws_native();
     ws.connect().await?;
     ws.subscribe(SubscribeParams::Books {
         orderbook_ids: vec![orderbook.orderbook_id.clone()],
+        n_sig_figs: None,
+        mantissa: None,
     })?;
-
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    ws.disconnect().await?;
     Ok(())
 }
 ```
 
 ## Start Trading
+
+These excerpts run inside an async function that returns `Result`. Use a funded keypair for the selected environment. The [submit example](examples/submit_order.rs) confirms the deposit and waits for the API balance before ordering.
 
 ```rust
 use lightcone::prelude::*;
@@ -176,7 +156,7 @@ let keypair = Arc::new(read_keypair_file(std::env::var("LIGHTCONE_WALLET_PATH")?
 let rpc_url = std::env::var("SDK_RPC_URL")?;
 let payer = keypair.pubkey();
 let client = LightconeClient::builder()
-    .deposit_source(DepositSource::Market)
+    .deposit_source(DepositSource::Global)
     .transaction_resources(V1ResourceConfig {
         compute_unit_limit: 200_000,
         loaded_accounts_data_size_limit: 1024 * 1024,
@@ -186,30 +166,41 @@ let client = LightconeClient::builder()
     .rpc_url(&rpc_url)
     .build()?;
 client.set_signing_strategy(SigningStrategy::Native(keypair.clone())).await;
+let nonce = client.auth().get_nonce().await?;
+let signed = lightcone::auth::native::sign_login_message(keypair.as_ref(), &nonce);
+client.auth().login_with_message(
+    &signed.message, &signed.signature_bs58, &signed.pubkey_bytes, None,
+).await?;
+client.set_order_nonce(u64::from(client.orders().current_nonce(&payer).await?)).await;
 ```
 
 ### Step 1: Find a Market
 
 ```rust
-let market = client.markets().get(None, Some(1)).await?.markets.into_iter().next().unwrap();
+let market = client.markets().get(None, Some(1)).await?.markets
+    .into_iter().next().ok_or("No markets returned by the API")?;
 let orderbook = market
     .orderbook_pairs
     .iter()
     .find(|pair| pair.active)
     .or_else(|| market.orderbook_pairs.first())
-    .expect("market has no orderbooks");
+    .ok_or("Market has no orderbooks")?;
 ```
 
 ### Step 2: Deposit Collateral
 
+The amount is in the deposit mint's smallest units. Instruction construction alone does not transfer collateral. Submit and confirm the transaction, then wait for the API balance to cover the order. Select the deposit mint backing the orderbook's quote token, as shown in the [submit example](examples/submit_order.rs).
+
 ```rust
-let deposit_mint = market.deposit_assets[0].pubkey().to_pubkey()?;
-let deposit_ix = client.positions().deposit().await
+let deposit_mint = orderbook.quote.deposit_asset.to_pubkey()?;
+let deposit_context = client.transaction_context().await?;
+let deposit_tx = client.positions().deposit().await
     .user(payer)
     .mint(deposit_mint)
     .amount(1_000_000)
-    .build_ix()
+    .build_tx(&deposit_context)
     .await?;
+client.sign_and_submit_tx_confirmed_with_slot(deposit_tx).await?;
 ```
 
 ### Step 3: Place an Order
@@ -229,6 +220,8 @@ strings are converted with integer arithmetic and rejected rather than rounded.
 Direct `sign`/`finalize` calls require the fetched `OrderbookRules`; raw amount
 orders are preflighted against the same exact ratio and signed-64-bit limits.
 
+The envelope generates a salt when omitted. The price is quote tokens per base token, and the size is base tokens. Example values must satisfy the selected orderbook's trading rules and available collateral.
+
 ### Step 4: Monitor
 
 ```rust
@@ -240,6 +233,8 @@ let mut ws = client.ws_native();
 ws.connect().await?;
 ws.subscribe(SubscribeParams::Books {
     orderbook_ids: vec![orderbook.orderbook_id.clone()],
+    n_sig_figs: None,
+    mantissa: None,
 })?;
 ws.subscribe(SubscribeParams::User {
     wallet_address: payer.into(),
@@ -273,6 +268,8 @@ client.orders().cancel(&cancel).await?;
 
 ### Step 6: Exit a Position
 
+Merge only when the wallet holds a complete set of outcome tokens for this deposit mint. Cancelling an unfilled order does not create that set. To return unused global collateral, proceed to withdrawal.
+
 ```rust
 // sign_and_submit builds the tx, signs it using the client's signing strategy, and submits
 let tx_hash = client.positions().merge()
@@ -296,37 +293,38 @@ let withdraw_ix = client.positions().withdraw().await
 ```
 
 ## Authentication
-Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token.
+Authentication is required for user-specific endpoints. Fetch `/api/auth/nonce`, then sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `sign_login_message` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone.
+
+Authenticate before connecting a private WebSocket. Native clients send the session cookie during the upgrade, and browsers supply the cookie automatically. Private user subscriptions require `wallet_address`. Derive the Trading Wallet from `session.user.trading_wallet(session.auth_method)`. Refer to the [authenticated streaming example](examples/ws_user_and_market.rs).
 
 ### Cookie handling
 
 After `client.auth().login_with_message(...)` succeeds, the SDK stores the session token internally and attaches it as `Cookie: lightcone-token=…` on every authenticated request. The behaviour depends on the build target:
 
-- **Native builds**: token lives in a process-wide `Arc<RwLock<Option<String>>>` on the `LightconeClient`. Every authed call reads from it.
+- **Native builds**: the client stores the token in an `Arc<RwLock<Option<String>>>`. Cloned clients share that store.
 - **WASM builds**: requests use `credentials: "include"` and the browser supplies the cookie automatically — the SDK's internal store is unused.
 
 ### Server-side cookie forwarding (`_with_cookies` variants)
 
-> **Naming note.** The `_with_cookies` suffix does **not** mean other methods are unauthed — most SDK methods that talk to authed endpoints (`Positions::positions`, `Metrics::user`, etc.) read auth from the SDK's process-wide token store / browser cookie automatically; that's the typical client-side path. The `_with_cookies(auth_token: &str)` siblings exist for **server-side rendering (SSR)** where the per-request browser cookie can't propagate to the shared client. Those callers extract the token from the incoming request and pass it explicitly. Same wire contract, different credentials path.
+Ordinary authenticated methods use the client's session or the browser cookie. Server-side rendering and route handlers must pass the incoming raw `Cookie` header to the corresponding `_with_cookies` method.
 
-When the SDK runs on a server (SSR, server functions, an axum handler, etc.) and the *user's* `auth_token` cookie arrives on an incoming HTTP request, the SDK's process-wide token store is the wrong place to route it through — the store is shared across all users of that server process.
+The cookie name is `lightcone-token`. Do not install a user's token on a client shared between requests from different users.
 
 > **Behavior change (0.9.0).** `_with_cookies` responses no longer capture `Set-Cookie` into the process-wide user session (they previously did): a forwarded per-user request rotating its token must not leak that token to every later request from a shared server client. These requests also never consult the credential restorer.
 
-For these cases, authed methods that need per-call forwarding ship a `_with_cookies(auth_token)` sibling that injects the cookie just for that one call:
+These methods forward the supplied header for one call:
 
 ```rust
-// Inside an axum / dioxus server function, after extracting the
-// auth_token cookie from the incoming request:
+// cookie_header is the incoming raw Cookie header, including lightcone-token=...
 let snapshot = client
     .positions()
-    .deposit_token_balances_with_cookies(None, &auth_token)
+    .deposit_token_balances_with_cookies(None, &cookie_header)
     .await?;
 println!("snapshot slot {}: {} balances", snapshot.context_slot, snapshot.balances.len());
 
 let positions = client
     .positions()
-    .positions_with_cookies(&auth_token)
+    .positions_with_cookies(&cookie_header)
     .await?;
 ```
 

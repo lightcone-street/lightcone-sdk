@@ -123,23 +123,17 @@ submission is unavailable until signed v1 bytes can be verified.
 
 ## Quick Start
 
+This example authenticates and subscribes to public market data. For funded order submission, use the [trading example](examples/submit_order.ts).
+
 ```typescript
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { Keypair } from "@solana/web3.js";
 import {
   LightconeClient,
-  DepositSource,
   auth,
 } from "@lightconexyz/lightcone-sdk";
 
 async function main() {
-  const client = LightconeClient.builder()
-    .depositSource(DepositSource.Market)
-    .transactionResources({
-      computeUnitLimit: 200_000,
-      loadedAccountsDataSizeLimit: 65_536,
-      priorityFeeLamports: 0n,
-    })
-    .build();
+  const client = LightconeClient.builder().build();
   const keypair = Keypair.generate();
 
   // 1. Authenticate
@@ -162,31 +156,7 @@ async function main() {
     throw new Error("Selected market has no orderbooks");
   }
 
-  // 3. Deposit collateral to the global pool
-  const depositMint = new PublicKey(market.depositAssets[0].pubkey);
-  const depositIx = client.positions().deposit()
-    .user(keypair.publicKey)
-    .mint(depositMint)
-    .amount(1_000_000n)
-    .buildIx();
-
-  // 4. Fetch/cache immutable trading rules, validate exactly, sign, and submit
-  const response = await client.orders().limitOrder()
-    .maker(keypair.publicKey)
-    .bid()
-    .price("0.55")
-    .size("100")
-    .submit(client, orderbook);
-  console.log("Order submitted:", response);
-
-  // 5. Withdraw from the global pool
-  const withdrawIx = client.positions().withdraw()
-    .user(keypair.publicKey)
-    .mint(depositMint)
-    .amount(1_000_000n)
-    .buildIx();
-
-  // 6. Stream real-time updates
+  // 3. Subscribe to real-time updates.
   const ws = client.ws();
   await ws.connect();
   ws.subscribe({ type: "book_update", orderbook_ids: [orderbook.orderbookId] });
@@ -197,6 +167,8 @@ main().catch(console.error);
 
 ## Start Trading
 
+These excerpts use top-level `await` in an ES module. Use a funded keypair for the selected environment. The [submit example](examples/submit_order.ts) confirms the deposit and waits for the API balance before ordering.
+
 ```typescript
 import * as fs from "fs";
 import * as os from "os";
@@ -205,6 +177,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import {
   LightconeClient,
   DepositSource,
+  auth,
 } from "@lightconexyz/lightcone-sdk";
 
 function readKeypairFile(filePath: string): Keypair {
@@ -220,8 +193,19 @@ const keypair = readKeypairFile("~/.config/solana/id.json");
 // Defaults to Prod. Use .env(LightconeEnv.Staging) for staging.
 const client = LightconeClient.builder()
   .nativeSigner(keypair)
-  .depositSource(DepositSource.Market)
+  .depositSource(DepositSource.Global)
+  .transactionResources({
+    computeUnitLimit: 200_000,
+    loadedAccountsDataSizeLimit: 1_048_576,
+    priorityFeeLamports: 0n,
+  })
   .build();
+const nonce = await client.auth().getNonce();
+const signed = auth.signLoginMessage(keypair, nonce);
+await client.auth().loginWithMessage(
+  signed.message, signed.signature_bs58, signed.pubkey_bytes
+);
+client.setOrderNonce(await client.orders().currentNonce(keypair.publicKey));
 ```
 
 ### Step 1: Find a Market
@@ -241,13 +225,17 @@ if (!orderbook) {
 
 ### Step 2: Deposit Collateral
 
+The amount is in the deposit mint's smallest units. Instruction construction alone does not transfer collateral. Submit and confirm the transaction, then wait for the API balance to cover the order. Select the deposit mint backing the orderbook's quote token, as shown in the [submit example](examples/submit_order.ts).
+
 ```typescript
-const depositMint = new PublicKey(market.depositAssets[0].pubkey);
-const depositIx = client.positions().deposit()
+const depositMint = new PublicKey(orderbook.quote.depositAsset);
+const depositContext = await client.transactionContext();
+const depositTx = client.positions().deposit()
   .user(keypair.publicKey)
   .mint(depositMint)
   .amount(1_000_000n)
-  .buildIx();
+  .buildTx(depositContext);
+await client.signAndSubmitTxConfirmedWithSlot(depositTx);
 ```
 
 ### Step 3: Place an Order
@@ -268,7 +256,7 @@ import { asPubkeyStr } from "@lightconexyz/lightcone-sdk";
 
 const open = await client
   .orders()
-  .getUserOrders(keypair.publicKey.toBase58(), 50);
+  .getUserOrders(50);
 const ws = client.ws();
 await ws.connect();
 ws.subscribe({ type: "book_update", orderbook_ids: [orderbook.orderbookId] });
@@ -304,6 +292,8 @@ Order submission accepts decimal strings and uses exact `bigint` construction.
 signer. Direct `sign()`/`finalize()` calls require the returned `OrderbookRules`.
 Raw amounts, explicit salts, and derived prices are preflighted against the same
 signed-64-bit admission rules; no tick or size normalization is implicit.
+
+The envelope generates a salt when omitted. The price is quote tokens per base token, and the size is base tokens. Example values must satisfy the selected orderbook's trading rules and available collateral.
 
 ### Wallet Balances and SOL Action Planning
 
@@ -427,6 +417,8 @@ await client.orders().cancel({
 
 ### Step 6: Exit a Position
 
+Merge only when the wallet holds a complete set of outcome tokens for this deposit mint. Cancelling an unfilled order does not create that set. To return unused global collateral, proceed to withdrawal.
+
 ```typescript
 // Uses the explicit transaction resources configured on the client.
 // The signature means RPC acceptance; confirm before dependent account operations.
@@ -452,7 +444,9 @@ const withdrawIx = client.positions().withdraw()
 
 ## Authentication
 
-Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session cookie.
+Authentication is required for user-specific endpoints. Fetch `/api/auth/nonce`, then sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `auth.signLoginMessage` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone.
+
+Authenticate before connecting a private WebSocket. Node clients send the session cookie during the upgrade, and browsers supply the cookie automatically. Private user subscriptions require `wallet_address`. Derive the Trading Wallet with `tradingWallet(session.user, session.auth_method)`. Refer to the [authenticated streaming example](examples/ws_user_and_market.ts).
 
 Privy hosts can also authenticate with passwordless Email, Google, X, or Wallet. After every interactive success, call `client.auth().registerPrivy({ attempted_identity })`. The backend validates the exact selector against Privy's verified methods, creates or synchronizes the Account, and changes the Primary Login Identity only for a new Account. `session.user.identity` is that stable primary; `session.user.linked_identities` contains every connected method with primary first.
 
@@ -472,30 +466,29 @@ After login succeeds, the SDK stores the session token internally and attaches i
 - **Node / non-browser**: token is stored on the `LightconeHttp` instance and added as a `Cookie` header per request.
 - **Browser**: requests use `credentials: "include"` and the runtime supplies the cookie automatically — the SDK's internal store is unused.
 
-### Server-side cookie forwarding (`*WithAuth` variants)
+### Server-side cookie forwarding (`*WithCookies` variants)
 
-> **Naming note.** The `WithAuth` suffix does **not** mean other methods are unauthed — most SDK methods that talk to authed endpoints (e.g. `positions().positions()`, `metrics().user()`) read auth from the SDK's process-wide token store / browser cookie automatically; that's the typical client-side path. The `*WithAuth(authToken: string)` siblings exist for **server-side rendering (SSR) and route-handler callers** where the per-request browser cookie can't propagate to the shared client. Those callers extract the token from the incoming request and pass it explicitly. Same wire contract, different credentials path.
+Ordinary authenticated methods use the client's session or the browser cookie. Server-side rendering and route handlers must pass the incoming raw `Cookie` header to the corresponding `*WithCookies` method.
 
-When the SDK runs on a server (SSR, an Express / Next.js route handler, etc.) and the *user's* `auth_token` cookie arrives on an incoming HTTP request, the SDK's process-wide token store is the wrong place to route it through — the store is shared across all users of that server process.
+The cookie name is `lightcone-token`. Do not install a user's token on a client shared between requests from different users.
 
 > **Behavior change.** `getWithCookies` responses no longer capture `Set-Cookie` into the shared token slot (they previously did): a forwarded per-user request rotating its token must not leak that token to every later request from a shared server client. These requests also never consult the credential restorer.
 
-For these cases, authed methods that need per-call forwarding ship a `*WithAuth(authToken)` sibling that injects the cookie just for that one call:
+These methods forward the supplied header for one call:
 
 ```typescript
-// Inside a server route, after extracting the auth_token cookie
-// from the incoming request:
+// cookieHeader is the incoming raw Cookie header, including lightcone-token=...
 const snapshot = await client
   .positions()
-  .depositTokenBalancesWithCookies(undefined, authToken);
+  .depositTokenBalancesWithCookies(undefined, cookieHeader);
 console.log(`snapshot slot ${snapshot.context_slot}: ${Object.keys(snapshot.balances).length} balances`);
 
 const positions = await client
   .positions()
-  .positionsWithAuth(authToken);
+  .positionsWithCookies(cookieHeader);
 ```
 
-In a browser context these methods are equivalent to their non-`WithAuth` counterparts because the runtime is already attaching the cookie via `credentials: "include"`.
+In browsers, use the ordinary methods. The browser supplies the cookie through `credentials: "include"`.
 
 ## Environment Configuration
 
