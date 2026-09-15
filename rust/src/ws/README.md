@@ -156,6 +156,8 @@ let config = client.ws_config().clone();
 
 Requires the `ws-native` feature (included in `native` bundle). Uses `tokio-tungstenite` with a background task for connection management.
 
+For private streams, complete the [nonce login flow](../auth/README.md#native-login-flow) before connecting. The upgrade sends `Cookie: lightcone-token=<token>`. Set `wallet_address` on the user subscription to `session.user.trading_wallet(session.auth_method)`. Refer to the [authenticated streaming example](../../examples/ws_user_and_market.rs) for the complete flow.
+
 ```rust
 let mut ws = client.ws_native();
 ```
@@ -222,6 +224,8 @@ All methods are static (the WASM client manages a single global connection):
 ## Examples
 
 ### Market maker: subscribe to book + user events
+
+This excerpt requires an authenticated client and its Trading Wallet address.
 
 ```rust
 use lightcone::prelude::*;
