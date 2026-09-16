@@ -5,6 +5,7 @@ import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 
 import { LightconeClient, LightconeEnv, type Market, type OrderBookPair } from "../src";
 import { signLoginMessage, type SessionResponse } from "../src/auth";
+import { Status as MarketStatus } from "../src/domain/market";
 
 const DEFAULT_WALLET_PATH = "~/.config/solana/id.json";
 
@@ -81,11 +82,19 @@ export async function login(
   );
 }
 
+/** Select the first non-resolved market, paging by increasing market ID. */
 export async function market(client: LightconeClient): Promise<Market> {
-  const result = await client.markets().get(undefined, 1);
-  const m = result.markets[0];
-  if (!m) throw new Error("No markets found");
-  return m;
+  let cursor: number | undefined;
+  while (true) {
+    const { markets } = await client.markets().get(cursor, 100);
+    const selected = markets.find((candidate) => candidate.status !== MarketStatus.Resolved);
+    if (selected) return selected;
+    const next = markets[markets.length - 1]?.id;
+    if (next === undefined || (cursor !== undefined && next <= cursor)) {
+      throw new Error("No non-resolved markets returned by the API");
+    }
+    cursor = next;
+  }
 }
 
 export async function marketAndOrderbook(

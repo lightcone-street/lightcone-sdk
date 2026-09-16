@@ -15,7 +15,7 @@
 //      doesn't depend on it.
 //   4. Calling each `*WithCookies` method with the captured header.
 
-import { restClient, getKeypair, login, runExample } from "./common";
+import { restClient, getKeypair, login, market, runExample } from "./common";
 
 async function main() {
   const client = restClient();
@@ -76,18 +76,16 @@ async function main() {
   }
   console.log("favorite markets:", favoriteMarketPubkeys.length);
 
-  const selectedMarket = (await client.markets().get(undefined, 1)).markets[0];
-  if (selectedMarket) {
-    const wasFavorited = favoriteMarketPubkeys.includes(selectedMarket.pubkey);
-    if (wasFavorited) {
-      await client.markets().removeFavoriteMarketWithCookies(selectedMarket.pubkey, cookieHeader);
-      await client.markets().addFavoriteMarketWithCookies(selectedMarket.pubkey, cookieHeader);
-    } else {
-      await client.markets().addFavoriteMarketWithCookies(selectedMarket.pubkey, cookieHeader);
-      await client.markets().removeFavoriteMarketWithCookies(selectedMarket.pubkey, cookieHeader);
-    }
-    console.log("restored favorite state for", selectedMarket.pubkey);
+  const selectedMarket = await market(client);
+  const wasFavorited = favoriteMarketPubkeys.includes(selectedMarket.pubkey);
+  if (wasFavorited) {
+    await client.markets().removeFavoriteMarketWithCookies(selectedMarket.pubkey, cookieHeader);
+    await client.markets().addFavoriteMarketWithCookies(selectedMarket.pubkey, cookieHeader);
+  } else {
+    await client.markets().addFavoriteMarketWithCookies(selectedMarket.pubkey, cookieHeader);
+    await client.markets().removeFavoriteMarketWithCookies(selectedMarket.pubkey, cookieHeader);
   }
+  console.log("restored favorite state for", selectedMarket.pubkey);
 }
 
 void runExample(main);

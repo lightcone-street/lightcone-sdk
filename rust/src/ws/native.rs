@@ -649,10 +649,205 @@ mod tests {
     use crate::domain::orderbook::BookAggregation;
     use crate::shared::OrderBookId;
 
+    #[tokio::test]
+    async fn anonymous_auth_frames_keep_native_transport_open(
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use crate::domain::order::wire::AuthUpdate;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let (headers_tx, headers_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await?;
+            let mut headers_tx = Some(headers_tx);
+            // Tungstenite fixes this callback's error type to its HTTP response.
+            #[allow(clippy::result_large_err)]
+            let capture_headers =
+                move |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+                      response| {
+                    if let Some(tx) = headers_tx.take() {
+                        let _ = tx.send((
+                            request
+                                .headers()
+                                .get("cookie")
+                                .and_then(|v| v.to_str().ok())
+                                .map(str::to_owned),
+                            request.headers().contains_key("origin"),
+                        ));
+                    }
+                    Ok(response)
+                };
+            let mut socket = tokio_tungstenite::accept_hdr_async(socket, capture_headers).await?;
+            while let Some(message) = socket.next().await {
+                match message? {
+                    Message::Text(text) => {
+                        let request: serde_json::Value = serde_json::from_str(&text)?;
+                        if request["method"] == "subscribe" {
+                            for frame in [
+                                r#"{"type":"auth","version":0.1,"data":{"status":"authenticated","wallet":"11111111111111111111111111111111"}}"#,
+                                r#"{"type":"auth","version":0.1,"data":{"status":"anonymous"}}"#,
+                                r#"{"type":"auth","version":0.1,"data":{"status":"anonymous","reason":"TOKEN_EXPIRED"}}"#,
+                                r#"{"type":"auth","version":0.1,"data":{"status":"anonymous","reason":"TOKEN_REVOKED"}}"#,
+                                r#"{"type":"error","version":0.1,"data":{"error":"retry snapshot","code":"PRIVATE_SNAPSHOT_UNAVAILABLE","wallet_address":"wallet-a"}}"#,
+                                r#"{"type":"pong","version":0.1,"data":{}}"#,
+                            ] {
+                                socket.send(Message::Text(frame.into())).await?;
+                            }
+                        }
+                    }
+                    Message::Close(_) => break,
+                    _ => {}
+                }
+            }
+            Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+        });
+        let mut client = WsClient::new(
+            WsConfig {
+                url: format!("ws://{address}"),
+                reconnect: true,
+                ping_interval_ms: 60_000,
+                ..WsConfig::default()
+            },
+            Some(Arc::new(async_lock::RwLock::new(Some(
+                "explicit-token".into(),
+            )))),
+        );
+        client.connect().await?;
+        let mut reasons = Vec::new();
+        let mut snapshot_error = false;
+        {
+            let mut events = client.events();
+            loop {
+                let event = tokio::time::timeout(Duration::from_secs(5), events.next())
+                    .await?
+                    .ok_or("event stream ended")?;
+                match event {
+                    WsEvent::Connected => client.subscribe(SubscribeParams::Market {
+                        market_pubkey: "11111111111111111111111111111111".into(),
+                    })?,
+                    WsEvent::Message(Kind::Auth(AuthUpdate::Anonymous { reason })) => {
+                        reasons.push(reason)
+                    }
+                    WsEvent::Message(Kind::Error(error)) => {
+                        snapshot_error = error.code.as_deref()
+                            == Some("PRIVATE_SNAPSHOT_UNAVAILABLE")
+                            && error.wallet_address.as_deref() == Some("wallet-a");
+                    }
+                    WsEvent::Message(Kind::Pong(_)) => break,
+                    WsEvent::Disconnected { .. }
+                    | WsEvent::MaxReconnectReached
+                    | WsEvent::Error(_) => return Err("auth frame interrupted transport".into()),
+                    _ => {}
+                }
+            }
+            if tokio::time::timeout(Duration::from_millis(750), events.next())
+                .await
+                .is_ok()
+            {
+                return Err("auth frame scheduled an unexpected transport transition".into());
+            }
+        }
+        let (cookie, origin) = headers_rx.await?;
+        if cookie.as_deref() != Some("lightcone-token=explicit-token")
+            || origin
+            || !client.is_connected()
+        {
+            return Err("explicit Cookie transport changed".into());
+        }
+        if reasons
+            != vec![
+                None,
+                Some("TOKEN_EXPIRED".into()),
+                Some("TOKEN_REVOKED".into()),
+            ]
+            || !snapshot_error
+        {
+            return Err("auth reasons or snapshot identity changed".into());
+        }
+        client.disconnect().await?;
+        tokio::time::timeout(Duration::from_secs(5), server).await???;
+        Ok(())
+    }
+
     #[test]
     fn test_ws_client_new() {
         let client = WsClient::new(WsConfig::default(), None);
         assert!(client.cmd_tx.is_none());
+    }
+
+    #[tokio::test]
+    async fn disconnect_then_connect_recovers_after_handshake_exhaustion(
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let server = tokio::spawn(async move {
+            let (mut rejected, _) = listener.accept().await?;
+            let mut request = [0u8; 1024];
+            rejected.read(&mut request).await?;
+            rejected.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await?;
+            rejected.shutdown().await?;
+            let (socket, _) = listener.accept().await?;
+            let mut socket = tokio_tungstenite::accept_async(socket).await?;
+            while let Some(message) = socket.next().await {
+                if let Message::Text(text) = message? {
+                    let request: serde_json::Value = serde_json::from_str(&text)?;
+                    if request["method"] == "subscribe" && request["params"]["type"] == "market" {
+                        socket
+                            .send(Message::Text(
+                                r#"{"type":"pong","version":0.1,"data":{}}"#.into(),
+                            ))
+                            .await?;
+                        return Ok::<(), Box<dyn std::error::Error + Send + Sync>>(());
+                    }
+                }
+            }
+            Err("replacement did not reissue its subscription".into())
+        });
+        let mut client = WsClient::new(
+            WsConfig {
+                url: format!("ws://{address}"),
+                reconnect: true,
+                max_reconnect_attempts: 0,
+                ping_interval_ms: 60_000,
+                ..WsConfig::default()
+            },
+            None,
+        );
+        client.connect().await?;
+        {
+            let mut events = client.events();
+            loop {
+                let event = tokio::time::timeout(Duration::from_secs(5), events.next())
+                    .await?
+                    .ok_or("event stream ended")?;
+                if matches!(event, WsEvent::MaxReconnectReached) {
+                    break;
+                }
+            }
+        }
+        client.disconnect().await?;
+        client.connect().await?;
+        {
+            let mut events = client.events();
+            loop {
+                match tokio::time::timeout(Duration::from_secs(5), events.next())
+                    .await?
+                    .ok_or("event stream ended")?
+                {
+                    WsEvent::Connected => client.subscribe(SubscribeParams::Market {
+                        market_pubkey: "11111111111111111111111111111111".into(),
+                    })?,
+                    WsEvent::Message(Kind::Pong(_)) => break,
+                    WsEvent::MaxReconnectReached => {
+                        return Err("replacement exhausted unexpectedly".into())
+                    }
+                    _ => {}
+                }
+            }
+        }
+        client.disconnect().await?;
+        tokio::time::timeout(Duration::from_secs(5), server).await???;
+        Ok(())
     }
 
     #[test]

@@ -735,7 +735,7 @@ describe("auth logout error propagation", () => {
         clearCaches: async () => {},
       },
     });
-    return { auth, credentialWrites };
+    return { auth, http, credentialWrites };
   }
 
   it("propagates server failure after clearing local state", async () => {
@@ -751,6 +751,30 @@ describe("auth logout error propagation", () => {
         assert.deepEqual(credentialWrites, [undefined]);
       },
     );
+  });
+
+  it("presents the token and exposes every incomplete revocation outcome", async () => {
+    for (const code of [
+      "TOKEN_REVOCATION_UNAVAILABLE",
+      "TOKEN_REVOCATION_RECOVERY_UNAVAILABLE",
+      "TOKEN_REVOCATION_FENCE_PENDING",
+      "AMBIGUOUS_LIGHTCONE_TOKEN",
+    ]) {
+      await withServer([
+        { status: 200, body: '{"status":"success","body":{}}', setCookie: "lightcone-token=live-cookie; Path=/; HttpOnly; Secure; SameSite=Strict" },
+        { status: code === "AMBIGUOUS_LIGHTCONE_TOKEN" ? 400 : 503,
+          body: JSON.stringify({ status: "error", error_details: { reason: "incomplete", error_code: code } }) },
+      ], async (baseUrl, attempts, cookiesSeen) => {
+        const { auth, http, credentialWrites } = authWith(baseUrl);
+        await http.get(`${baseUrl}/seed`, RetryPolicy.None);
+        await assert.rejects(() => auth.logout(), (error: unknown) =>
+          error instanceof SdkError && error.apiRejectedDetails?.errorCode === code);
+        assert.deepEqual(cookiesSeen(), [undefined, "lightcone-token=live-cookie"]);
+        assert.equal(attempts(), 2);
+        assert.deepEqual(credentialWrites, [undefined]);
+        assert.equal(await http.authTokenRef()(), undefined);
+      });
+    }
   });
 
   it("treats 401 as success (already logged out)", async () => {

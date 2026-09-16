@@ -164,13 +164,15 @@ class Auth:
         return session
 
     async def logout(self) -> None:
-        """Logout — clears server-side cookie, internal token, and credentials.
+        """Log out the native client's Lightcone session and clear local credentials.
 
         Local state is cleared even when the server call fails — the caller
         asked to be signed out locally regardless — but the failure is then
         re-raised: callers gating security decisions on teardown (e.g. whether
         an app may restart an authenticated transport) must be able to see
-        that the server-side cookie may still be valid. A 401 counts as
+        whether revocation is unconfirmed or a revoked token still awaits
+        remote WebSocket teardown. Refer to the authentication guide in README.
+        A 401 counts as
         success: it means "already logged out".
         """
         logout_error: Exception | None = None

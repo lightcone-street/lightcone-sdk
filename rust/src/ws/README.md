@@ -171,9 +171,11 @@ let mut ws = client.ws_native();
 | `unsubscribe` | `fn unsubscribe(&self, params: UnsubscribeParams) -> Result<(), WsError>` | Unsubscribe from a channel |
 | `is_connected` | `fn is_connected(&self) -> bool` | Connection status |
 | `ready_state` | `fn ready_state(&self) -> ReadyState` | Detailed connection state |
-| `restart_connection` | `async fn restart_connection(&mut self)` | Force a fresh connection |
+| `restart_connection` | `async fn restart_connection(&mut self)` | Restart unless the native client remains in `Connecting` |
 | `clear_authed_subscriptions` | `fn clear_authed_subscriptions(&self)` | Best-effort non-blocking purge of User/wallet replay tracking and queued auth messages; disconnect for definitive teardown |
 | `events` | `fn events(&self) -> impl Stream<Item = WsEvent>` | Stream of events from the connection |
+
+After `WsEvent::MaxReconnectReached`, the native client can remain in `Connecting`, so `restart_connection()` can do nothing. Calling `connect()` alone also does nothing while its command channel remains installed. Drop the borrowed event stream, call `disconnect().await?`, then call `connect().await?`. Reissue required subscriptions. Refer to the [native client recovery guide](../../../docs/auth-session-recovery.md) for the complete procedure.
 
 ### Features
 

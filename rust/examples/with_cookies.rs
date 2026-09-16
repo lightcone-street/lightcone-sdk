@@ -17,7 +17,7 @@
 
 mod common;
 
-use common::{get_keypair, login, rest_client, ExampleResult};
+use common::{get_keypair, login, market, rest_client, ExampleResult};
 
 #[tokio::main]
 async fn main() -> ExampleResult {
@@ -97,31 +97,30 @@ async fn main() -> ExampleResult {
     }
     println!("favorite markets: {}", favorite_market_pubkeys.len());
 
-    if let Some(market) = client.markets().get(None, Some(1)).await?.markets.first() {
-        let was_favorited = favorite_market_pubkeys
-            .iter()
-            .any(|pubkey| pubkey == market.pubkey.as_str());
-        if was_favorited {
-            client
-                .markets()
-                .remove_favorite_market_with_cookies(market.pubkey.as_str(), &cookie_header)
-                .await?;
-            client
-                .markets()
-                .add_favorite_market_with_cookies(market.pubkey.as_str(), &cookie_header)
-                .await?;
-        } else {
-            client
-                .markets()
-                .add_favorite_market_with_cookies(market.pubkey.as_str(), &cookie_header)
-                .await?;
-            client
-                .markets()
-                .remove_favorite_market_with_cookies(market.pubkey.as_str(), &cookie_header)
-                .await?;
-        }
-        println!("restored favorite state for {}", market.pubkey);
+    let market = market(&client).await?;
+    let was_favorited = favorite_market_pubkeys
+        .iter()
+        .any(|pubkey| pubkey == market.pubkey.as_str());
+    if was_favorited {
+        client
+            .markets()
+            .remove_favorite_market_with_cookies(market.pubkey.as_str(), &cookie_header)
+            .await?;
+        client
+            .markets()
+            .add_favorite_market_with_cookies(market.pubkey.as_str(), &cookie_header)
+            .await?;
+    } else {
+        client
+            .markets()
+            .add_favorite_market_with_cookies(market.pubkey.as_str(), &cookie_header)
+            .await?;
+        client
+            .markets()
+            .remove_favorite_market_with_cookies(market.pubkey.as_str(), &cookie_header)
+            .await?;
     }
+    println!("restored favorite state for {}", market.pubkey);
 
     Ok(())
 }

@@ -319,6 +319,9 @@ tx_hash = await (client.positions().merge()
 `market.num_outcomes` is the validated protocol outcome count. Market deposit, merge, and unified withdrawal use it instead of the length of display outcome metadata. The pubkey-only `withdraw_from_position()` builder requires `.num_outcomes(market.num_outcomes)` before building.
 
 ## Authentication
+
+Native client session teardown and WebSocket recovery follow the [native client recovery guide](../docs/auth-session-recovery.md). It explains per-token logout, incomplete teardown, anonymous public continuity, and finite reconnect budgets.
+
 Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token.
 
 Privy hosts can also authenticate with passwordless Email, Google, X, or Wallet. After every interactive success, call `await client.auth().register_privy(RegisterPrivyRequest(...))`. The backend validates the exact selector against Privy's verified methods, creates or synchronizes the Account, and changes the Primary Login Identity only for a new Account. `session.user.identity` is that stable primary; `session.user.linked_identities` contains every connected method with primary first.

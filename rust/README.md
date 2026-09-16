@@ -296,7 +296,10 @@ let withdraw_ix = client.positions().withdraw().await
 ```
 
 ## Authentication
-Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token.
+
+Native client session teardown and WebSocket recovery follow the [native client recovery guide](../docs/auth-session-recovery.md). It explains per-token logout, incomplete teardown, anonymous public continuity, and finite reconnect budgets.
+
+Authentication is only required for user-specific endpoints. Native clients authenticate using ED25519 signed messages: request a nonce, sign it with your wallet, and exchange it for a session token. Browser clients authenticate through Privy.
 
 ### Cookie handling
 

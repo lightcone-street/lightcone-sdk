@@ -181,6 +181,8 @@ Then send devnet SOL and 100 Lightcone USDC to each wallet's public key (viewabl
 
 ### Running Examples
 
+The shared example helpers select the first non-resolved market in API order. They continue across pages of resolved markets and report an error if no non-resolved market is returned.
+
 Use the shared example runner script:
 
 ```bash

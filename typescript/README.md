@@ -452,7 +452,9 @@ const withdrawIx = client.positions().withdraw()
 
 ## Authentication
 
-Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session cookie.
+Native clients running in Node follow the [native client recovery guide](../docs/auth-session-recovery.md) for session teardown and WebSocket recovery. It explains per-token logout, incomplete teardown, anonymous public continuity, and finite reconnect budgets. Browser clients use Privy authentication.
+
+Authentication is only required for user-specific endpoints. Native clients authenticate using ED25519 signed messages: request a nonce, sign it with your wallet, and exchange it for a session cookie. Browser clients authenticate through Privy.
 
 Privy hosts can also authenticate with passwordless Email, Google, X, or Wallet. After every interactive success, call `client.auth().registerPrivy({ attempted_identity })`. The backend validates the exact selector against Privy's verified methods, creates or synchronizes the Account, and changes the Primary Login Identity only for a new Account. `session.user.identity` is that stable primary; `session.user.linked_identities` contains every connected method with primary first.
 

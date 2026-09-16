@@ -7,6 +7,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use lightcone::domain::market::Status as MarketStatus;
 use lightcone::{auth::native::sign_login_message, prelude::*};
 use solana_keypair::{read_keypair_file, Keypair};
 use solana_pubkey::Pubkey;
@@ -99,15 +100,25 @@ pub async fn login(
         .await?)
 }
 
+/// Select the first non-resolved market in API order, continuing past resolved pages.
+/// The public list advances by increasing market ID. Exhaustion is an explicit error.
 pub async fn market(client: &LightconeClient) -> ExampleResult<Market> {
-    client
-        .markets()
-        .get(None, Some(1))
-        .await?
-        .markets
-        .into_iter()
-        .next()
-        .ok_or_else(|| other("no markets returned by the API").into())
+    let mut cursor = None;
+    loop {
+        let page = client.markets().get(cursor, Some(100)).await?;
+        let next_cursor = page.markets.last().map(|market| market.id);
+        if let Some(market) = page
+            .markets
+            .into_iter()
+            .find(|market| market.status != MarketStatus::Resolved)
+        {
+            return Ok(market);
+        }
+        match next_cursor {
+            Some(next) if cursor.is_none_or(|previous| next > previous) => cursor = Some(next),
+            _ => return Err(other("no non-resolved markets returned by the API").into()),
+        }
+    }
 }
 
 pub async fn market_and_orderbook(

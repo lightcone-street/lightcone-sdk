@@ -83,7 +83,7 @@ async fn login_without_nonce_is_rejected() {
         "expected 401 for missing nonce"
     );
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["code"], "INVALID_NONCE");
+    assert_eq!(body["error_details"]["error_code"], "INVALID_NONCE");
 }
 
 #[tokio::test]
@@ -105,7 +105,7 @@ async fn login_with_bogus_nonce_is_rejected() {
 
     assert_eq!(resp.status().as_u16(), 401, "expected 401 for bogus nonce");
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["code"], "INVALID_NONCE");
+    assert_eq!(body["error_details"]["error_code"], "INVALID_NONCE");
 }
 
 #[tokio::test]
@@ -169,5 +169,5 @@ async fn replay_same_nonce_is_rejected() {
         "replayed nonce should be rejected"
     );
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["code"], "INVALID_NONCE");
+    assert_eq!(body["error_details"]["error_code"], "INVALID_NONCE");
 }
