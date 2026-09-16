@@ -4,6 +4,8 @@ Official SDKs for the [Lightcone](https://lightcone.xyz) impact market protocol.
 
 ## SDKs
 
+These guides describe the SDK APIs in this checkout. The [published documentation repository](https://github.com/lightcone-street/docs) owns the API guides and OpenAPI specification.
+
 | Language | Package | Install |
 |----------|---------|---------|
 | **Rust** | [`lightcone`](rust/) | `cargo add lightcone` |
@@ -23,6 +25,14 @@ explicit resources and a blockhash/expiry context; legacy/v0 imports are rejecte
 - **Authentication** - Session-based ED25519 signed message flow
 
 ## Program Compatibility
+
+### REST response envelopes
+
+The SDK HTTP transports unwrap successful responses from `{"status":"success","body":...}`. They convert `{"status":"error","error_details":...}` into structured SDK errors. This also applies to `POST /api/claim`: `client.claim(...)` returns the decoded `FaucetResponse` body, not the outer envelope.
+
+Refer to the response declarations for [Rust](rust/src/domain/faucet.rs), [TypeScript](typescript/src/domain/faucet.ts), and [Python](python/src/lightcone_sdk/domain/faucet.py). The published [claim reference](https://github.com/lightcone-street/docs/blob/main/api-reference/endpoint/claim.mdx) and [OpenAPI specification](https://github.com/lightcone-street/docs/blob/main/api-reference/openapi.json) belong to the documentation repository.
+
+### On-chain program
 
 The program builders target the [reviewed program ABI](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src). This is a hard cutover. Orderbooks use the 176-byte layout with both collateral mints and a shared outcome. Matching requires both collateral identities. Preparation uses `InitPositionTokens` without a slot. Retired ALT operations and their SDK parameters are removed.
 
