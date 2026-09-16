@@ -320,9 +320,12 @@ let withdraw_ix = client.positions().withdraw().await
 ```
 
 ## Authentication
-Authentication is required for user-specific endpoints. Fetch `/api/auth/nonce`, then sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `sign_login_message` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone.
 
-Authenticate before connecting a private WebSocket. Native clients send the session cookie during the upgrade, and browsers supply the cookie automatically. Private user subscriptions require `wallet_address`. Derive the Trading Wallet from `session.user.trading_wallet(session.auth_method)`. Refer to the [authenticated streaming example](examples/ws_user_and_market.rs).
+Native client session teardown and WebSocket recovery follow the [native client recovery guide](../docs/auth-session-recovery.md). It explains per-token logout, incomplete teardown, anonymous public continuity, and finite reconnect budgets.
+
+Authentication is required for user-specific endpoints. Native clients using Lightcone sessions fetch `/api/auth/nonce`. Sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `sign_login_message` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone. Browser clients authenticate through Privy.
+
+Authenticate before connecting a private WebSocket. Native clients send the Lightcone session cookie during the upgrade. Browser clients supply their Privy cookie automatically. Private user subscriptions require `wallet_address`. Derive the Trading Wallet from `session.user.trading_wallet(session.auth_method)`. Refer to the [authenticated streaming example](examples/ws_user_and_market.rs).
 
 ### Cookie handling
 

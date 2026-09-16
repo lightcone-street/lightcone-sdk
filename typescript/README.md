@@ -469,9 +469,11 @@ const withdrawIx = client.positions().withdraw()
 
 ## Authentication
 
-Authentication is required for user-specific endpoints. Fetch `/api/auth/nonce`, then sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `auth.signLoginMessage` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone.
+Native clients running in Node follow the [native client recovery guide](../docs/auth-session-recovery.md) for session teardown and WebSocket recovery. It explains per-token logout, incomplete teardown, anonymous public continuity, and finite reconnect budgets. Browser clients use Privy authentication.
 
-Authenticate before connecting a private WebSocket. Node clients send the session cookie during the upgrade, and browsers supply the cookie automatically. Private user subscriptions require `wallet_address`. Derive the Trading Wallet with `tradingWallet(session.user, session.auth_method)`. Refer to the [authenticated streaming example](examples/ws_user_and_market.ts).
+Authentication is required for user-specific endpoints. Native clients using Lightcone sessions fetch `/api/auth/nonce`. Sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `auth.signLoginMessage` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone.
+
+Authenticate before connecting a private WebSocket. Native clients running in Node send the Lightcone session cookie during the upgrade. Browser clients supply their Privy cookie automatically. Private user subscriptions require `wallet_address`. Derive the Trading Wallet with `tradingWallet(session.user, session.auth_method)`. Refer to the [authenticated streaming example](examples/ws_user_and_market.ts).
 
 Privy hosts can also authenticate with passwordless Email, Google, X, or Wallet. After every interactive success, call `client.auth().registerPrivy({ attempted_identity })`. The backend validates the exact selector against Privy's verified methods, creates or synchronizes the Account, and changes the Primary Login Identity only for a new Account. `session.user.identity` is that stable primary; `session.user.linked_identities` contains every connected method with primary first.
 

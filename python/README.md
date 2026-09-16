@@ -362,7 +362,10 @@ tx_hash = await (client.positions().merge()
 `market.num_outcomes` is the validated protocol outcome count. Market deposit, merge, and unified withdrawal use it instead of the length of display outcome metadata. The pubkey-only `withdraw_from_position()` builder requires `.num_outcomes(market.num_outcomes)` before building.
 
 ## Authentication
-Authentication is required for user-specific endpoints. Fetch `/api/auth/nonce`, then sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `sign_login_message` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone.
+
+Native client session teardown and WebSocket recovery follow the [native client recovery guide](../docs/auth-session-recovery.md). It explains per-token logout, incomplete teardown, anonymous public continuity, and finite reconnect budgets.
+
+Authentication is required for user-specific endpoints. Native clients using Lightcone sessions fetch `/api/auth/nonce`. Sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `sign_login_message` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone. Browser clients authenticate through Privy.
 
 Authenticate before calling `client.ws()`, which copies the current session token. The WebSocket sends that token as a cookie during the upgrade. Private user subscriptions require `wallet_address`. Derive the Trading Wallet with `session.user.trading_wallet(session.auth_method)`. After a session change, disconnect and create a new WebSocket client. Refer to the [authenticated streaming example](examples/ws_user_and_market.py).
 

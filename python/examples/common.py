@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from lightcone_sdk.auth import SessionResponse
 from lightcone_sdk.auth.client import sign_login_message
 from lightcone_sdk.client import LightconeClient, LightconeClientBuilder
-from lightcone_sdk.domain.market import Market, OrderBookPair
+from lightcone_sdk.domain.market import Market, OrderBookPair, Status
 from lightcone_sdk.program.transaction import V1ResourceConfig
 
 DEFAULT_WALLET_PATH = "~/.config/solana/id.json"
@@ -86,11 +86,16 @@ async def login(
 
 
 async def market(client: LightconeClient) -> Market:
-    result = await client.markets().get(None, 1)
-    markets = result.markets
-    if not markets:
-        raise RuntimeError("no markets returned by the API")
-    return markets[0]
+    """Select the first non-resolved market, paging by increasing market ID."""
+    cursor = None
+    while True:
+        markets = (await client.markets().get(cursor, 100)).markets
+        for candidate in markets:
+            if candidate.status != Status.RESOLVED:
+                return candidate
+        if not markets or (cursor is not None and markets[-1].id <= cursor):
+            raise RuntimeError("no non-resolved markets returned by the API")
+        cursor = markets[-1].id
 
 
 async def market_and_orderbook(
