@@ -18,6 +18,7 @@ from lightcone_sdk.ws.subscriptions import MarketParams
 @pytest.mark.parametrize(
     "code,status",
     [
+        ("AUTH_SESSION_UNAVAILABLE", 503),
         ("TOKEN_REVOCATION_UNAVAILABLE", 503),
         ("TOKEN_REVOCATION_RECOVERY_UNAVAILABLE", 503),
         ("TOKEN_REVOCATION_FENCE_PENDING", 503),
@@ -83,6 +84,7 @@ async def test_anonymous_frames_keep_public_transport_and_replay_state():
                     "wallet": "11111111111111111111111111111111",
                 },
                 {"status": "anonymous"},
+                {"status": "anonymous", "reason": "INVALID_TOKEN"},
                 {"status": "anonymous", "reason": "TOKEN_EXPIRED"},
                 {"status": "anonymous", "reason": "TOKEN_REVOKED"},
             ]:
@@ -138,7 +140,7 @@ async def test_anonymous_frames_keep_public_transport_and_replay_state():
             for message in messages
             if message.type == MessageInType.AUTH and message.data.status == "anonymous"
         ]
-        assert reasons == [None, "TOKEN_EXPIRED", "TOKEN_REVOKED"]
+        assert reasons == [None, "INVALID_TOKEN", "TOKEN_EXPIRED", "TOKEN_REVOKED"]
         error = next(
             message.data for message in messages if message.type == MessageInType.ERROR
         )

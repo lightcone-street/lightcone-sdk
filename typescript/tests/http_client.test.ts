@@ -755,6 +755,7 @@ describe("auth logout error propagation", () => {
 
   it("presents the token and exposes every incomplete revocation outcome", async () => {
     for (const code of [
+      "AUTH_SESSION_UNAVAILABLE",
       "TOKEN_REVOCATION_UNAVAILABLE",
       "TOKEN_REVOCATION_RECOVERY_UNAVAILABLE",
       "TOKEN_REVOCATION_FENCE_PENDING",

@@ -685,6 +685,7 @@ mod tests {
                             for frame in [
                                 r#"{"type":"auth","version":0.1,"data":{"status":"authenticated","wallet":"11111111111111111111111111111111"}}"#,
                                 r#"{"type":"auth","version":0.1,"data":{"status":"anonymous"}}"#,
+                                r#"{"type":"auth","version":0.1,"data":{"status":"anonymous","reason":"INVALID_TOKEN"}}"#,
                                 r#"{"type":"auth","version":0.1,"data":{"status":"anonymous","reason":"TOKEN_EXPIRED"}}"#,
                                 r#"{"type":"auth","version":0.1,"data":{"status":"anonymous","reason":"TOKEN_REVOKED"}}"#,
                                 r#"{"type":"error","version":0.1,"data":{"error":"retry snapshot","code":"PRIVATE_SNAPSHOT_UNAVAILABLE","wallet_address":"wallet-a"}}"#,
@@ -756,6 +757,7 @@ mod tests {
         if reasons
             != vec![
                 None,
+                Some("INVALID_TOKEN".into()),
                 Some("TOKEN_EXPIRED".into()),
                 Some("TOKEN_REVOKED".into()),
             ]
@@ -783,7 +785,20 @@ mod tests {
         let server = tokio::spawn(async move {
             let (mut rejected, _) = listener.accept().await?;
             let mut request = [0u8; 1024];
-            rejected.read(&mut request).await?;
+            let mut received = 0;
+            while !request[..received]
+                .windows(4)
+                .any(|bytes| bytes == b"\r\n\r\n")
+            {
+                if received == request.len() {
+                    return Err("handshake headers exceeded the fixture limit".into());
+                }
+                let count = rejected.read(&mut request[received..]).await?;
+                if count == 0 {
+                    return Err("client closed before completing the handshake".into());
+                }
+                received += count;
+            }
             rejected.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await?;
             rejected.shutdown().await?;
             let (socket, _) = listener.accept().await?;

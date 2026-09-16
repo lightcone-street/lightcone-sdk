@@ -290,6 +290,11 @@ mod tests {
         for (status, code, body) in [
             (
                 503,
+                "AUTH_SESSION_UNAVAILABLE",
+                r#"{"status":"error","error_details":{"reason":"unavailable","error_code":"AUTH_SESSION_UNAVAILABLE"}}"#,
+            ),
+            (
+                503,
                 "TOKEN_REVOCATION_UNAVAILABLE",
                 r#"{"status":"error","error_details":{"reason":"incomplete","error_code":"TOKEN_REVOCATION_UNAVAILABLE"}}"#,
             ),

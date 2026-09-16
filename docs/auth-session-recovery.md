@@ -2,6 +2,8 @@
 
 This guide covers native clients using `lightcone-token` through the Rust native, Python, and TypeScript/Node SDKs. This includes terminal and server integrations. Browser clients use Privy. Native clients must not synthesize an Origin header for self-custody nonce or login requests.
 
+The published [WebSocket authentication reference](https://github.com/lightcone-street/docs/blob/main/websocket/authentication.mdx) belongs to `lightcone-street/docs`. Backend session guarantees and operational timing belong to the [native session contract](https://github.com/lightcone-street/lightcone-backend/blob/staging/docs/lightcone-session-auth.md). The procedures below describe how applications using these SDK versions react to that contract.
+
 Each native client keeps its selected credential and explicitly sends `Cookie: lightcone-token=<value>`. A host-only, Strict login cookie is a delivery envelope. It does not require the API and WebSocket to share a cookie domain. Use the matching environment's endpoints. Switching endpoints does not make an existing token valid in another environment.
 
 ## Logout
@@ -25,6 +27,7 @@ The server waits at most 10 seconds for logout. A missing session record require
 An `auth` frame with `status: anonymous` changes authority, not the connection's transport state. Public subscriptions can continue. Private subscriptions are gone and cannot be restored on that same connection.
 
 - `TOKEN_EXPIRED` or `TOKEN_REVOKED`: discard the old credential and obtain a new session before restoring private access.
+- `INVALID_TOKEN`: the handshake could not establish valid active authority, including when the session record is missing. Discard the credential and sign in again.
 - No reason: the server did not prove the credential invalid. A session-store or lease check may have failed. After availability returns, check the credential and reconnect. A missing server-side record requires signing in again.
 - `PRIVATE_SNAPSHOT_UNAVAILABLE`: the private subscription was not committed. Use `wallet_address` to correlate the failure and reissue the subscription while authenticated.
 

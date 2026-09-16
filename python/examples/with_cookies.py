@@ -55,7 +55,10 @@ async def main():
     print(f"open orders: {len(orders.orders)}")
 
     fills = await client.orders().get_user_order_fills_with_cookies(
-        None, 50, None, cookie_header,
+        None,
+        50,
+        None,
+        cookie_header,
     )
     print(f"order fills: {len(fills.orders)}")
 

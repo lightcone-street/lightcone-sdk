@@ -26,6 +26,7 @@ it("anonymous auth frames preserve explicit transport and public subscription tr
       for (const frame of [
         { type: "auth", data: { status: "authenticated", wallet: "11111111111111111111111111111111" } },
         { type: "auth", data: { status: "anonymous" } },
+        { type: "auth", data: { status: "anonymous", reason: "INVALID_TOKEN" } },
         { type: "auth", data: { status: "anonymous", reason: "TOKEN_EXPIRED" } },
         { type: "auth", data: { status: "anonymous", reason: "TOKEN_REVOKED" } },
         { type: "error", data: { error: "retry snapshot", code: "PRIVATE_SNAPSHOT_UNAVAILABLE", wallet_address: "wallet-a" } },
@@ -48,7 +49,7 @@ it("anonymous auth frames preserve explicit transport and public subscription tr
     await completed;
     await new Promise((resolve) => setTimeout(resolve, 750));
     const reasons = messages.flatMap((message) => message.type === "auth" && message.data.status === "anonymous" ? [message.data.reason] : []);
-    assert.deepEqual(reasons, [undefined, "TOKEN_EXPIRED", "TOKEN_REVOKED"]);
+    assert.deepEqual(reasons, [undefined, "INVALID_TOKEN", "TOKEN_EXPIRED", "TOKEN_REVOKED"]);
     const error = messages.find((message) => message.type === "error");
     assert.equal(error?.type === "error" && error.data.code, "PRIVATE_SNAPSHOT_UNAVAILABLE");
     assert.equal(error?.type === "error" && error.data.wallet_address, "wallet-a");
