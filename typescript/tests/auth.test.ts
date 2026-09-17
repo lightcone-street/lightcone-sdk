@@ -359,4 +359,13 @@ describe("telegram invite url", () => {
       );
     });
   }
+
+  it("ignores an inherited invite value", async () => {
+    const wire = wireSession();
+    Object.setPrototypeOf(wire.user, { telegram_invite_url: INVITE_URL });
+
+    const result = await authWithHttp(httpReturning(wire)).checkSession();
+
+    assert.equal(result.user.telegram_invite_url, null);
+  });
 });

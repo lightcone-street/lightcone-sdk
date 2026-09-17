@@ -244,6 +244,10 @@ function decodeTelegramInviteUrl(user: unknown): string | null {
   if (typeof user !== "object" || user === null) {
     throw SdkError.serde("Session user is malformed");
   }
+  // An own-property read keeps an inherited value from counting as an invite.
+  if (!Object.prototype.hasOwnProperty.call(user, "telegram_invite_url")) {
+    return null;
+  }
   const inviteUrl = (user as Record<string, unknown>).telegram_invite_url;
   if (inviteUrl === undefined || inviteUrl === null) {
     return null;
