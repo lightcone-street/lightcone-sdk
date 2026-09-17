@@ -368,12 +368,20 @@ def _user_from_dict(d: dict) -> User:
     ):
         raise DeserializationError("user has malformed max_slippage_preference")
 
+    # A missing key (older backend) and an explicit null (Account without an
+    # invite) both mean no invite. The error never includes the value, because
+    # the URL is a secret of the Account.
+    telegram_invite_url = d.get("telegram_invite_url")
+    if telegram_invite_url is not None and not isinstance(telegram_invite_url, str):
+        raise DeserializationError("user has malformed telegram_invite_url")
+
     return User(
         user_id=str(_require(d, "user_id", "user")),
         identity=_identity_from_dict(identity_dict),
         max_slippage_preference=max_slippage_preference,
         linked_identities=linked_identities,
         connected_x=connected_x,
+        telegram_invite_url=telegram_invite_url,
     )
 
 

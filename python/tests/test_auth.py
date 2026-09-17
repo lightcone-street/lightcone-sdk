@@ -223,6 +223,30 @@ def test_user_parser_accepts_omitted_or_nullable_string_max_slippage_preference(
         _user_from_dict({**base, "max_slippage_preference": 10})
 
 
+def test_user_parser_accepts_omitted_null_or_string_telegram_invite_url():
+    base = {
+        "user_id": "user:test",
+        "identity": {
+            "type": "wallet",
+            "address": "11111111111111111111111111111111",
+            "chain": "solana",
+        },
+    }
+    assert _user_from_dict(base).telegram_invite_url is None
+    assert (
+        _user_from_dict({**base, "telegram_invite_url": None}).telegram_invite_url
+        is None
+    )
+    assert (
+        _user_from_dict(
+            {**base, "telegram_invite_url": "https://t.me/+EXAMPLE0001"}
+        ).telegram_invite_url
+        == "https://t.me/+EXAMPLE0001"
+    )
+    with pytest.raises(DeserializationError):
+        _user_from_dict({**base, "telegram_invite_url": 10})
+
+
 @pytest.mark.asyncio
 async def test_update_max_slippage_preference_uses_exact_contract():
     calls: list[tuple[str, dict, RetryPolicy]] = []

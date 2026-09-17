@@ -275,6 +275,12 @@ class User:
     """Every connected login identity, including the primary identity."""
     connected_x: Optional[XAccountData] = None
     """X account connected by a non-X-identity user; None when identity is X."""
+    telegram_invite_url: Optional[str] = None
+    """Single-use Telegram group invite URL assigned to the Account.
+
+    None means the Account holds no invite, or an older backend omits the field.
+    The URL is a secret of the Account: do not log it or send it to analytics.
+    """
 
     def privy(self) -> Optional[UserPrivyData]:
         """Privy account data, regardless of identity type."""
