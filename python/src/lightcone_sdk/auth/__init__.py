@@ -1,7 +1,7 @@
 """Authentication types and utilities for the Lightcone SDK."""
 
 from dataclasses import dataclass, field
-from typing import Literal, Optional, Union, cast
+from typing import Literal, cast
 
 from ..shared.api_response import LinkedIdentityType
 from ..shared.fmt.str import shorten
@@ -48,10 +48,10 @@ class XAccountData:
     connected account on a Google/wallet identity."""
 
     username: str
-    user_id: Optional[str] = None
+    user_id: str | None = None
     """X numeric user id (Privy `subject`); absent on legacy rows."""
-    display_name: Optional[str] = None
-    avatar_url: Optional[str] = None
+    display_name: str | None = None
+    avatar_url: str | None = None
 
 
 @dataclass
@@ -59,10 +59,10 @@ class GoogleAccountData:
     """Google account data for a Google login identity."""
 
     email: str
-    name: Optional[str] = None
-    given_name: Optional[str] = None
-    family_name: Optional[str] = None
-    avatar_url: Optional[str] = None
+    name: str | None = None
+    given_name: str | None = None
+    family_name: str | None = None
+    avatar_url: str | None = None
 
 
 @dataclass
@@ -106,12 +106,12 @@ class XIdentity:
 class WalletIdentity:
     address: str
     chain: ChainType
-    privy: Optional[UserPrivyData] = None
+    privy: UserPrivyData | None = None
     type: Literal["wallet"] = "wallet"
 
 
 # Stable Primary Login Identity variants returned in every Account profile.
-UserIdentity = Union[EmailIdentity, GoogleIdentity, XIdentity, WalletIdentity]
+UserIdentity = EmailIdentity | GoogleIdentity | XIdentity | WalletIdentity
 
 
 @dataclass
@@ -148,12 +148,9 @@ class WalletLinkedIdentity:
 
 
 # Connected Login Identity without repeated Account-level Privy wallet data.
-LinkedIdentity = Union[
-    EmailLinkedIdentity,
-    GoogleLinkedIdentity,
-    XLinkedIdentity,
-    WalletLinkedIdentity,
-]
+LinkedIdentity = (
+    EmailLinkedIdentity | GoogleLinkedIdentity | XLinkedIdentity | WalletLinkedIdentity
+)
 
 
 @dataclass
@@ -165,10 +162,10 @@ class LinkedIdentitySelector:
     """
 
     type: LinkedIdentityType
-    email: Optional[str] = None
-    username: Optional[str] = None
-    address: Optional[str] = None
-    chain: Optional[ChainType] = None
+    email: str | None = None
+    username: str | None = None
+    address: str | None = None
+    chain: ChainType | None = None
 
     def __post_init__(self) -> None:
         """Reject fields that do not belong to the selected login method."""
@@ -218,12 +215,12 @@ class RegisterPrivyConflict:
     """Bounded ownership conflict safe for client recovery guidance."""
 
     code: RegisterPrivyConflictCode
-    existing_method: Optional[LinkedIdentityType] = None
+    existing_method: LinkedIdentityType | None = None
 
 
 def classify_register_privy_conflict(
     error: BaseException,
-) -> Optional[RegisterPrivyConflict]:
+) -> RegisterPrivyConflict | None:
     """Classify only stable register-or-sync ownership rejection codes."""
     from ..error import ApiRejected
 
@@ -269,24 +266,24 @@ class User:
 
     user_id: str
     identity: UserIdentity
-    max_slippage_preference: Optional[str]
+    max_slippage_preference: str | None
     """Remembered percentage below 10%; None until one is stored."""
     linked_identities: list[LinkedIdentity] = field(default_factory=list)
     """Every connected login identity, including the primary identity."""
-    connected_x: Optional[XAccountData] = None
+    connected_x: XAccountData | None = None
     """X account connected by a non-X-identity user; None when identity is X."""
-    telegram_invite_url: Optional[str] = None
+    telegram_invite_url: str | None = None
     """Single-use Telegram group invite URL assigned to the Account.
 
     None means the Account holds no invite, or an older backend omits the field.
     The URL is a secret of the Account: do not log it or send it to analytics.
     """
 
-    def privy(self) -> Optional[UserPrivyData]:
+    def privy(self) -> UserPrivyData | None:
         """Privy account data, regardless of identity type."""
         return self.identity.privy
 
-    def x_account(self) -> Optional[XAccountData]:
+    def x_account(self) -> XAccountData | None:
         """The X account, whether it is the login identity or a connected account."""
         if isinstance(self.identity, XIdentity):
             return self.identity.account
@@ -323,7 +320,7 @@ class User:
             return _email_display_name(self.identity.account.email)
         return shorten(self.identity.address, 8)
 
-    def avatar_url(self) -> Optional[str]:
+    def avatar_url(self) -> str | None:
         """Avatar URL from the login identity's OAuth provider, if any."""
         if isinstance(self.identity, (GoogleIdentity, XIdentity)):
             return self.identity.account.avatar_url
@@ -366,7 +363,7 @@ class LoginRequest:
     message: str = ""
     signature_bs58: str = ""
     pubkey_bytes: list[int] = field(default_factory=list)
-    use_embedded_wallet: Optional[bool] = None
+    use_embedded_wallet: bool | None = None
 
 
 @dataclass

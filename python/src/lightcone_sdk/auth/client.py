@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import base58
 from nacl.signing import SigningKey
@@ -48,13 +48,13 @@ class Auth:
 
     def __init__(
         self,
-        client: "LightconeClient",
-        credentials: Optional[AuthCredentials] = None,
+        client: LightconeClient,
+        credentials: AuthCredentials | None = None,
     ):
         self._client = client
-        self._credentials: Optional[AuthCredentials] = credentials
+        self._credentials: AuthCredentials | None = credentials
 
-    def credentials(self) -> Optional[AuthCredentials]:
+    def credentials(self) -> AuthCredentials | None:
         """Get current credentials."""
         return self._credentials
 
@@ -80,7 +80,7 @@ class Auth:
         message: str,
         signature_bs58: str,
         pubkey_bytes: list[int],
-        use_embedded_wallet: Optional[bool] = None,
+        use_embedded_wallet: bool | None = None,
     ) -> SessionResponse:
         """Login with a pre-signed message and return the session envelope.
 
