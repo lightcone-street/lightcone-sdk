@@ -113,6 +113,13 @@ export interface User {
   max_slippage_preference: string | null;
   /** X account connected by a non-X-identity user; absent when identity is X. */
   connected_x?: XAccountData;
+  /**
+   * Single-use Telegram group invite URL assigned to the Account. It is null
+   * when the Account holds no invite. Session decoding normalizes a value that
+   * an older backend omits to null. The URL is a secret of the Account. Do not
+   * log it or send it to analytics.
+   */
+  telegram_invite_url?: string | null;
 }
 
 /**

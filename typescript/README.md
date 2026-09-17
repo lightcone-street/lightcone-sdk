@@ -484,6 +484,8 @@ than 10 using `client.auth().updateMaxSlippagePreference(value)`; the method
 returns the canonical exact decimal string. Values at or above 10% remain valid
 order protection but are not remembered through this API.
 
+`session.user.telegram_invite_url` is the single-use Telegram group invite URL that the backend assigned to the Account. It is `null` when the Account holds no invite or when an older backend omits the field. The URL is a secret of the Account. Do not log it and do not send it to analytics.
+
 ### Cookie handling
 
 After login succeeds, the SDK stores the session token internally and attaches it as `Cookie: lightcone-token=…` on every authenticated request. Behaviour depends on the runtime:

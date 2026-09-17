@@ -64,6 +64,7 @@ the durable user profile plus session-scoped facts. There is no
 | `linked_identities` | `Vec<LinkedIdentity>` | Every connected verified method, primary first |
 | `max_slippage_preference` | `Option<Decimal>` | Remembered account-wide percentage strictly below 10%; `None` until one is stored |
 | `connected_x` | `Option<XAccountData>` | X account connected by a non-X-identity user; `None` when identity is X |
+| `telegram_invite_url` | `Option<String>` | Single-use Telegram group invite URL assigned to the Account; `None` when the Account holds no invite or an older backend omits the field. The URL is a secret of the Account: do not log it or send it to analytics |
 
 **Methods:**
 - `privy()` — Privy account data regardless of identity type
