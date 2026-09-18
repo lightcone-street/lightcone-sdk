@@ -103,6 +103,8 @@ order signing remains available. See the [v1 ADR](../docs/adr/0004-solana-v1.md)
 
 ## Quick Start
 
+This example authenticates and subscribes to public market data. For funded order submission, use the [trading example](examples/submit_order.py).
+
 ```python
 import asyncio
 import json
@@ -135,25 +137,19 @@ async def main():
     )
 
     # 2. Find a market
-    market = await client.markets().get_by_slug("some-market")
+    markets = await client.markets().get(limit=1)
+    if not markets.markets:
+        raise RuntimeError("No markets returned by the API")
+    market = markets.markets[0]
+    if not market.orderbook_pairs:
+        raise RuntimeError("Market has no orderbooks")
     orderbook = market.orderbook_pairs[0]
 
-    # 3. Fetch/cache trading rules, validate exactly, sign, and submit
-    #    market, base_mint, quote_mint, and nonce are auto-filled from the orderbook.
-    response = await (
-        client.orders().limit_order()
-        .maker(keypair.pubkey())
-        .bid()
-        .price("0.55")
-        .size("100")
-        .submit(client, orderbook)
-    )
-    print("Order submitted:", response)
-
-    # 4. Stream real-time updates
+    # 3. Subscribe to real-time updates for ten seconds.
     ws = client.ws()
     await ws.connect()
     await ws.subscribe(BookUpdateParams(orderbook_ids=[orderbook.orderbook_id]))
+    await asyncio.sleep(10)
 
     await ws.disconnect()
     await client.close()
@@ -164,6 +160,8 @@ asyncio.run(main())
 
 ## Start Trading
 
+Run these excerpts inside an async function. Use a funded keypair for the selected environment. The [submit example](examples/submit_order.py) confirms the deposit and waits for the API balance before ordering.
+
 ```python
 import json
 from pathlib import Path
@@ -171,7 +169,8 @@ from pathlib import Path
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from lightcone_sdk import LightconeClientBuilder
+from lightcone_sdk import LightconeClientBuilder, V1ResourceConfig
+from lightcone_sdk.auth.client import sign_login_message
 
 with Path("~/.config/solana/id.json").expanduser().open() as f:
     secret = json.load(f)
@@ -180,8 +179,17 @@ keypair = Keypair.from_bytes(bytes(secret))
 client = (
     LightconeClientBuilder()
     .native_signer(keypair)
+    .transaction_resources(V1ResourceConfig(
+        compute_unit_limit=200_000,
+        loaded_accounts_data_size_limit=1_048_576,
+        priority_fee_lamports=0,
+    ))
     .build()
 )
+nonce = await client.auth().get_nonce()
+message, signature_bs58, pubkey_bytes = sign_login_message(keypair, nonce)
+await client.auth().login_with_message(message, signature_bs58, pubkey_bytes)
+client.set_order_nonce(await client.orders().current_nonce(keypair.pubkey()))
 ```
 
 ## Environment Configuration
@@ -225,14 +233,45 @@ orderbook = next(
 
 ### Step 2: Deposit Collateral
 
+The amount is in the deposit mint's smallest units. Instruction construction alone does not transfer collateral. Submit and confirm the transaction, then wait for the API balance to cover the order. Select the deposit mint backing the orderbook's quote token, as shown in the [submit example](examples/submit_order.py).
+
+Calculate the deposit from the same price and size used by the order. Poll at most 15 times, with two seconds between unsuccessful reads. A timeout or read failure stops before order submission. Check the confirmed deposit before repeating this step.
+
 ```python
-deposit_mint = Pubkey.from_string(market.deposit_assets[0].deposit_asset)
-deposit_ix = (client.positions().deposit()
+import asyncio
+
+from lightcone_sdk.program.types import OrderSide
+from lightcone_sdk.shared.scaling import exact_scaled_integer, scale_price_size
+
+rules = await client.orderbooks().decimals(orderbook.orderbook_id)
+order_price = "0.55"  # Quote tokens per base token.
+order_size = "2"  # Base tokens.
+quote_atoms = scale_price_size(
+    order_price, order_size, int(OrderSide.BID), rules
+).quote_atoms
+deposit_mint = Pubkey.from_string(orderbook.quote.deposit_asset)
+deposit_context = await client.transaction_context()
+deposit_tx = (client.positions().deposit()
     .user(keypair.pubkey())
     .mint(deposit_mint)
-    .amount(1_000_000)
-    .market(market)
-    .build_ix())
+    .amount(quote_atoms)
+    .build_tx(deposit_context))
+await client.sign_and_submit_tx_confirmed_with_slot(deposit_tx)
+
+# Confirmation can precede indexing. Check the available global collateral.
+for attempt in range(15):
+    snapshot = await client.positions().deposit_token_balances()
+    entry = next(
+        (balance for balance in snapshot.balances.values()
+         if balance.mint == str(deposit_mint)),
+        None,
+    )
+    idle_atoms = exact_scaled_integer(entry.idle, rules.quote_decimals) if entry else 0
+    if idle_atoms >= quote_atoms:
+        break
+    if attempt == 14:
+        raise TimeoutError("Global collateral is not indexed yet; order was not submitted")
+    await asyncio.sleep(2)
 ```
 
 ### Step 3: Place an Order
@@ -242,8 +281,8 @@ order = await (
     client.orders().limit_order()
     .maker(keypair.pubkey())
     .bid()
-    .price("0.55")
-    .size("2")
+    .price(order_price)
+    .size(order_size)
     .submit(client, orderbook)
 )
 ```
@@ -253,7 +292,7 @@ order = await (
 ```python
 from lightcone_sdk.ws.subscriptions import BookUpdateParams, UserParams
 
-open_orders = await client.orders().get_user_orders(str(keypair.pubkey()), 50)
+open_orders = await client.orders().get_user_orders(limit=50)
 ws = client.ws()
 await ws.connect()
 await ws.subscribe(BookUpdateParams(orderbook_ids=[orderbook.orderbook_id]))
@@ -284,6 +323,8 @@ integer arithmetic. `submit()` fetches and caches
 explicit salts, and derived prices are checked against the same signed-64-bit
 rules; no tick or size normalization is implicit.
 
+The envelope generates a salt when omitted. The price is quote tokens per base token, and the size is base tokens. Example values must satisfy the selected orderbook's trading rules and available collateral.
+
 ```python
 await ws.subscribe(BookUpdateParams(orderbook_ids=[orderbook.orderbook_id], n_sig_figs=5, mantissa=2))
 ```
@@ -306,6 +347,8 @@ await client.orders().cancel(
 
 ### Step 6: Exit a Position
 
+Merge only when the wallet holds a complete set of outcome tokens for this deposit mint. Cancelling an unfilled order does not create that set. Refer to the [cancel example](examples/cancel_order.py) to withdraw unused global collateral.
+
 ```python
 # sign_and_submit builds the tx, signs it using the client's signing strategy, and submits
 tx_hash = await (client.positions().merge()
@@ -319,7 +362,9 @@ tx_hash = await (client.positions().merge()
 `market.num_outcomes` is the validated protocol outcome count. Market deposit, merge, and unified withdrawal use it instead of the length of display outcome metadata. The pubkey-only `withdraw_from_position()` builder requires `.num_outcomes(market.num_outcomes)` before building.
 
 ## Authentication
-Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token.
+Authentication is required for user-specific endpoints. Fetch `/api/auth/nonce`, then sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `sign_login_message` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone.
+
+Authenticate before calling `client.ws()`, which copies the current session token. The WebSocket sends that token as a cookie during the upgrade. Private user subscriptions require `wallet_address`. Derive the Trading Wallet with `session.user.trading_wallet(session.auth_method)`. After a session change, disconnect and create a new WebSocket client. Refer to the [authenticated streaming example](examples/ws_user_and_market.py).
 
 Privy hosts can also authenticate with passwordless Email, Google, X, or Wallet. After every interactive success, call `await client.auth().register_privy(RegisterPrivyRequest(...))`. The backend validates the exact selector against Privy's verified methods, creates or synchronizes the Account, and changes the Primary Login Identity only for a new Account. `session.user.identity` is that stable primary; `session.user.linked_identities` contains every connected method with primary first.
 
@@ -336,25 +381,24 @@ remain valid order protection but are not remembered through this API.
 
 After login succeeds, the SDK stores the session token internally and attaches it as `Cookie: lightcone-token=…` on every authenticated request. The token lives on the `LightconeHttp` instance and is added per request.
 
-### Server-side cookie forwarding (`*_with_auth` variants)
+### Server-side cookie forwarding (`*_with_cookies` variants)
 
-> **Naming note.** The `_with_auth` suffix does **not** mean other methods are unauthed — most SDK methods that talk to authed endpoints (e.g. `positions().positions()`, `metrics().user()`) read auth from the SDK's process-wide token store automatically; that's the typical client-side path. The `*_with_auth(auth_token)` siblings exist for **server-side rendering (SSR) and route-handler callers** where the per-request browser cookie can't propagate to the shared client. Those callers extract the token from the incoming request and pass it explicitly. Same wire contract, different credentials path.
+Ordinary authenticated methods use the client's session. Server route handlers must pass the incoming raw `Cookie` header to the corresponding `*_with_cookies` method.
 
-When the SDK runs on a server (FastAPI, Starlette, etc.) and the *user's* `auth_token` cookie arrives on an incoming HTTP request, the SDK's process-wide token store is the wrong place to route it through — the store is shared across all users of that server process.
+The cookie name is `lightcone-token`. Do not install a user's token on a client shared between requests from different users.
 
-For these cases, authed methods that need per-call forwarding ship a `*_with_auth(auth_token)` sibling that injects the cookie just for that one call. The token is used only for that call and is **not** written back to the shared store, even if the backend rotates the cookie via `Set-Cookie`:
+These methods forward the supplied header for one call. They do not update the shared token store, even if the backend rotates the cookie through `Set-Cookie`:
 
 ```python
-# Inside a server route handler, after extracting the auth_token cookie
-# from the incoming request:
+# cookie_header is the incoming raw Cookie header, including lightcone-token=...
 snapshot = await client.positions().deposit_token_balances_with_cookies(
     None,
-    auth_token,
+    cookie_header,
 )
 print(f"snapshot slot {snapshot.context_slot}: {len(snapshot.balances)} balances")
 
-positions = await client.positions().positions_with_auth(
-    auth_token=auth_token,
+positions = await client.positions().positions_with_cookies(
+    cookie_header=cookie_header,
 )
 ```
 
@@ -520,7 +564,7 @@ The authenticated markets client provides paginated `favorite_markets(limit=None
 | Example | Description |
 |---------|-------------|
 | [`login`](examples/login.py) | Full auth lifecycle: sign message, login, check session, logout |
-| [`with_auth`](examples/with_auth.py) | Per-call auth-token forwarding for SSR / route-handler consumers — logs in, captures the token via `client.auth_token`, clears the SDK's internal store, and exercises every `*_with_auth` variant |
+| [`with_cookies`](examples/with_cookies.py) | Per-call cookie forwarding for server route handlers, including authenticated positions and favorite markets |
 
 ### Market Discovery & Data
 
