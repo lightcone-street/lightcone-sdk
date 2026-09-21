@@ -296,3 +296,76 @@ describe("max slippage preference", () => {
     assert.equal(classifyRegisterPrivyConflict(unrelated), undefined);
   });
 });
+
+describe("telegram invite url", () => {
+  const INVITE_URL = "https://t.me/+EXAMPLE0001";
+
+  /** Builds a wire session whose user carries the given raw invite value, or omits the key. */
+  function wireSession(inviteUrl?: unknown): SessionResponse {
+    const base = session(null);
+    const wireUser: Record<string, unknown> = { ...base.user };
+    if (inviteUrl !== undefined) {
+      wireUser.telegram_invite_url = inviteUrl;
+    }
+    return { ...base, user: wireUser } as unknown as SessionResponse;
+  }
+
+  /** Serves the same wire session from every session-returning transport call. */
+  function httpReturning(wire: SessionResponse): LightconeHttp {
+    return {
+      baseUrl: () => "https://api.example.test",
+      get: async () => wire,
+      post: async () => wire,
+      postWithoutCredentialRestore: async () => wire,
+    } as unknown as LightconeHttp;
+  }
+
+  /** Every SDK method that returns a session, so each case covers all three. */
+  const sessionCalls: [string, (auth: Auth) => Promise<SessionResponse>][] = [
+    ["checkSession", (auth) => auth.checkSession()],
+    [
+      "registerPrivy",
+      (auth) =>
+        auth.registerPrivy({
+          attempted_identity: { type: "email", email: "verified@example.com" },
+        }),
+    ],
+    [
+      "loginWithMessage",
+      (auth) => auth.loginWithMessage("message", "signature", new Uint8Array(32)),
+    ],
+  ];
+
+  for (const [name, call] of sessionCalls) {
+    it(`${name} reads a missing or null invite as no invite`, async () => {
+      for (const wire of [wireSession(), wireSession(null)]) {
+        const result = await call(authWithHttp(httpReturning(wire)));
+        assert.equal(result.user.telegram_invite_url, null);
+      }
+    });
+
+    it(`${name} preserves an assigned invite`, async () => {
+      const result = await call(
+        authWithHttp(httpReturning(wireSession(INVITE_URL))),
+      );
+      assert.equal(result.user.telegram_invite_url, INVITE_URL);
+    });
+
+    it(`${name} rejects a non-string invite`, async () => {
+      await assert.rejects(
+        call(authWithHttp(httpReturning(wireSession(10)))),
+        (error: unknown) =>
+          error instanceof SdkError && error.variant === "Serde",
+      );
+    });
+  }
+
+  it("ignores an inherited invite value", async () => {
+    const wire = wireSession();
+    Object.setPrototypeOf(wire.user, { telegram_invite_url: INVITE_URL });
+
+    const result = await authWithHttp(httpReturning(wire)).checkSession();
+
+    assert.equal(result.user.telegram_invite_url, null);
+  });
+});
