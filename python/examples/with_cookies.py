@@ -18,7 +18,7 @@ request's cookie jar. Here we mimic that by:
 
 import asyncio
 
-from common import rest_client, get_keypair, login
+from common import get_keypair, login, market, rest_client
 
 
 async def main():
@@ -55,7 +55,10 @@ async def main():
     print(f"open orders: {len(orders.orders)}")
 
     fills = await client.orders().get_user_order_fills_with_cookies(
-        None, 50, None, cookie_header,
+        None,
+        50,
+        None,
+        cookie_header,
     )
     print(f"order fills: {len(fills.orders)}")
 
@@ -79,17 +82,23 @@ async def main():
         favorite_cursor = favorite_page.next_cursor
     print(f"favorite markets: {len(favorite_market_pubkeys)}")
 
-    markets = await client.markets().get(None, 1)
-    if markets.markets:
-        market_pubkey = markets.markets[0].pubkey
-        was_favorited = market_pubkey in favorite_market_pubkeys
-        if was_favorited:
-            await client.markets().remove_favorite_market_with_cookies(market_pubkey, cookie_header)
-            await client.markets().add_favorite_market_with_cookies(market_pubkey, cookie_header)
-        else:
-            await client.markets().add_favorite_market_with_cookies(market_pubkey, cookie_header)
-            await client.markets().remove_favorite_market_with_cookies(market_pubkey, cookie_header)
-        print(f"restored favorite state for {market_pubkey}")
+    market_pubkey = (await market(client)).pubkey
+    was_favorited = market_pubkey in favorite_market_pubkeys
+    if was_favorited:
+        await client.markets().remove_favorite_market_with_cookies(
+            market_pubkey, cookie_header
+        )
+        await client.markets().add_favorite_market_with_cookies(
+            market_pubkey, cookie_header
+        )
+    else:
+        await client.markets().add_favorite_market_with_cookies(
+            market_pubkey, cookie_header
+        )
+        await client.markets().remove_favorite_market_with_cookies(
+            market_pubkey, cookie_header
+        )
+    print(f"restored favorite state for {market_pubkey}")
 
     await client.close()
 

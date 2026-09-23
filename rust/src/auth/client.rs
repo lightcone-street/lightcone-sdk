@@ -134,11 +134,15 @@ impl<'a> Auth<'a> {
 
     /// Logout — clears server-side cookie + internal token + all caches.
     ///
+    /// Server revocation targets native clients' `lightcone-token` credentials.
+    /// Browser clients must end their Privy session through the Privy SDK.
+    ///
     /// Local state (token, credentials) is cleared even when the server call
     /// fails — the caller asked to be signed out locally regardless — but the
     /// failure is then returned: callers gating security decisions on
     /// teardown (e.g. whether an app may restart an authenticated transport)
-    /// must be able to see that the server-side cookie may still be valid.
+    /// must distinguish an unconfirmed revocation from a revoked token whose
+    /// WebSocket teardown is still pending. See the authentication guide in README.
     /// A 401 counts as success: it means "already logged out".
     pub async fn logout(&self) -> Result<(), SdkError> {
         let url = format!("{}/api/auth/logout", self.client.http.base_url());
@@ -264,6 +268,64 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use tokio::sync::oneshot;
+
+    #[tokio::test]
+    async fn logout_presents_token_before_clearing_and_preserves_revocation_errors(
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let (url, request) =
+            spawn_capturing_response_server(r#"{"status":"success","body":{"success":true}}"#)
+                .await;
+        let client = client_with_token(&url).await;
+        client.auth().logout().await?;
+        if !request
+            .await?
+            .to_ascii_lowercase()
+            .contains("cookie: lightcone-token=live-cookie")
+        {
+            return Err("logout omitted the presented token".into());
+        }
+        if client.auth_token().await.is_some() {
+            return Err("logout retained local credentials".into());
+        }
+        for (status, code, body) in [
+            (
+                503,
+                "AUTH_SESSION_UNAVAILABLE",
+                r#"{"status":"error","error_details":{"reason":"unavailable","error_code":"AUTH_SESSION_UNAVAILABLE"}}"#,
+            ),
+            (
+                503,
+                "TOKEN_REVOCATION_UNAVAILABLE",
+                r#"{"status":"error","error_details":{"reason":"incomplete","error_code":"TOKEN_REVOCATION_UNAVAILABLE"}}"#,
+            ),
+            (
+                503,
+                "TOKEN_REVOCATION_RECOVERY_UNAVAILABLE",
+                r#"{"status":"error","error_details":{"reason":"incomplete","error_code":"TOKEN_REVOCATION_RECOVERY_UNAVAILABLE"}}"#,
+            ),
+            (
+                503,
+                "TOKEN_REVOCATION_FENCE_PENDING",
+                r#"{"status":"error","error_details":{"reason":"incomplete","error_code":"TOKEN_REVOCATION_FENCE_PENDING"}}"#,
+            ),
+            (
+                400,
+                "AMBIGUOUS_LIGHTCONE_TOKEN",
+                r#"{"status":"error","error_details":{"reason":"ambiguous","error_code":"AMBIGUOUS_LIGHTCONE_TOKEN"}}"#,
+            ),
+        ] {
+            let url = spawn_single_response_server(status, body).await;
+            let client = client_with_token(&url).await;
+            let Err(crate::error::SdkError::ApiRejected(details)) = client.auth().logout().await
+            else {
+                return Err("logout did not expose the server rejection".into());
+            };
+            if details.error_code.as_deref() != Some(code) || client.auth_token().await.is_some() {
+                return Err("logout changed the server code or failed local clearing".into());
+            }
+        }
+        Ok(())
+    }
 
     // Minimal single-response server: the http-layer harness lives in a
     // private test module, and logout only needs one canned reply.

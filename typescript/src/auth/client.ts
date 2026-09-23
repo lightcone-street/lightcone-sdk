@@ -124,11 +124,16 @@ export class Auth {
   /**
    * Logout — clears the server-side cookie, internal token, and credentials.
    *
+   * Server revocation targets native clients' `lightcone-token` credentials.
+   * Browser clients must end their Privy session through the Privy SDK.
+   *
    * Local state is cleared even when the server call fails — the caller asked
    * to be signed out locally regardless — but the failure is then rethrown:
    * callers gating security decisions on teardown (e.g. whether an app may
    * restart an authenticated transport) must be able to see that the
-   * server-side cookie may still be valid. A 401 counts as success: it means
+   * revocation may be unconfirmed, or a revoked token may still await remote
+   * WebSocket teardown. Refer to the authentication guide in README.
+   * A 401 counts as success: it means
    * "already logged out".
    */
   async logout(): Promise<void> {
