@@ -192,6 +192,26 @@ await client.auth().login_with_message(message, signature_bs58, pubkey_bytes)
 client.set_order_nonce(await client.orders().current_nonce(keypair.pubkey()))
 ```
 
+## API Key
+
+The backend requires an API key on every REST request. The key identifies an
+API Consumer such as a trading bot or a server application; it never identifies
+a user, so login, ownership, and signing checks are unchanged. WebSocket
+connections need no key. Each key carries its own sustained rate and burst
+allowance; an exhausted allowance returns a temporary `429` with `Retry-After`.
+
+```python
+client = (
+    LightconeClientBuilder()
+    .env(LightconeEnv.STAGING)
+    .api_key(os.environ["LIGHTCONE_API_KEY"])
+    .build()
+)
+```
+
+The SDK sends the key as `x-lightcone-api-key` only to the configured API
+origin and never logs it. Keep it out of source control.
+
 ## Environment Configuration
 
 The SDK defaults to the **production** environment. Use `LightconeEnv` to target a different deployment:

@@ -383,6 +383,7 @@ export class LightconeClientBuilder {
   private rpcFetchValue?: typeof fetch;
   private primaryRpcUrlValue?: string = rpcUrl(LightconeEnv.Prod);
   private backupRpcUrlValue?: string;
+  private apiKeyValue?: string;
 
   /**
    * Set the deployment environment. Configures the API URL, WebSocket URL,
@@ -405,6 +406,16 @@ export class LightconeClientBuilder {
 
   withBaseUrl(url: string): LightconeClientBuilder {
     this.baseUrlValue = url;
+    return this;
+  }
+
+  /**
+   * Set the API key sent as `x-lightcone-api-key` on every REST request to
+   * the API origin. Keep it server-side: it identifies an API Consumer, never
+   * a user, and the SDK never logs it.
+   */
+  apiKey(key: string): LightconeClientBuilder {
+    this.apiKeyValue = key;
     return this;
   }
 
@@ -486,7 +497,7 @@ export class LightconeClientBuilder {
 
   build(): LightconeClient {
     return new LightconeClient({
-      http: new LightconeHttp(this.baseUrlValue),
+      http: new LightconeHttp(this.baseUrlValue, { apiKey: this.apiKeyValue }),
       wsConfig: {
         url: this.wsUrlValue,
         reconnect: true,

@@ -786,3 +786,43 @@ describe("auth logout error propagation", () => {
     });
   });
 });
+
+describe("API key transport", () => {
+  async function withHeaderCapture(
+    test: (baseUrl: string, headersSeen: () => (string | undefined)[]) => Promise<void>,
+  ): Promise<void> {
+    const seen: (string | undefined)[] = [];
+    const server = createServer((request, response) => {
+      seen.push(request.headers["x-lightcone-api-key"] as string | undefined);
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end('{"status":"success","body":{"ok":true}}');
+    });
+    await listen(server);
+    const address = server.address() as AddressInfo;
+    try {
+      await test(`http://127.0.0.1:${address.port}`, () => seen);
+    } finally {
+      await close(server);
+    }
+  }
+
+  it("sends the configured key only to the API origin", async () => {
+    await withHeaderCapture(async (baseUrl, headersSeen) => {
+      const http = new LightconeHttp(baseUrl, { apiKey: "lc_local_key" });
+      assert.equal(http.hasApiKey(), true);
+      await http.get(`${baseUrl}/api/markets`, RetryPolicy.None);
+      const foreign = new LightconeHttp("http://127.0.0.1:1", { apiKey: "lc_local_key" });
+      await foreign.get(`${baseUrl}/api/markets`, RetryPolicy.None);
+      assert.deepEqual(headersSeen(), ["lc_local_key", undefined]);
+    });
+  });
+
+  it("sends no key header when none is configured", async () => {
+    await withHeaderCapture(async (baseUrl, headersSeen) => {
+      const http = new LightconeHttp(baseUrl, { apiKey: "  " });
+      assert.equal(http.hasApiKey(), false);
+      await http.get(`${baseUrl}/api/markets`, RetryPolicy.None);
+      assert.deepEqual(headersSeen(), [undefined]);
+    });
+  });
+});

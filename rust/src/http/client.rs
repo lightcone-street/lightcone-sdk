@@ -28,6 +28,10 @@ use std::time::Duration;
 use tracing;
 use uuid::Uuid;
 
+use super::relay::{
+    RelayContext, Relayed, API_KEY_HEADER, RELAY_SECRET_HEADER, VISITOR_COUNTRY_HEADER,
+};
+
 #[cfg(not(target_arch = "wasm32"))]
 const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 180;
 
@@ -91,6 +95,10 @@ impl CookieSession {
 
 /// Auth mode for HTTP requests.
 enum AuthMode<'a> {
+    /// Server relay on behalf of one visitor: forwards the context's cookies
+    /// and relay headers verbatim, never captures `Set-Cookie` into the shared
+    /// session, and returns the raw `Set-Cookie` values to the caller.
+    Relay(&'a RelayContext),
     /// Auth via a named cookie session (cookie on native, credentials on WASM).
     Session(&'a CookieSession),
     /// Per-call raw `Cookie` header override, sent verbatim. Used for
@@ -150,6 +158,10 @@ impl ApiRequestError {
 /// ```
 pub struct LightconeHttp {
     base_url: String,
+    /// API key sent as `x-lightcone-api-key` on every request to the API
+    /// origin. `None` for callers that rely on an Admin session or that run
+    /// where no key is required.
+    api_key: Option<Arc<String>>,
     /// Client for API requests. On native it never follows redirects: the API
     /// never legitimately redirects, and following one would let a redirect
     /// target observe the request (and, before this guard, trigger credential
@@ -189,6 +201,11 @@ const CREDENTIAL_RESTORE_TIMEOUT: Duration = Duration::from_millis(300);
 
 impl LightconeHttp {
     pub fn new(base_url: &str) -> Self {
+        Self::with_api_key(base_url, None)
+    }
+
+    /// Builds the transport with an optional API key for the API origin.
+    pub fn with_api_key(base_url: &str, api_key: Option<String>) -> Self {
         #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
         let mut builder = Client::builder();
         #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
@@ -206,6 +223,10 @@ impl LightconeHttp {
 
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
+            api_key: api_key
+                .map(|key| key.trim().to_string())
+                .filter(|key| !key.is_empty())
+                .map(Arc::new),
             api_client: api_builder.build().expect("Failed to build HTTP client"),
             client: builder.build().expect("Failed to build HTTP client"),
             user_session: CookieSession::new(USER_COOKIE),
@@ -213,6 +234,11 @@ impl LightconeHttp {
             restoration_epoch: Arc::new(AtomicU64::new(0)),
             restoration_gate: Arc::new(async_lock::Mutex::new(false)),
         }
+    }
+
+    /// True when an API key is configured on this transport.
+    pub fn has_api_key(&self) -> bool {
+        self.api_key.is_some()
     }
 
     /// True when `url` shares the configured API origin (scheme + host +
@@ -636,6 +662,74 @@ impl LightconeHttp {
         auth_mode: AuthMode<'_>,
         allow_credential_restore: bool,
     ) -> Result<T, SdkError> {
+        self.request_with_retry_relayed(
+            method,
+            url,
+            body,
+            query,
+            retry,
+            auth_mode,
+            allow_credential_restore,
+        )
+        .await
+        .map(|relayed| relayed.body)
+    }
+
+    /// Relayed request on behalf of one visitor: same retry and restore rules
+    /// as [`Self::request_with_retry`], plus the raw `Set-Cookie` values of the
+    /// successful response. Credential restoration is never consulted because
+    /// the shared restorer restores the process-wide session, not a visitor's.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) async fn get_relayed<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        retry: RetryPolicy,
+        context: &RelayContext,
+    ) -> Result<Relayed<T>, SdkError> {
+        self.request_with_retry_relayed::<T, ()>(
+            reqwest::Method::GET,
+            url,
+            None,
+            &[],
+            retry,
+            AuthMode::Relay(context),
+            false,
+        )
+        .await
+    }
+
+    /// See [`Self::get_relayed`].
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) async fn post_relayed<T: DeserializeOwned, B: Serialize>(
+        &self,
+        url: &str,
+        body: &B,
+        retry: RetryPolicy,
+        context: &RelayContext,
+    ) -> Result<Relayed<T>, SdkError> {
+        self.request_with_retry_relayed(
+            reqwest::Method::POST,
+            url,
+            Some(body),
+            &[],
+            retry,
+            AuthMode::Relay(context),
+            false,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn request_with_retry_relayed<T: DeserializeOwned, B: Serialize>(
+        &self,
+        method: reqwest::Method,
+        url: &str,
+        body: Option<&B>,
+        query: &[(&str, String)],
+        retry: RetryPolicy,
+        auth_mode: AuthMode<'_>,
+        allow_credential_restore: bool,
+    ) -> Result<Relayed<T>, SdkError> {
         // `None` still means "no transport retries"; it runs through the same
         // loop with zero retry attempts so the credential-restore path below
         // covers every request. It ALSO means "never auto-replay": mutations
@@ -682,8 +776,9 @@ impl LightconeHttp {
                 )
                 .await
             {
-                Ok(api_resp) => {
-                    return Self::parse_api_response(api_resp, request_id);
+                Ok((api_resp, set_cookie)) => {
+                    return Self::parse_api_response(api_resp, request_id)
+                        .map(|body| Relayed { body, set_cookie });
                 }
                 Err(e) => {
                     // On the first 401, give the host a chance to restore its
@@ -763,11 +858,17 @@ impl LightconeHttp {
         query: &[(&str, String)],
         auth_mode: &AuthMode<'_>,
         request_id: &str,
-    ) -> Result<T, ApiRequestError> {
+    ) -> Result<(T, Vec<String>), ApiRequestError> {
         let mut req = self.api_client.request(method.clone(), url);
         req = req.header("x-request-id", request_id);
         if !query.is_empty() {
             req = req.query(query);
+        }
+        // The API key rides only to the configured API origin, like cookies.
+        if self.is_api_origin(url) {
+            if let Some(api_key) = self.api_key.as_deref() {
+                req = req.header(API_KEY_HEADER, api_key.as_str());
+            }
         }
 
         // Cookie injection is origin-gated: session credentials only ride to
@@ -793,6 +894,31 @@ impl LightconeHttp {
                     // Explicit omit on the foreign branch: the fetch default
                     // is same-origin, which would still attach PAGE-origin
                     // cookies to a URL foreign to the API.
+                    if self.is_api_origin(url) {
+                        req = req.fetch_credentials_include();
+                    } else {
+                        req = req.fetch_credentials_omit();
+                    }
+                }
+            }
+            AuthMode::Relay(context) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    if self.is_api_origin(url) {
+                        if let Some(cookie_header) = context.cookie_header.as_deref() {
+                            req = req.header("Cookie", cookie_header);
+                        }
+                        if let Some(country) = context.visitor_country.as_deref() {
+                            req = req.header(VISITOR_COUNTRY_HEADER, country);
+                        }
+                        if let Some(secret) = context.relay_secret.as_deref() {
+                            req = req.header(RELAY_SECRET_HEADER, secret);
+                        }
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let _ = context;
                     if self.is_api_origin(url) {
                         req = req.fetch_credentials_include();
                     } else {
@@ -852,6 +978,18 @@ impl LightconeHttp {
         let status = resp.status();
 
         if status.is_success() {
+            // Relayed calls hand every raw Set-Cookie back to the server so it
+            // can pass the backend's cookies to the visitor unchanged.
+            let set_cookie: Vec<String> = match auth_mode {
+                AuthMode::Relay(_) => resp
+                    .headers()
+                    .get_all("set-cookie")
+                    .iter()
+                    .filter_map(|value| value.to_str().ok())
+                    .map(str::to_string)
+                    .collect(),
+                _ => Vec::new(),
+            };
             #[cfg(not(target_arch = "wasm32"))]
             {
                 // Capture a rotated/issued token — but ONLY for the session
@@ -879,7 +1017,7 @@ impl LightconeHttp {
             }
 
             let parsed = resp.json::<T>().await?;
-            return Ok(parsed);
+            return Ok((parsed, set_cookie));
         }
 
         let status_code = status.as_u16();
@@ -984,6 +1122,7 @@ impl Clone for LightconeHttp {
     fn clone(&self) -> Self {
         Self {
             base_url: self.base_url.clone(),
+            api_key: self.api_key.clone(),
             api_client: self.api_client.clone(),
             client: self.client.clone(),
             user_session: self.user_session.clone(),
@@ -2016,5 +2155,171 @@ mod tests {
             }
             other => panic!("expected BadRequest, got {other:?}"),
         }
+    }
+    // ── API key and relay ────────────────────────────────────────────────
+
+    /// Raw server that records each request head and answers 200 with the
+    /// given Set-Cookie headers, so relay tests can see both directions.
+    async fn spawn_set_cookie_server(
+        set_cookies: Vec<&'static str>,
+    ) -> std::io::Result<(String, Arc<Mutex<Vec<String>>>)> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let server_captured = Arc::clone(&captured);
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let captured = Arc::clone(&server_captured);
+                let set_cookies = set_cookies.clone();
+                tokio::spawn(async move {
+                    let mut buffer = [0_u8; 4096];
+                    let read = socket.read(&mut buffer).await.unwrap_or(0);
+                    if let Ok(mut heads) = captured.lock() {
+                        heads.push(String::from_utf8_lossy(&buffer[..read]).to_string());
+                    }
+                    let body = r#"{"status":"success","body":{"ok":true}}"#;
+                    let mut raw =
+                        String::from("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n");
+                    for cookie in set_cookies {
+                        raw.push_str(&format!("set-cookie: {cookie}\r\n"));
+                    }
+                    raw.push_str(&format!(
+                        "content-length: {}\r\nconnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    ));
+                    let _ = socket.write_all(raw.as_bytes()).await;
+                });
+            }
+        });
+        Ok((format!("http://{addr}"), captured))
+    }
+
+    /// The recorded request heads, or an error when the capture lock is poisoned.
+    fn captured_heads(captured: &Arc<Mutex<Vec<String>>>) -> Result<Vec<String>, String> {
+        captured
+            .lock()
+            .map(|heads| heads.clone())
+            .map_err(|error| format!("capture lock poisoned: {error}"))
+    }
+
+    #[tokio::test]
+    async fn api_key_rides_only_to_the_api_origin() -> Result<(), Box<dyn std::error::Error>> {
+        let (base_url, _attempts, captured) = spawn_capturing_server(vec![
+            TestResponse {
+                status: 200,
+                body: r#"{"status":"success","body":{"ok":true}}"#,
+            },
+            TestResponse {
+                status: 200,
+                body: r#"{"status":"success","body":{"ok":true}}"#,
+            },
+        ])
+        .await;
+        let http = LightconeHttp::with_api_key(&base_url, Some("lc_local_key".to_string()));
+        assert!(http.has_api_key());
+
+        let _: serde_json::Value = http
+            .get(&format!("{base_url}/api/markets"), RetryPolicy::None)
+            .await?;
+        // A foreign origin (different port) reaches the same test server through
+        // an absolute URL; the key must not follow the request there.
+        let foreign =
+            LightconeHttp::with_api_key("http://127.0.0.1:1", Some("lc_local_key".to_string()));
+        let _: serde_json::Value = foreign
+            .get(&format!("{base_url}/api/markets"), RetryPolicy::None)
+            .await?;
+
+        let heads = captured_heads(&captured)?;
+        assert!(
+            heads[0].contains("x-lightcone-api-key: lc_local_key"),
+            "{}",
+            heads[0]
+        );
+        assert!(!heads[1].contains("x-lightcone-api-key"), "{}", heads[1]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn without_a_key_no_header_is_sent() -> Result<(), Box<dyn std::error::Error>> {
+        let (base_url, _attempts, captured) = spawn_capturing_server(vec![TestResponse {
+            status: 200,
+            body: r#"{"status":"success","body":{"ok":true}}"#,
+        }])
+        .await;
+        let http = LightconeHttp::with_api_key(&base_url, Some("   ".to_string()));
+        assert!(!http.has_api_key());
+        let _: serde_json::Value = http
+            .get(&format!("{base_url}/api/markets"), RetryPolicy::None)
+            .await?;
+        assert!(!captured_heads(&captured)?[0].contains("x-lightcone-api-key"));
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn relayed_requests_forward_context_and_return_cookies_without_capturing(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (base_url, captured) = spawn_set_cookie_server(vec![
+            "lightcone-token=visitor-token; Path=/; HttpOnly",
+            "other=value; Path=/",
+        ])
+        .await?;
+        let http = LightconeHttp::with_api_key(&base_url, Some("lc_local_key".to_string()));
+        let context = RelayContext::with_cookies("privy-token=abc; lightcone-token=old")
+            .with_visitor_country("CH", "relay-secret");
+
+        let relayed: Relayed<serde_json::Value> = http
+            .post_relayed(
+                &format!("{base_url}/api/auth/login"),
+                &serde_json::json!({"x": 1}),
+                RetryPolicy::None,
+                &context,
+            )
+            .await?;
+
+        assert_eq!(
+            relayed.set_cookie,
+            vec![
+                "lightcone-token=visitor-token; Path=/; HttpOnly".to_string(),
+                "other=value; Path=/".to_string()
+            ]
+        );
+        let head = captured_heads(&captured)?[0].clone();
+        assert!(
+            head.contains("cookie: privy-token=abc; lightcone-token=old"),
+            "{head}"
+        );
+        assert!(head.contains("x-lightcone-visitor-country: CH"), "{head}");
+        assert!(
+            head.contains("x-lightcone-relay-secret: relay-secret"),
+            "{head}"
+        );
+        assert!(head.contains("x-lightcone-api-key: lc_local_key"), "{head}");
+        // The visitor's rotated token never enters the shared session store.
+        assert!(http.user_session().token().await.is_none());
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn relayed_requests_send_no_relay_headers_to_a_foreign_origin(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (base_url, captured) = spawn_set_cookie_server(vec![]).await?;
+        let http = LightconeHttp::new("http://127.0.0.1:1");
+        let context = RelayContext::with_cookies("lightcone-token=old")
+            .with_visitor_country("CH", "relay-secret");
+        let _: Relayed<serde_json::Value> = http
+            .get_relayed(
+                &format!("{base_url}/api/geoblock"),
+                RetryPolicy::None,
+                &context,
+            )
+            .await?;
+        let head = captured_heads(&captured)?[0].clone();
+        assert!(!head.contains("cookie:"), "{head}");
+        assert!(!head.contains("x-lightcone-visitor-country"), "{head}");
+        assert!(!head.contains("x-lightcone-relay-secret"), "{head}");
+        Ok(())
     }
 }

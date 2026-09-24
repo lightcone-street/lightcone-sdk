@@ -8,6 +8,7 @@
 //! - `client.rs` — Sub-client with HTTP methods and caching
 
 pub mod faucet;
+pub mod jurisdiction;
 pub mod market;
 pub mod metrics;
 pub mod notification;

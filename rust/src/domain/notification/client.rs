@@ -56,4 +56,24 @@ impl<'a> Notifications<'a> {
             .await?;
         Ok(())
     }
+
+    /// Same as [`Self::dismiss`], but forwards the supplied raw `Cookie` header (`privy-token` and/or `lightcone-token`) for this
+    /// call instead of the SDK's process-wide token store. For server-side
+    /// cookie forwarding (SSR / server functions).
+    pub async fn dismiss_with_cookies(
+        &self,
+        notification_id: &str,
+        cookie_header: &str,
+    ) -> Result<(), SdkError> {
+        let url = format!("{}/api/notifications/dismiss", self.client.http.base_url());
+        let body = DismissRequest {
+            notification_id: notification_id.to_string(),
+        };
+        let _: serde_json::Value = self
+            .client
+            .http
+            .post_with_cookies(&url, &body, RetryPolicy::None, cookie_header)
+            .await?;
+        Ok(())
+    }
 }

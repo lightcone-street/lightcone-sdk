@@ -14,6 +14,7 @@ TypeScript SDK for the Lightcone impact market protocol on Solana.
      - [Step 6: Exit a Position](#step-6-exit-a-position)
      - [Step 7: Withdraw](#step-7-withdraw)
 - [Authentication](#authentication)
+- [API Key](#api-key)
 - [Environment Configuration](#environment-configuration)
 - [Examples](#examples)
 - [Error Handling](#error-handling)
@@ -518,6 +519,25 @@ const positions = await client
 ```
 
 In browsers, use the ordinary methods. The browser supplies the cookie through `credentials: "include"`.
+
+## API Key
+
+The backend requires an API key on every REST request. The key identifies an
+API Consumer such as a trading bot or a server application; it never identifies
+a user, so login, ownership, and signing checks are unchanged. WebSocket
+connections need no key. Each key carries its own sustained rate and burst
+allowance; an exhausted allowance returns a temporary `429` with `Retry-After`.
+
+```ts
+const client = LightconeClient.builder()
+  .env(LightconeEnv.Staging)
+  .apiKey(process.env.LIGHTCONE_API_KEY!)
+  .build();
+```
+
+The SDK sends the key as `x-lightcone-api-key` only to the configured API
+origin and never logs it. Keep it server-side: a key shipped to a browser is
+readable by anyone who loads the page.
 
 ## Environment Configuration
 

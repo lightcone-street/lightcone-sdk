@@ -53,8 +53,22 @@ const NO_RETRY_CONFIG: RetryConfig = {
  * after this bound instead of deadlocking. */
 const CREDENTIAL_RESTORE_TIMEOUT_MS = 30_000;
 
+/** Request header that carries an API key. */
+export const API_KEY_HEADER = "x-lightcone-api-key";
+
+export interface LightconeHttpOptions {
+  /**
+   * API key sent as `x-lightcone-api-key` on every request to the API
+   * origin. The backend requires a key on every REST endpoint; WebSocket
+   * connections need none. Keep it server-side: it identifies an API
+   * Consumer, never a user, and the SDK never logs it.
+   */
+  apiKey?: string;
+}
+
 export class LightconeHttp {
   private readonly normalizedBaseUrl: string;
+  private readonly apiKey: string | undefined;
   private authToken: string | undefined;
   private credentialRestorer: CredentialRestorer | undefined;
   /**
@@ -89,8 +103,15 @@ export class LightconeHttp {
   /** Overridable for tests (hung-restorer coverage at test speed). */
   private credentialRestoreTimeoutMs = CREDENTIAL_RESTORE_TIMEOUT_MS;
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, options: LightconeHttpOptions = {}) {
     this.normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+    const apiKey = options.apiKey?.trim();
+    this.apiKey = apiKey ? apiKey : undefined;
+  }
+
+  /** True when an API key is configured on this transport. */
+  hasApiKey(): boolean {
+    return this.apiKey !== undefined;
   }
 
   /**
@@ -419,6 +440,10 @@ export class LightconeHttp {
       headers["Content-Type"] = "application/json";
     }
     headers["x-request-id"] = requestId;
+    // The API key rides only to the configured API origin, like cookies.
+    if (this.apiKey !== undefined && this.isApiOrigin(url)) {
+      headers[API_KEY_HEADER] = this.apiKey;
+    }
 
     // Cookie injection is origin-gated: session credentials only ride to the
     // configured API origin, never to an arbitrary absolute URL a caller

@@ -9,6 +9,8 @@ use crate::auth::{
 use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::http::{RelayContext, Relayed};
 use crate::shared::PubkeyStr;
 use rust_decimal::Decimal;
 
@@ -219,6 +221,140 @@ impl<'a> Auth<'a> {
             )
             .await?;
         Ok(response.max_slippage_preference)
+    }
+
+    // ── Relayed variants ────────────────────────────────────────────────
+    //
+    // Servers that call the API on behalf of one visitor use these. Each
+    // forwards the visitor's cookies and country from the `RelayContext`,
+    // never touches the shared session token or `auth_credentials`, and
+    // returns the backend's raw `Set-Cookie` values for the server to relay.
+
+    /// Relayed [`Self::login_with_message`]: the backend's session cookie
+    /// comes back in `set_cookie` instead of being installed on this client.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn login_with_message_relayed(
+        &self,
+        request: &LoginRequest,
+        context: &RelayContext,
+    ) -> Result<Relayed<SessionResponse>, SdkError> {
+        let url = format!(
+            "{}/api/auth/login_or_register_with_message",
+            self.client.http.base_url()
+        );
+        self.client
+            .http
+            .post_relayed(&url, request, RetryPolicy::None, context)
+            .await
+    }
+
+    /// Relayed [`Self::register_privy`].
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn register_privy_relayed(
+        &self,
+        request: &RegisterPrivyRequest,
+        context: &RelayContext,
+    ) -> Result<Relayed<SessionResponse>, SdkError> {
+        let url = format!("{}/api/auth/register-privy", self.client.http.base_url());
+        self.client
+            .http
+            .post_relayed(&url, request, RetryPolicy::Idempotent, context)
+            .await
+    }
+
+    /// Relayed [`Self::check_session`]. Returns the session envelope and the
+    /// credentials derived from it without installing them on this client.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn check_session_relayed(
+        &self,
+        context: &RelayContext,
+    ) -> Result<Relayed<(SessionResponse, AuthCredentials)>, SdkError> {
+        let url = format!("{}/api/auth/me", self.client.http.base_url());
+        let relayed: Relayed<SessionResponse> = self
+            .client
+            .http
+            .get_relayed(&url, RetryPolicy::Idempotent, context)
+            .await?;
+        let credentials = credentials_from_session(&relayed.body);
+        Ok(Relayed {
+            body: (relayed.body, credentials),
+            set_cookie: relayed.set_cookie,
+        })
+    }
+
+    /// Relayed [`Self::logout`]. A 401 counts as success ("already logged
+    /// out") and yields no cookies to relay. Nothing on this client changes.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn logout_relayed(&self, context: &RelayContext) -> Result<Relayed<()>, SdkError> {
+        let url = format!("{}/api/auth/logout", self.client.http.base_url());
+        match self
+            .client
+            .http
+            .post_relayed::<serde_json::Value, _>(
+                &url,
+                &serde_json::json!({}),
+                RetryPolicy::None,
+                context,
+            )
+            .await
+        {
+            Ok(relayed) => Ok(Relayed {
+                body: (),
+                set_cookie: relayed.set_cookie,
+            }),
+            Err(error) if error.is_unauthorized() => Ok(Relayed {
+                body: (),
+                set_cookie: Vec::new(),
+            }),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Relayed [`Self::disconnect_x`].
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn disconnect_x_relayed(
+        &self,
+        context: &RelayContext,
+    ) -> Result<Relayed<()>, SdkError> {
+        let url = format!("{}/api/auth/disconnect_x", self.client.http.base_url());
+        let relayed: Relayed<serde_json::Value> = self
+            .client
+            .http
+            .post_relayed(&url, &serde_json::json!({}), RetryPolicy::None, context)
+            .await?;
+        Ok(Relayed {
+            body: (),
+            set_cookie: relayed.set_cookie,
+        })
+    }
+
+    /// Relayed [`Self::update_max_slippage_preference`].
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn update_max_slippage_preference_relayed(
+        &self,
+        max_slippage_preference: Decimal,
+        context: &RelayContext,
+    ) -> Result<Relayed<Decimal>, SdkError> {
+        let url = format!(
+            "{}/api/auth/max_slippage_preference",
+            self.client.http.base_url()
+        );
+        let relayed: Relayed<MaxSlippagePreferenceBody> = self
+            .client
+            .http
+            .post_relayed(
+                &url,
+                &MaxSlippagePreferenceBody {
+                    max_slippage_preference,
+                },
+                RetryPolicy::Idempotent,
+                context,
+            )
+            .await?;
+        Ok(Relayed {
+            body: relayed.body.max_slippage_preference,
+            set_cookie: relayed.set_cookie,
+        })
     }
 
     /// Get the URL for linking an X (Twitter) account via OAuth.

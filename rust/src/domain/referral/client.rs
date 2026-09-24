@@ -46,10 +46,35 @@ impl<'a> Referrals<'a> {
             .post(&url, &body, RetryPolicy::None)
             .await?;
 
-        Ok(RedeemResult {
-            success: resp.success,
-            is_beta: resp.is_beta,
-        })
+        Ok(redeem_result_from_wire(resp))
+    }
+
+    /// Same as [`Self::redeem`], but forwards the supplied raw `Cookie` header (`privy-token` and/or `lightcone-token`) for this
+    /// call instead of the SDK's process-wide token store. For server-side
+    /// cookie forwarding (SSR / server functions).
+    pub async fn redeem_with_cookies(
+        &self,
+        code: &str,
+        cookie_header: &str,
+    ) -> Result<RedeemResult, SdkError> {
+        let url = format!("{}/api/referral/redeem", self.client.http.base_url());
+        let body = RedeemRequest {
+            code: code.to_string(),
+        };
+        let resp: RedeemResponse = self
+            .client
+            .http
+            .post_with_cookies(&url, &body, RetryPolicy::None, cookie_header)
+            .await?;
+
+        Ok(redeem_result_from_wire(resp))
+    }
+}
+
+fn redeem_result_from_wire(resp: RedeemResponse) -> RedeemResult {
+    RedeemResult {
+        success: resp.success,
+        is_beta: resp.is_beta,
     }
 }
 

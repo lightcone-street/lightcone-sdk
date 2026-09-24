@@ -29,6 +29,8 @@ from .retry import RetryConfig, RetryPolicy, delay_for_attempt
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_SECS = 180
+# Request header that carries an API key.
+API_KEY_HEADER = "x-lightcone-api-key"
 
 
 class _HttpStatusError(Exception):
@@ -58,8 +60,12 @@ class LightconeHttp:
         self,
         base_url: str,
         timeout: int = DEFAULT_TIMEOUT_SECS,
+        api_key: Optional[str] = None,
     ):
         self._base_url = base_url.rstrip("/")
+        # API key sent as ``x-lightcone-api-key`` on every request to the API
+        # origin. It identifies an API Consumer, never a user; never logged.
+        self._api_key = api_key.strip() if api_key and api_key.strip() else None
         self._auth_token: Optional[str] = None
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._session: Optional[aiohttp.ClientSession] = None
@@ -91,6 +97,11 @@ class LightconeHttp:
     @property
     def base_url(self) -> str:
         return self._base_url
+
+    @property
+    def has_api_key(self) -> bool:
+        """True when an API key is configured on this transport."""
+        return self._api_key is not None
 
     @property
     def auth_token(self) -> Optional[str]:
@@ -597,6 +608,9 @@ class LightconeHttp:
         session = await self._ensure_session()
         headers = dict(kwargs.pop("headers", {}))
         headers["x-request-id"] = request_id
+        # The API key rides only to the configured API origin, like cookies.
+        if self._api_key is not None and self._is_api_origin(path):
+            headers[API_KEY_HEADER] = self._api_key
         # Cookie injection is origin-gated: session credentials only ride to
         # the configured API origin, never to an arbitrary absolute URL a
         # caller supplies.

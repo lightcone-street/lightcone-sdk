@@ -5,6 +5,8 @@ use crate::client::LightconeClient;
 use crate::domain::order::UserOrderFillsResponse;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::http::{RelayContext, Relayed};
 #[cfg(feature = "trigger_orders")]
 use crate::program::envelope::TriggerOrderEnvelope;
 use crate::program::envelope::{LimitOrderEnvelope, OrderEnvelope};
@@ -311,6 +313,84 @@ impl<'a> Orders<'a> {
         self.client
             .http
             .post(&url, request, RetryPolicy::None)
+            .await
+    }
+
+    // ── Relayed variants ────────────────────────────────────────────────
+    //
+    // Servers that submit or cancel on behalf of one visitor forward that
+    // visitor's cookies and country through the `RelayContext`. The signed
+    // payload is unchanged: signing stays with the visitor.
+
+    /// Relayed [`Self::submit`]: runs the same preflight validation.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn submit_relayed(
+        &self,
+        request: &SubmitOrderRequest,
+        context: &RelayContext,
+    ) -> Result<Relayed<SubmitOrderResponse>, SdkError> {
+        self.preflight_submit(request).await?;
+        let url = format!("{}/api/orders/submit", self.client.http.base_url());
+        self.client
+            .http
+            .post_relayed(&url, request, RetryPolicy::None, context)
+            .await
+    }
+
+    /// Relayed [`Self::cancel`].
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn cancel_relayed(
+        &self,
+        body: &CancelBody,
+        context: &RelayContext,
+    ) -> Result<Relayed<CancelSuccess>, SdkError> {
+        let url = format!("{}/api/orders/cancel", self.client.http.base_url());
+        self.client
+            .http
+            .post_relayed(&url, body, RetryPolicy::None, context)
+            .await
+    }
+
+    /// Relayed [`Self::cancel_all`].
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn cancel_all_relayed(
+        &self,
+        body: &CancelAllBody,
+        context: &RelayContext,
+    ) -> Result<Relayed<CancelAllSuccess>, SdkError> {
+        let url = format!("{}/api/orders/cancel-all", self.client.http.base_url());
+        self.client
+            .http
+            .post_relayed(&url, body, RetryPolicy::None, context)
+            .await
+    }
+
+    /// Relayed [`Self::submit_trigger`].
+    #[cfg(all(feature = "trigger_orders", not(target_arch = "wasm32")))]
+    pub async fn submit_trigger_relayed(
+        &self,
+        request: &SubmitOrderRequest,
+        context: &RelayContext,
+    ) -> Result<Relayed<TriggerOrderResponse>, SdkError> {
+        self.preflight_submit(request).await?;
+        let url = format!("{}/api/orders/submit", self.client.http.base_url());
+        self.client
+            .http
+            .post_relayed(&url, request, RetryPolicy::None, context)
+            .await
+    }
+
+    /// Relayed [`Self::cancel_trigger`].
+    #[cfg(all(feature = "trigger_orders", not(target_arch = "wasm32")))]
+    pub async fn cancel_trigger_relayed(
+        &self,
+        body: &CancelTriggerBody,
+        context: &RelayContext,
+    ) -> Result<Relayed<CancelTriggerSuccess>, SdkError> {
+        let url = format!("{}/api/orders/cancel", self.client.http.base_url());
+        self.client
+            .http
+            .post_relayed(&url, body, RetryPolicy::None, context)
             .await
     }
 

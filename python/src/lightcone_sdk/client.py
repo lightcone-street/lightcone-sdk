@@ -581,6 +581,7 @@ class LightconeClientBuilder:
         self._primary_rpc_url: str | None = environment.rpc_url
         self._backup_rpc_url: str | None = None
         self._connection: object | None = None
+        self._api_key: str | None = None
 
     def env(self, environment: LightconeEnv) -> LightconeClientBuilder:
         """Set the deployment environment. Configures the API URL, WebSocket URL,
@@ -593,6 +594,14 @@ class LightconeClientBuilder:
         self._ws_url = environment.ws_url
         self._program_id = environment.program_id
         self._primary_rpc_url = environment.rpc_url
+        return self
+
+    def api_key(self, key: str) -> LightconeClientBuilder:
+        """Set the API key sent as ``x-lightcone-api-key`` on every REST request
+        to the API origin. Keep it server-side: it identifies an API Consumer,
+        never a user, and the SDK never logs it.
+        """
+        self._api_key = key
         return self
 
     def base_url(self, url: str) -> LightconeClientBuilder:
@@ -682,6 +691,7 @@ class LightconeClientBuilder:
         http = LightconeHttp(
             base_url=self._base_url,
             timeout=self._timeout,
+            api_key=self._api_key,
         )
 
         ws_config = self._ws_config or WsConfig(

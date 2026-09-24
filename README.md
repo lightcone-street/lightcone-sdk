@@ -127,6 +127,7 @@ For Caddy + mkcert TLS setup and running the full local stack, refer to the [web
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `LIGHTCONE_ENV` | Yes | Target environment: `local`, `staging`, or `prod` |
+| `LIGHTCONE_API_KEY` | For deployed API hosts | Your own API Key for the client builder's `api_key(...)`. The client sends it as `X-Lightcone-Api-Key` on API requests only. Every deployed REST route requires one; refer to each SDK README's "API Key" section. The shipped examples do not read this variable yet and run only against a host that does not require a key. |
 | `SDK_RPC_URL` | Optional | Solana RPC URL. Use a private devnet RPC (e.g. [Helius](https://www.helius.dev/)) to avoid 429 rate-limit errors from the public `api.devnet.solana.com`. Local `wsol_conversion` runs and eligible staging-CI runs may retain it; other fund-moving examples document stricter guards. |
 | `LIGHTCONE_WALLET_PATH` | Yes | Path to Solana keypair JSON for Rust examples |
 | `LIGHTCONE_WALLET_PATH_TS` | Yes | Path to Solana keypair JSON for TypeScript examples |

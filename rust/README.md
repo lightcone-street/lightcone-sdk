@@ -369,6 +369,49 @@ On WASM these methods are equivalent to their non-`_with_cookies` counterparts b
 
 If you maintain a non-Rust SDK (TypeScript, Python) and need to support an SSR consumer, mirror the same pattern: the wire contract is unchanged — only the per-call `Cookie: lightcone-token=<token>` header attachment differs.
 
+## API Key
+
+The backend requires an API key on every REST request. The key identifies an
+API Consumer such as a trading bot or the Lightcone web server; it never
+identifies a user, so login, ownership, and signing checks are unchanged.
+WebSocket connections need no key. Operators issue keys through the Admin
+API; each key carries its own sustained rate and burst allowance, and an
+exhausted allowance returns a temporary `429` with `Retry-After`.
+
+```rust
+let client = LightconeClient::builder()
+    .env(LightconeEnv::Staging)
+    .api_key(&std::env::var("LIGHTCONE_API_KEY")?)
+    .build()?;
+```
+
+The SDK sends the key as `x-lightcone-api-key` only to the configured API
+origin and never logs it. Keep it out of browsers and source control.
+
+### Relayed calls (servers acting for one visitor)
+
+A server that holds one key for many visitors, such as the Lightcone web app,
+uses the `_relayed` variants with a `RelayContext`. Each call forwards that
+visitor's own cookies (and, with the relay secret, the visitor's country for
+jurisdiction checks), never captures the backend's cookies into the shared
+client, and returns them in `Relayed { body, set_cookie }` so the server can
+pass them to the browser unchanged. Available on native targets only.
+
+```rust
+use lightcone::prelude::{RelayContext, Relayed};
+
+let context = RelayContext::with_cookies(cookie_header)
+    .with_visitor_country("CH", relay_secret);
+let Relayed { body: session, set_cookie } = client
+    .auth()
+    .login_with_message_relayed(&login_request, &context)
+    .await?;
+```
+
+Relayed variants exist for login, Privy registration, session check, logout,
+X disconnect, max-slippage preference, order submit and cancel (including
+trigger orders), and `jurisdiction().geoblock_relayed`.
+
 ## Environment Configuration
 
 The SDK defaults to the **production** environment. Use `LightconeEnv` to target a different deployment:

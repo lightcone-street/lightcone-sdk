@@ -8,6 +8,7 @@ import pytest
 from aiohttp import web
 
 from lightcone_sdk.auth.client import Auth
+from lightcone_sdk.client import LightconeClientBuilder
 from lightcone_sdk.error import ApiRejected, HttpError, is_unauthorized
 from lightcone_sdk.http.client import LightconeHttp
 from lightcone_sdk.http.retry import RetryConfig, RetryPolicy
@@ -851,3 +852,69 @@ async def test_simultaneous_timeouts_share_one_cancellation_grace() -> None:
     finally:
         await client.close()
         await cleanup()
+
+
+async def _header_capture_server() -> tuple[str, list[str | None], Callable[[], Awaitable[None]]]:
+    seen: list[str | None] = []
+
+    async def handler(request: web.Request) -> web.Response:
+        seen.append(request.headers.get("x-lightcone-api-key"))
+        return web.Response(
+            status=200,
+            text='{"status":"success","body":{"ok":true}}',
+            content_type="application/json",
+        )
+
+    app = web.Application()
+    app.router.add_route("*", "/{tail:.*}", handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    sockets = site._server.sockets  # type: ignore[union-attr]
+    port = sockets[0].getsockname()[1]
+    return f"http://127.0.0.1:{port}", seen, runner.cleanup
+
+
+@pytest.mark.asyncio
+async def test_api_key_rides_only_to_the_api_origin() -> None:
+    base_url, seen, cleanup = await _header_capture_server()
+    try:
+        http = LightconeHttp(base_url, api_key="lc_local_key")
+        assert http.has_api_key
+        await http.get(f"{base_url}/api/markets", RetryPolicy.NONE)
+        foreign = LightconeHttp("http://127.0.0.1:1", api_key="lc_local_key")
+        await foreign.get(f"{base_url}/api/markets", RetryPolicy.NONE)
+        assert seen == ["lc_local_key", None]
+        await http.close()
+        await foreign.close()
+    finally:
+        await cleanup()
+
+
+@pytest.mark.asyncio
+async def test_blank_api_key_sends_no_header() -> None:
+    base_url, seen, cleanup = await _header_capture_server()
+    try:
+        http = LightconeHttp(base_url, api_key="   ")
+        assert not http.has_api_key
+        await http.get(f"{base_url}/api/markets", RetryPolicy.NONE)
+        assert seen == [None]
+        await http.close()
+    finally:
+        await cleanup()
+
+
+def test_builder_builds_without_an_api_key() -> None:
+    client = LightconeClientBuilder().base_url("http://127.0.0.1:1").build()
+    assert not client._http.has_api_key
+
+
+def test_builder_passes_the_api_key_to_the_http_client() -> None:
+    client = (
+        LightconeClientBuilder()
+        .base_url("http://127.0.0.1:1")
+        .api_key("lc_local_key")
+        .build()
+    )
+    assert client._http.has_api_key

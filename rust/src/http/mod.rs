@@ -2,8 +2,10 @@
 
 pub mod client;
 pub mod credential_restorer;
+pub mod relay;
 pub mod retry;
 
 pub use client::{CookieSession, LightconeHttp};
 pub use credential_restorer::CredentialRestorer;
+pub use relay::{RelayContext, Relayed};
 pub use retry::{RetryConfig, RetryPolicy};
