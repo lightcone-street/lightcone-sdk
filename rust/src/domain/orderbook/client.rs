@@ -67,26 +67,6 @@ impl<'a> Orderbooks<'a> {
     /// Fetch and permanently cache immutable trading rules for an active book.
     /// Failed requests are not cached.
     pub async fn decimals(&self, orderbook_id: &str) -> Result<DecimalsResponse, SdkError> {
-        self.decimals_with_context(orderbook_id, None).await
-    }
-
-    /// Fetch rules on a visitor's behalf without consulting the shared user
-    /// session or its credential restorer on a cache miss.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) async fn decimals_relayed(
-        &self,
-        orderbook_id: &str,
-        context: &RelayContext,
-    ) -> Result<DecimalsResponse, SdkError> {
-        self.decimals_with_context(orderbook_id, Some(context))
-            .await
-    }
-
-    async fn decimals_with_context(
-        &self,
-        orderbook_id: &str,
-        context: Option<&RelayContext>,
-    ) -> Result<DecimalsResponse, SdkError> {
         let cached = {
             let cache = self.client.orderbook_rules.read().await;
             cache.get(orderbook_id).cloned()
@@ -109,21 +89,8 @@ impl<'a> Orderbooks<'a> {
                     self.client.http.base_url(),
                     orderbook_id
                 );
-                #[cfg(not(target_arch = "wasm32"))]
-                let rules: DecimalsResponse = if let Some(context) = context {
-                    self.client
-                        .http
-                        .get_relayed(&url, RetryPolicy::Idempotent, context)
-                        .await?
-                        .body
-                } else {
-                    self.client.http.get(&url, RetryPolicy::Idempotent).await?
-                };
-                #[cfg(target_arch = "wasm32")]
-                let rules: DecimalsResponse = {
-                    let _ = context;
-                    self.client.http.get(&url, RetryPolicy::Idempotent).await?
-                };
+                let rules: DecimalsResponse =
+                    self.client.http.get(&url, RetryPolicy::Idempotent).await?;
                 rules
                     .validate_for_orderbook(orderbook_id)
                     .map_err(crate::program::error::SdkError::from)?;
@@ -132,6 +99,38 @@ impl<'a> Orderbooks<'a> {
             .await?;
 
         Ok(rules.clone())
+    }
+
+    /// Reuse completed public rules, but never join an ordinary in-flight
+    /// initializer that may be using the client's shared session.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) async fn decimals_relayed(
+        &self,
+        orderbook_id: &str,
+        context: &RelayContext,
+    ) -> Result<DecimalsResponse, SdkError> {
+        let ready = {
+            let cache = self.client.orderbook_rules.read().await;
+            cache.get(orderbook_id).and_then(|cell| cell.get().cloned())
+        };
+        if let Some(rules) = ready {
+            return Ok(rules);
+        }
+        let url = format!(
+            "{}/api/orderbooks/{}/decimals",
+            self.client.http.base_url(),
+            orderbook_id
+        );
+        let rules: DecimalsResponse = self
+            .client
+            .http
+            .get_relayed(&url, RetryPolicy::Idempotent, context)
+            .await?
+            .body;
+        rules
+            .validate_for_orderbook(orderbook_id)
+            .map_err(crate::program::error::SdkError::from)?;
+        Ok(rules)
     }
 
     /// Remove one orderbook's cached rules. An in-flight fetch may still
@@ -267,6 +266,56 @@ mod tests {
         assert!(request_head.contains("cookie: lightcone-token=visitor-session"));
         assert!(request_head.contains("x-lightcone-visitor-country: US"));
         assert!(!request_head.contains("shared-session"));
+    }
+
+    #[tokio::test]
+    async fn relayed_rule_discovery_does_not_wait_for_shared_session_fetch() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (first_started, first_seen) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (ordinary_socket, _) = listener.accept().await.unwrap();
+            let _ = first_started.send(());
+            // Keep the ordinary response pending until the relayed request
+            // completes. Joining its OnceCell would deadlock here.
+            let (relayed_socket, _) = timeout(Duration::from_secs(2), listener.accept())
+                .await
+                .unwrap()
+                .unwrap();
+            let relayed_head = respond_with_rules(relayed_socket, "ob").await;
+            let ordinary_head = respond_with_rules(ordinary_socket, "ob").await;
+            (relayed_head, ordinary_head)
+        });
+
+        let client = LightconeClient::builder()
+            .base_url(&format!("http://{address}"))
+            .build()
+            .unwrap();
+        client
+            .http()
+            .user_session()
+            .set_token("shared-session".to_string())
+            .await;
+        let ordinary_client = client.clone();
+        let ordinary =
+            tokio::spawn(async move { ordinary_client.orderbooks().decimals("ob").await });
+        first_seen.await.unwrap();
+
+        let context = RelayContext::with_cookies("lightcone-token=visitor-session")
+            .with_visitor_country("US", "test-relay-secret");
+        let relayed = timeout(
+            Duration::from_secs(2),
+            client.orderbooks().decimals_relayed("ob", &context),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(relayed.orderbook_id, "ob");
+        assert_eq!(ordinary.await.unwrap().unwrap().orderbook_id, "ob");
+        let (relayed_head, ordinary_head) = server.await.unwrap();
+        assert!(relayed_head.contains("cookie: lightcone-token=visitor-session"));
+        assert!(!relayed_head.contains("shared-session"));
+        assert!(ordinary_head.contains("shared-session"));
     }
 
     #[tokio::test]

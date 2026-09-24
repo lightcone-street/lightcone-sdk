@@ -106,7 +106,7 @@ export class LightconeHttp {
   constructor(baseUrl: string, options: LightconeHttpOptions = {}) {
     this.normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
     const apiKey = options.apiKey?.trim();
-    if (apiKey && hasBrowserWindow()) {
+    if (apiKey && isBrowserRuntime()) {
       throw new Error("API keys may only be configured in server-side SDK builds");
     }
     this.apiKey = apiKey ? apiKey : undefined;
@@ -670,4 +670,9 @@ function escapeRegExp(value: string): string {
 
 function hasBrowserWindow(): boolean {
   return typeof globalThis !== "undefined" && "window" in globalThis;
+}
+
+function isBrowserRuntime(): boolean {
+  // Browser workers have no `window`, but still must not accept a server key.
+  return hasBrowserWindow() || "importScripts" in globalThis;
 }
