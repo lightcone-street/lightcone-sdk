@@ -214,6 +214,9 @@ client = (
 The SDK sends the key as `x-lightcone-api-key` only to the configured API
 origin and never logs it. Keys require HTTPS except for loopback HTTP in local development. Keep it out of source control.
 
+`await client.jurisdiction().geoblock()` returns the typed jurisdiction
+response for this direct API caller, including the required `relayed` stamp.
+
 ## Environment Configuration
 
 The SDK defaults to the **production** environment. Use `LightconeEnv` to target a different deployment:

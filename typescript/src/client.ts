@@ -15,6 +15,7 @@ import {
 } from "./context";
 import type { ConfirmedTransaction } from "./context";
 import type { FaucetRequest, FaucetResponse } from "./domain/faucet";
+import { Jurisdiction } from "./domain/jurisdiction";
 import { Markets } from "./domain/market";
 import { Metrics } from "./domain/metrics";
 import { Notifications } from "./domain/notification";
@@ -329,6 +330,10 @@ export class LightconeClient implements ClientContext {
 
   referrals(): Referrals {
     return new Referrals(this);
+  }
+
+  jurisdiction(): Jurisdiction {
+    return new Jurisdiction(this);
   }
 
   rpc(): Rpc {

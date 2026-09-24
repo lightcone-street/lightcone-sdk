@@ -539,6 +539,9 @@ readable by anyone who loads the page.
 The client rejects API-key configuration in a browser window or Worker.
 Keys require HTTPS except for loopback HTTP in local development.
 
+`await client.jurisdiction().geoblock()` returns the typed jurisdiction
+response for this direct API caller, including the required `relayed` stamp.
+
 ## Environment Configuration
 
 The SDK defaults to the **production** environment. Use `LightconeEnv` to target a different deployment:

@@ -387,6 +387,9 @@ origin and never logs it. Keys require HTTPS except for loopback HTTP in local d
 browser-managed redirects cannot safely carry the key. Keep it out of browsers
 and source control.
 
+`client.jurisdiction().geoblock().await` returns the typed jurisdiction
+response for this direct API caller, including the required `relayed` stamp.
+
 ### Relayed calls (servers acting for one visitor)
 
 A server that holds one key for many visitors, such as the Lightcone web app,
