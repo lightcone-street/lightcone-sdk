@@ -41,8 +41,15 @@ describe("direct jurisdiction", () => {
     assert.equal(requested, "https://api.example.test/api/geoblock");
     assert.equal(result.country, "US");
     assert.equal(result.policyVersion, "test");
-    assert.equal(result.frontend.canSubmitOrders, true);
-    assert.equal(result.api.canCancelOrders, true);
+    const mapped = {
+      mode: "full",
+      canAuthenticate: true,
+      canMutateAccount: true,
+      canSubmitOrders: true,
+      canCancelOrders: true,
+    };
+    assert.deepEqual(result.frontend, mapped);
+    assert.deepEqual(result.api, mapped);
     assert.equal(result.relayed, false);
   });
 
@@ -55,5 +62,23 @@ describe("direct jurisdiction", () => {
       },
     } as unknown as ClientContext;
     await assert.rejects(() => new Jurisdiction(context).geoblock(), /relay stamp/);
+  });
+
+  it("rejects malformed top-level and nested capability fields", async () => {
+    const malformed = [
+      { ...wire(), geoblocked: "false" },
+      { ...wire(), frontend: { ...capabilities, can_authenticate: "true" } },
+      { ...wire(), api: { ...capabilities, can_mutate_account: null } },
+      { ...wire(), api: { ...capabilities, can_submit_orders: 1 } },
+      { ...wire(), frontend: { ...capabilities, can_cancel_orders: undefined } },
+      { ...wire(), frontend: null },
+      { ...wire(), policy_version: null },
+    ];
+    for (const response of malformed) {
+      const context = {
+        http: { baseUrl: () => "https://api.example.test", get: async () => response },
+      } as unknown as ClientContext;
+      await assert.rejects(() => new Jurisdiction(context).geoblock(), /Invalid jurisdiction response/);
+    }
   });
 });
