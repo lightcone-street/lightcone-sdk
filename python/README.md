@@ -194,11 +194,9 @@ client.set_order_nonce(await client.orders().current_nonce(keypair.pubkey()))
 
 ## API Key
 
-The backend requires an API key on every REST request. The key identifies an
-API Consumer such as a trading bot or a server application; it never identifies
-a user, so login, ownership, and signing checks are unchanged. WebSocket
-connections need no key. Each key carries its own sustained rate and burst
-allowance; an exhausted allowance returns a temporary `429` with `Retry-After`.
+Configure an API key when a server-side client calls a deployed REST API host.
+The backend [REST Admission decision](https://github.com/lightcone-street/lightcone-backend/blob/staging/docs/adr/0004-rest-api-key-admission.md)
+owns the admission and allowance rules; this section covers SDK setup only.
 
 ```python
 client = (

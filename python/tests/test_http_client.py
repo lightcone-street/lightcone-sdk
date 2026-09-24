@@ -14,6 +14,20 @@ from lightcone_sdk.http.client import LightconeHttp
 from lightcone_sdk.http.retry import RetryConfig, RetryPolicy
 
 
+async def _start_server(
+    handler: Callable[[web.Request], Awaitable[web.Response]],
+) -> tuple[str, Callable[[], Awaitable[None]]]:
+    app = web.Application()
+    app.router.add_route("*", "/{tail:.*}", handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    sockets = site._server.sockets  # type: ignore[union-attr]
+    port = sockets[0].getsockname()[1]
+    return f"http://127.0.0.1:{port}", runner.cleanup
+
+
 async def _server(
     responses: list[tuple[int, str]],
     cookies_seen: list[str | None] | None = None,
@@ -40,19 +54,12 @@ async def _server(
             status=status, text=body, content_type="application/json", headers=headers
         )
 
-    app = web.Application()
-    app.router.add_route("*", "/{tail:.*}", handler)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "127.0.0.1", 0)
-    await site.start()
-    sockets = site._server.sockets  # type: ignore[union-attr]
-    port = sockets[0].getsockname()[1]
+    base_url, cleanup = await _start_server(handler)
 
     return (
-        f"http://127.0.0.1:{port}",
+        base_url,
         lambda: attempts,
-        runner.cleanup,
+        cleanup,
     )
 
 
@@ -649,7 +656,9 @@ async def test_ambient_cookie_jar_is_disabled() -> None:
 
     try:
         await client.get_with_cookies(
-            "/override", RetryPolicy.IDEMPOTENT, cookie_header="lightcone-token=forwarded"
+            "/override",
+            RetryPolicy.IDEMPOTENT,
+            cookie_header="lightcone-token=forwarded",
         )
         await client.get("/plain", RetryPolicy.IDEMPOTENT)
         assert cookies_seen == ["lightcone-token=forwarded", None]
@@ -840,7 +849,9 @@ async def test_simultaneous_timeouts_share_one_cancellation_grace() -> None:
         await asyncio.sleep(0.25)
         # Mid-unwind: must join the dying task, not start restorer #2.
         joiner = asyncio.create_task(client.get("/c", RetryPolicy.IDEMPOTENT))
-        results = await asyncio.gather(waiter_a, waiter_b, joiner, return_exceptions=True)
+        results = await asyncio.gather(
+            waiter_a, waiter_b, joiner, return_exceptions=True
+        )
 
         assert calls == 1
         for result in results[:2]:
@@ -854,7 +865,9 @@ async def test_simultaneous_timeouts_share_one_cancellation_grace() -> None:
         await cleanup()
 
 
-async def _header_capture_server() -> tuple[str, list[str | None], Callable[[], Awaitable[None]]]:
+async def _header_capture_server() -> (
+    tuple[str, list[str | None], Callable[[], Awaitable[None]]]
+):
     seen: list[str | None] = []
 
     async def handler(request: web.Request) -> web.Response:
@@ -865,15 +878,8 @@ async def _header_capture_server() -> tuple[str, list[str | None], Callable[[], 
             content_type="application/json",
         )
 
-    app = web.Application()
-    app.router.add_route("*", "/{tail:.*}", handler)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "127.0.0.1", 0)
-    await site.start()
-    sockets = site._server.sockets  # type: ignore[union-attr]
-    port = sockets[0].getsockname()[1]
-    return f"http://127.0.0.1:{port}", seen, runner.cleanup
+    base_url, cleanup = await _start_server(handler)
+    return base_url, seen, cleanup
 
 
 @pytest.mark.asyncio
@@ -908,6 +914,7 @@ async def test_blank_api_key_sends_no_header() -> None:
 def test_builder_builds_without_an_api_key() -> None:
     client = LightconeClientBuilder().base_url("http://127.0.0.1:1").build()
     assert not client._http.has_api_key
+    assert not client.has_api_key
 
 
 def test_builder_passes_the_api_key_to_the_http_client() -> None:
@@ -918,3 +925,4 @@ def test_builder_passes_the_api_key_to_the_http_client() -> None:
         .build()
     )
     assert client._http.has_api_key
+    assert client.has_api_key

@@ -1592,6 +1592,16 @@ impl LightconeClientBuilder {
     }
 
     pub fn build(self) -> Result<LightconeClient, SdkError> {
+        #[cfg(target_arch = "wasm32")]
+        if self
+            .api_key
+            .as_deref()
+            .is_some_and(|key| !key.trim().is_empty())
+        {
+            return Err(SdkError::Validation(
+                "API keys may only be configured in server-side SDK builds".to_string(),
+            ));
+        }
         if let Some(resources) = self.transaction_resources {
             resources.validate()?;
         }
@@ -1629,6 +1639,14 @@ impl LightconeClientBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn browser_build_rejects_api_key_configuration() {
+        let result = LightconeClient::builder().api_key("test-key").build();
+        assert!(matches!(result, Err(SdkError::Validation(_))));
+    }
+
     #[cfg(feature = "native")]
     fn test_transaction(payer: &Pubkey) -> V1Transaction {
         V1Transaction::compile(

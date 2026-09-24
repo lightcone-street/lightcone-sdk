@@ -118,6 +118,11 @@ class LightconeClient:
     # ── Properties ───────────────────────────────────────────────────────
 
     @property
+    def has_api_key(self) -> bool:
+        """Whether this client has a server-side API key configured."""
+        return self._http.has_api_key
+
+    @property
     def program_id(self) -> Pubkey:
         """On-chain program ID."""
         return self._program_id

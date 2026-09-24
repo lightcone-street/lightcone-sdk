@@ -184,11 +184,11 @@ pub mod prelude {
         PositionsClient, PriceHistorySubClient, ReferralsClient, RpcClient, TradesClient,
         TransactionSimulation, TransactionStatus,
     };
+    pub use crate::domain::jurisdiction::{JurisdictionCapabilities, JurisdictionResponse};
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};
     #[cfg(feature = "http")]
     pub use crate::http::{CookieSession, LightconeHttp, RelayContext, Relayed};
-    pub use crate::domain::jurisdiction::{JurisdictionCapabilities, JurisdictionResponse};
     #[cfg(feature = "http")]
     pub use crate::rpc_failover::ActiveRpc;
 

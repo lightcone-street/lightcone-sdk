@@ -28,9 +28,9 @@ use std::time::Duration;
 use tracing;
 use uuid::Uuid;
 
-use super::relay::{
-    RelayContext, Relayed, API_KEY_HEADER, RELAY_SECRET_HEADER, VISITOR_COUNTRY_HEADER,
-};
+use super::relay::{RelayContext, Relayed};
+#[cfg(not(target_arch = "wasm32"))]
+use super::relay::{API_KEY_HEADER, RELAY_SECRET_HEADER, VISITOR_COUNTRY_HEADER};
 
 #[cfg(not(target_arch = "wasm32"))]
 const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 180;
@@ -166,8 +166,8 @@ pub struct LightconeHttp {
     /// never legitimately redirects, and following one would let a redirect
     /// target observe the request (and, before this guard, trigger credential
     /// restoration while being classified under the original same-origin
-    /// URL). On WASM the browser controls redirects, but it also scopes
-    /// cookies per host, which is the equivalent guard there.
+    /// URL). On WASM the browser controls redirects, so API keys are not
+    /// supported there; cookie scoping remains the browser's responsibility.
     api_client: Client,
     /// Client for non-API calls (`raw_post`, e.g. Solana JSON-RPC) — keeps
     /// default redirect behavior, carries no credentials.
@@ -865,6 +865,7 @@ impl LightconeHttp {
             req = req.query(query);
         }
         // The API key rides only to the configured API origin, like cookies.
+        #[cfg(not(target_arch = "wasm32"))]
         if self.is_api_origin(url) {
             if let Some(api_key) = self.api_key.as_deref() {
                 req = req.header(API_KEY_HEADER, api_key.as_str());

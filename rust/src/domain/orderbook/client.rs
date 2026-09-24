@@ -4,7 +4,7 @@ use crate::client::LightconeClient;
 use crate::domain::orderbook::aggregation::BookAggregation;
 use crate::domain::orderbook::wire::{DecimalsResponse, OrderbookDepthResponse};
 use crate::error::SdkError;
-use crate::http::RetryPolicy;
+use crate::http::{RelayContext, RetryPolicy};
 use crate::program::instructions;
 use crate::program::transaction::{V1Transaction, V1TransactionContext};
 use crate::program::types::CloseOrderbookParams;
@@ -67,6 +67,26 @@ impl<'a> Orderbooks<'a> {
     /// Fetch and permanently cache immutable trading rules for an active book.
     /// Failed requests are not cached.
     pub async fn decimals(&self, orderbook_id: &str) -> Result<DecimalsResponse, SdkError> {
+        self.decimals_with_context(orderbook_id, None).await
+    }
+
+    /// Fetch rules on a visitor's behalf without consulting the shared user
+    /// session or its credential restorer on a cache miss.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) async fn decimals_relayed(
+        &self,
+        orderbook_id: &str,
+        context: &RelayContext,
+    ) -> Result<DecimalsResponse, SdkError> {
+        self.decimals_with_context(orderbook_id, Some(context))
+            .await
+    }
+
+    async fn decimals_with_context(
+        &self,
+        orderbook_id: &str,
+        context: Option<&RelayContext>,
+    ) -> Result<DecimalsResponse, SdkError> {
         let cached = {
             let cache = self.client.orderbook_rules.read().await;
             cache.get(orderbook_id).cloned()
@@ -89,8 +109,21 @@ impl<'a> Orderbooks<'a> {
                     self.client.http.base_url(),
                     orderbook_id
                 );
-                let rules: DecimalsResponse =
-                    self.client.http.get(&url, RetryPolicy::Idempotent).await?;
+                #[cfg(not(target_arch = "wasm32"))]
+                let rules: DecimalsResponse = if let Some(context) = context {
+                    self.client
+                        .http
+                        .get_relayed(&url, RetryPolicy::Idempotent, context)
+                        .await?
+                        .body
+                } else {
+                    self.client.http.get(&url, RetryPolicy::Idempotent).await?
+                };
+                #[cfg(target_arch = "wasm32")]
+                let rules: DecimalsResponse = {
+                    let _ = context;
+                    self.client.http.get(&url, RetryPolicy::Idempotent).await?
+                };
                 rules
                     .validate_for_orderbook(orderbook_id)
                     .map_err(crate::program::error::SdkError::from)?;
@@ -144,10 +177,11 @@ mod tests {
     use tokio::net::{TcpListener, TcpStream};
     use tokio::time::{timeout, Duration};
 
-    async fn respond_with_rules(mut socket: TcpStream, orderbook_id: &str) {
+    async fn respond_with_rules(mut socket: TcpStream, orderbook_id: &str) -> String {
         let mut request = [0_u8; 4096];
         let bytes_read = socket.read(&mut request).await.unwrap();
         assert!(bytes_read > 0);
+        let request_head = String::from_utf8_lossy(&request[..bytes_read]).into_owned();
 
         let body = format!(
             r#"{{"status":"success","body":{{"orderbook_id":"{orderbook_id}","base_decimals":8,"quote_decimals":6,"price_decimals":4,"trading_rules":{{"base_size_decimals":5,"max_price_decimals":1,"max_price_significant_figures":5,"integer_prices_always_allowed":true,"price_quantum":"0.1000","price_quantum_raw":"1000","base_size_quantum":"0.00001000","base_size_quantum_raw":"1000"}}}}}}"#
@@ -158,6 +192,7 @@ mod tests {
             body
         );
         socket.write_all(response.as_bytes()).await.unwrap();
+        request_head
     }
 
     async fn spawn_rules_server(response_orderbook_ids: Vec<&str>) -> (String, Arc<AtomicUsize>) {
@@ -198,6 +233,40 @@ mod tests {
 
         assert_eq!(first.unwrap(), second.unwrap());
         assert_eq!(requests.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn relayed_rule_discovery_uses_the_visitor_context() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let request_head = respond_with_rules(socket, "ob").await;
+            let _ = sender.send(request_head);
+        });
+
+        let client = LightconeClient::builder()
+            .base_url(&format!("http://{address}"))
+            .build()
+            .unwrap();
+        client
+            .http()
+            .user_session()
+            .set_token("shared-session".to_string())
+            .await;
+        let context = RelayContext::with_cookies("lightcone-token=visitor-session")
+            .with_visitor_country("US", "test-relay-secret");
+        client
+            .orderbooks()
+            .decimals_relayed("ob", &context)
+            .await
+            .unwrap();
+
+        let request_head = receiver.await.unwrap();
+        assert!(request_head.contains("cookie: lightcone-token=visitor-session"));
+        assert!(request_head.contains("x-lightcone-visitor-country: US"));
+        assert!(!request_head.contains("shared-session"));
     }
 
     #[tokio::test]

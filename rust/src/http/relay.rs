@@ -14,7 +14,7 @@
 
 /// Per-request relay inputs. Every field is optional so public routes can be
 /// relayed without cookies and local development can omit the country relay.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct RelayContext {
     /// The visitor's raw `Cookie` header, sent verbatim to the API origin.
     pub cookie_header: Option<String>,
@@ -24,6 +24,23 @@ pub struct RelayContext {
     /// The relay secret Cloudflare requires before it trusts `visitor_country`.
     /// Sent as `x-lightcone-relay-secret`. Never logged by the SDK.
     pub relay_secret: Option<String>,
+}
+
+impl std::fmt::Debug for RelayContext {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RelayContext")
+            .field(
+                "cookie_header",
+                &self.cookie_header.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("visitor_country", &self.visitor_country)
+            .field(
+                "relay_secret",
+                &self.relay_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 impl RelayContext {
@@ -49,10 +66,20 @@ impl RelayContext {
 
 /// A relayed response: the parsed body plus every raw `Set-Cookie` header the
 /// API returned, in order, so a server can relay them to the browser unchanged.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Relayed<T> {
     pub body: T,
     pub set_cookie: Vec<String>,
+}
+
+impl<T> std::fmt::Debug for Relayed<T> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Relayed")
+            .field("body", &"[REDACTED]")
+            .field("set_cookie", &"[REDACTED]")
+            .finish()
+    }
 }
 
 /// Request header that carries the relayed visitor country.
@@ -61,3 +88,29 @@ pub const VISITOR_COUNTRY_HEADER: &str = "x-lightcone-visitor-country";
 pub const RELAY_SECRET_HEADER: &str = "x-lightcone-relay-secret";
 /// Request header that carries an API key.
 pub const API_KEY_HEADER: &str = "x-lightcone-api-key";
+
+#[cfg(test)]
+mod tests {
+    use super::{RelayContext, Relayed};
+
+    #[test]
+    fn debug_redacts_visitor_credentials() {
+        let context = RelayContext::with_cookies("private-cookie")
+            .with_visitor_country("US", "private-relay-secret");
+        let printed = format!("{context:?}");
+        assert!(printed.contains("US"));
+        assert!(!printed.contains("private-cookie"));
+        assert!(!printed.contains("private-relay-secret"));
+    }
+
+    #[test]
+    fn relayed_debug_redacts_response_and_session_cookies() {
+        let response = Relayed {
+            body: "private-response",
+            set_cookie: vec!["private-session".to_string()],
+        };
+        let printed = format!("{response:?}");
+        assert!(!printed.contains("private-response"));
+        assert!(!printed.contains("private-session"));
+    }
+}

@@ -285,7 +285,7 @@ impl<'a> Orders<'a> {
         &self,
         request: &SubmitOrderRequest,
     ) -> Result<SubmitOrderResponse, SdkError> {
-        self.preflight_submit(request).await?;
+        self.preflight_submit(request, None).await?;
         let url = format!("{}/api/orders/submit", self.client.http.base_url());
         self.client
             .http
@@ -308,7 +308,7 @@ impl<'a> Orders<'a> {
         &self,
         request: &SubmitOrderRequest,
     ) -> Result<TriggerOrderResponse, SdkError> {
-        self.preflight_submit(request).await?;
+        self.preflight_submit(request, None).await?;
         let url = format!("{}/api/orders/submit", self.client.http.base_url());
         self.client
             .http
@@ -329,7 +329,7 @@ impl<'a> Orders<'a> {
         request: &SubmitOrderRequest,
         context: &RelayContext,
     ) -> Result<Relayed<SubmitOrderResponse>, SdkError> {
-        self.preflight_submit(request).await?;
+        self.preflight_submit(request, Some(context)).await?;
         let url = format!("{}/api/orders/submit", self.client.http.base_url());
         self.client
             .http
@@ -372,7 +372,7 @@ impl<'a> Orders<'a> {
         request: &SubmitOrderRequest,
         context: &RelayContext,
     ) -> Result<Relayed<TriggerOrderResponse>, SdkError> {
-        self.preflight_submit(request).await?;
+        self.preflight_submit(request, Some(context)).await?;
         let url = format!("{}/api/orders/submit", self.client.http.base_url());
         self.client
             .http
@@ -394,12 +394,31 @@ impl<'a> Orders<'a> {
             .await
     }
 
-    async fn preflight_submit(&self, request: &SubmitOrderRequest) -> Result<(), SdkError> {
-        let rules = self
-            .client
-            .orderbooks()
-            .decimals(&request.orderbook_id)
-            .await?;
+    async fn preflight_submit(
+        &self,
+        request: &SubmitOrderRequest,
+        context: Option<&crate::http::RelayContext>,
+    ) -> Result<(), SdkError> {
+        #[cfg(not(target_arch = "wasm32"))]
+        let rules = if let Some(context) = context {
+            self.client
+                .orderbooks()
+                .decimals_relayed(&request.orderbook_id, context)
+                .await?
+        } else {
+            self.client
+                .orderbooks()
+                .decimals(&request.orderbook_id)
+                .await?
+        };
+        #[cfg(target_arch = "wasm32")]
+        let rules = {
+            let _ = context;
+            self.client
+                .orderbooks()
+                .decimals(&request.orderbook_id)
+                .await?
+        };
         let side = match request.side {
             0 => OrderSide::Bid,
             1 => OrderSide::Ask,

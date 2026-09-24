@@ -106,6 +106,9 @@ export class LightconeHttp {
   constructor(baseUrl: string, options: LightconeHttpOptions = {}) {
     this.normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
     const apiKey = options.apiKey?.trim();
+    if (apiKey && hasBrowserWindow()) {
+      throw new Error("API keys may only be configured in server-side SDK builds");
+    }
     this.apiKey = apiKey ? apiKey : undefined;
   }
 

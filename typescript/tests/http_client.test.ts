@@ -825,4 +825,21 @@ describe("API key transport", () => {
       assert.deepEqual(headersSeen(), [undefined]);
     });
   });
+
+  it("rejects API key configuration in a browser", () => {
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+    try {
+      assert.throws(
+        () => new LightconeHttp("https://api.lightcone.xyz", { apiKey: "test-key" }),
+        /server-side SDK builds/,
+      );
+    } finally {
+      if (previousWindow) {
+        Object.defineProperty(globalThis, "window", previousWindow);
+      } else {
+        Reflect.deleteProperty(globalThis, "window");
+      }
+    }
+  });
 });

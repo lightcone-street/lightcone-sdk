@@ -27,6 +27,23 @@ pub struct JurisdictionResponse {
     /// Capabilities of direct API callers.
     pub api: JurisdictionCapabilities,
     /// True when Cloudflare accepted a relayed visitor country for this request.
-    #[serde(default)]
     pub relayed: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::JurisdictionResponse;
+
+    #[test]
+    fn missing_relay_stamp_is_not_silently_classified_as_direct() {
+        let response = serde_json::json!({
+            "country": "US",
+            "geoblocked": false,
+            "tier": "tier_3",
+            "policy_version": "test",
+            "frontend": {"mode": "full", "can_authenticate": true, "can_mutate_account": true, "can_submit_orders": true, "can_cancel_orders": true},
+            "api": {"mode": "full", "can_authenticate": true, "can_mutate_account": true, "can_submit_orders": true, "can_cancel_orders": true}
+        });
+        assert!(serde_json::from_value::<JurisdictionResponse>(response).is_err());
+    }
 }

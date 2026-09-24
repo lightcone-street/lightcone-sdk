@@ -17,7 +17,7 @@ import json
 import logging
 import uuid
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 import aiohttp
 
@@ -60,20 +60,20 @@ class LightconeHttp:
         self,
         base_url: str,
         timeout: int = DEFAULT_TIMEOUT_SECS,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
     ):
         self._base_url = base_url.rstrip("/")
         # API key sent as ``x-lightcone-api-key`` on every request to the API
         # origin. It identifies an API Consumer, never a user; never logged.
         self._api_key = api_key.strip() if api_key and api_key.strip() else None
-        self._auth_token: Optional[str] = None
+        self._auth_token: str | None = None
         self._timeout = aiohttp.ClientTimeout(total=timeout)
-        self._session: Optional[aiohttp.ClientSession] = None
-        self._credential_restorer: Optional[CredentialRestorer] = None
+        self._session: aiohttp.ClientSession | None = None
+        self._credential_restorer: CredentialRestorer | None = None
         # The in-flight restoration, shared by every request that 401s while
         # it runs — concurrent 401s await the same task (bounded by the
         # timeout below) instead of failing fast.
-        self._restoration_task: Optional[asyncio.Task[bool]] = None
+        self._restoration_task: asyncio.Task[bool] | None = None
         # Set (to a loop-clock deadline) when a timeout first requests
         # cancellation of the CURRENT slot task. The slot stays occupied while
         # the task unwinds (no overlap); only a waiter timing out AFTER this
@@ -81,7 +81,7 @@ class LightconeHttp:
         # shared deadline would let two near-simultaneous timeouts abandon the
         # slot immediately — the second waiter would mistake the first's
         # just-requested cancellation for an ignored one.
-        self._restoration_cancel_deadline: Optional[float] = None
+        self._restoration_cancel_deadline: float | None = None
         # Bumped after every completed restoration. A request captures the
         # epoch when it starts; if the epoch moved by the time its 401 gets to
         # restore, another request already restored and the stored outcome is
@@ -104,11 +104,11 @@ class LightconeHttp:
         return self._api_key is not None
 
     @property
-    def auth_token(self) -> Optional[str]:
+    def auth_token(self) -> str | None:
         """Public accessor for the auth token."""
         return self._auth_token
 
-    def set_auth_token(self, token: Optional[str]) -> None:
+    def set_auth_token(self, token: str | None) -> None:
         """Set or clear the auth token."""
         self._auth_token = token
 
@@ -197,8 +197,10 @@ class LightconeHttp:
             outcome = await asyncio.wait_for(
                 asyncio.shield(awaited), timeout=self._credential_restore_timeout
             )
-        except asyncio.TimeoutError:
-            logger.warning("Credential restoration timed out; propagating the original 401")
+        except TimeoutError:
+            logger.warning(
+                "Credential restoration timed out; propagating the original 401"
+            )
             if self._restoration_task is awaited:
                 now = asyncio.get_running_loop().time()
                 if self._restoration_cancel_deadline is None:
@@ -213,7 +215,9 @@ class LightconeHttp:
                     # waiter see it already set and still in the future, so
                     # they cannot mistake a just-requested cancellation for an
                     # ignored one and abandon the slot early.
-                    self._restoration_cancel_deadline = now + self._credential_restore_timeout
+                    self._restoration_cancel_deadline = (
+                        now + self._credential_restore_timeout
+                    )
                     awaited.cancel()
                 elif now >= self._restoration_cancel_deadline:
                     # A full extra timeout has passed since cancellation was
@@ -259,7 +263,7 @@ class LightconeHttp:
             await self._session.close()
             self._session = None
 
-    async def __aenter__(self) -> "LightconeHttp":
+    async def __aenter__(self) -> LightconeHttp:
         await self._ensure_session()
         return self
 
@@ -292,7 +296,7 @@ class LightconeHttp:
         path: str,
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
         *,
-        params: Optional[dict[str, str]] = None,
+        params: dict[str, str] | None = None,
         allow_credential_restore: bool = True,
     ) -> Any:
         """Make a GET request with user auth cookie injection.
@@ -316,7 +320,7 @@ class LightconeHttp:
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
         *,
         cookie_header: str,
-        params: Optional[dict[str, str]] = None,
+        params: dict[str, str] | None = None,
     ) -> Any:
         """Make a GET request forwarding an explicit per-call raw ``Cookie`` header.
 
@@ -422,8 +426,8 @@ class LightconeHttp:
         *,
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
         auth_mode: _AuthMode,
-        cookie_header_override: Optional[str] = None,
-        params: Optional[dict[str, str]] = None,
+        cookie_header_override: str | None = None,
+        params: dict[str, str] | None = None,
         allow_credential_restore: bool = True,
         **kwargs: Any,
     ) -> Any:
@@ -533,7 +537,7 @@ class LightconeHttp:
                     await asyncio.sleep(delay)
                     continue
                 raise
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if attempt < config.max_retries:
                     delay = delay_for_attempt(attempt, config)
                     attempt += 1
@@ -557,8 +561,8 @@ class LightconeHttp:
         path: str,
         *,
         auth_mode: _AuthMode,
-        cookie_header_override: Optional[str] = None,
-        params: Optional[dict[str, str]] = None,
+        cookie_header_override: str | None = None,
+        params: dict[str, str] | None = None,
         request_id: str,
         **kwargs: Any,
     ) -> Any:
@@ -595,8 +599,8 @@ class LightconeHttp:
         path: str,
         *,
         auth_mode: _AuthMode,
-        cookie_header_override: Optional[str] = None,
-        params: Optional[dict[str, str]] = None,
+        cookie_header_override: str | None = None,
+        params: dict[str, str] | None = None,
         request_id: str,
         **kwargs: Any,
     ) -> Any:
@@ -682,7 +686,7 @@ class LightconeHttp:
     def _auth_headers(
         self,
         auth_mode: _AuthMode,
-        cookie_header_override: Optional[str] = None,
+        cookie_header_override: str | None = None,
     ) -> dict[str, str]:
         headers: dict[str, str] = {}
         if auth_mode == _AuthMode.COOKIE_OVERRIDE:
@@ -708,7 +712,7 @@ class LightconeHttp:
         self,
         status: int,
         message: str,
-        headers: Optional[aiohttp.typedefs.LooseHeaders] = None,
+        headers: aiohttp.typedefs.LooseHeaders | None = None,
     ) -> HttpError:
         """Map HTTP status to HttpError."""
         if status == 401:
@@ -747,11 +751,11 @@ class LightconeHttp:
         )
 
 
-def _retry_after_ms(headers: Optional[aiohttp.typedefs.LooseHeaders]) -> Optional[int]:
+def _retry_after_ms(headers: aiohttp.typedefs.LooseHeaders | None) -> int | None:
     if headers is None:
         return None
 
-    def _header(name: str) -> Optional[str]:
+    def _header(name: str) -> str | None:
         if hasattr(headers, "get"):
             value = headers.get(name)
             return str(value) if value is not None else None
