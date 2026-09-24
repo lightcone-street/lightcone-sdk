@@ -30,13 +30,16 @@ use crate::domain::position::{
 };
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
+use crate::program::accounts::Position;
 use crate::program::instructions;
+use crate::program::pda::{get_conditional_mint_pda, get_position_pda};
 use crate::program::transaction::{V1Transaction, V1TransactionContext};
 use crate::program::types::{
     ClosePositionTokenAccountsParams, DepositToGlobalParams, GlobalToMarketDepositParams,
     InitPositionTokensParams, RedeemWinningsParams, WithdrawConditionalFromPositionParams,
     WithdrawFromGlobalParams, WithdrawFromPositionParams,
 };
+use crate::program::utils::get_conditional_token_ata;
 use crate::shared::signing::SigningStrategy;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
@@ -45,6 +48,15 @@ fn deposit_token_balances_query(min_context_slot: Option<u64>) -> Vec<(&'static 
     min_context_slot
         .map(|slot| vec![("min_context_slot", slot.to_string())])
         .unwrap_or_default()
+}
+
+/// The program creates zero-data accounts and debits only the missing rent.
+fn account_creation_top_up(state: Option<(u64, usize)>, minimum: u64) -> u64 {
+    match state {
+        Some((_, len)) if len > 0 => 0,
+        Some((lamports, _)) => minimum.saturating_sub(lamports),
+        None => minimum,
+    }
 }
 
 fn validated_conversion_wallet(
@@ -115,20 +127,48 @@ fn validate_native_conversion_signing_wallet(
     Ok(())
 }
 
-fn require_unsponsored_plan(sponsored: bool) -> Result<(), SdkError> {
-    if sponsored {
-        return Err(SdkError::Validation(
-            "sponsored SOL action planning is not supported".into(),
-        ));
-    }
-    Ok(())
-}
-
 pub struct Positions<'a> {
     pub(crate) client: &'a LightconeClient,
 }
 
 impl<'a> Positions<'a> {
+    /// Count only accounts that the release split program creates with the user as payer.
+    async fn split_wallet_rent(
+        &self,
+        wallet: &Pubkey,
+        market: &Pubkey,
+        deposit_mint: &Pubkey,
+        num_outcomes: u8,
+    ) -> Result<u64, SdkError> {
+        let position = get_position_pda(wallet, market, &self.client.program_id).0;
+        let mut rent = 0_u64;
+        let position_state = self.client.account_funding_state(&position).await?;
+        if position_state.map(|(_, len)| len == 0).unwrap_or(true) {
+            let minimum = self
+                .client
+                .minimum_balance_for_rent_exemption(Position::LEN)
+                .await?;
+            rent = account_creation_top_up(position_state, minimum);
+        }
+        let token_rent = self
+            .client
+            .minimum_balance_for_rent_exemption(TOKEN_ACCOUNT_SPACE)
+            .await?;
+        for outcome in 0..num_outcomes {
+            let mint =
+                get_conditional_mint_pda(market, deposit_mint, outcome, &self.client.program_id).0;
+            let account = get_conditional_token_ata(&position, &mint);
+            let account_state = self.client.account_funding_state(&account).await?;
+            if account_state.map(|(_, len)| len == 0).unwrap_or(true) {
+                let top_up = account_creation_top_up(account_state, token_rent);
+                rent = rent.checked_add(top_up).ok_or_else(|| {
+                    SdkError::Validation("split account rent overflows u64".into())
+                })?;
+            }
+        }
+        Ok(rent)
+    }
+
     // ── PDA helpers ──────────────────────────────────────────────────────
 
     /// Get the Position PDA.
@@ -472,7 +512,7 @@ impl<'a> Positions<'a> {
     /// Plan one atomic SOL-backed split using canonical WSOL before wrapping a shortfall.
     ///
     /// Amounts and costs are lamports. Account checks and live fee/rent reads
-    /// fail closed; sponsored planning is rejected until a sponsor owns costs.
+    /// fail closed. Sponsored submission funds network fees through the wallet service.
     pub async fn plan_sol_split(
         &self,
         market: &Market,
@@ -480,7 +520,6 @@ impl<'a> Positions<'a> {
         state: &WalletDepositBalancesState,
         sponsored: bool,
     ) -> Result<SolActionPlan, SdkError> {
-        require_unsponsored_plan(sponsored)?;
         if amount_lamports == 0 {
             return Err(SdkError::Validation(
                 "split amount must be greater than zero".into(),
@@ -488,7 +527,7 @@ impl<'a> Positions<'a> {
         }
         let wallet = self.planning_wallet(state).await?;
         let breakdown = state.sol_balance_breakdown()?;
-        let (_, canonical_account) = wrapped_sol_accounts(&wallet)?;
+        let (mint, canonical_account) = wrapped_sol_accounts(&wallet)?;
         let canonical_exists = self
             .client
             .canonical_wsol_account_exists(&canonical_account, &wallet)
@@ -499,13 +538,20 @@ impl<'a> Positions<'a> {
             ));
         }
         let shortfall = amount_lamports.saturating_sub(breakdown.canonical_wsol_lamports);
-        let upfront_rent_lamports = if canonical_exists {
+        let canonical_rent_lamports = if canonical_exists {
             0
         } else {
             self.client
                 .minimum_balance_for_rent_exemption(TOKEN_ACCOUNT_SPACE)
                 .await?
         };
+        let market_key = market.pubkey.to_pubkey().map_err(SdkError::Validation)?;
+        let upfront_rent_lamports = canonical_rent_lamports
+            .checked_add(
+                self.split_wallet_rent(&wallet, &market_key, &mint, market.num_outcomes)
+                    .await?,
+            )
+            .ok_or_else(|| SdkError::Validation("split account rent overflows u64".into()))?;
         let context = self.client.transaction_context().await?;
         let transaction = build_sol_split_transaction(
             &self.client.program_id,
@@ -541,7 +587,7 @@ impl<'a> Positions<'a> {
             ));
         }
         let wallet_costs = if sponsored {
-            0
+            upfront_rent_lamports
         } else {
             fee_lamports
                 .checked_add(upfront_rent_lamports)
@@ -570,7 +616,6 @@ impl<'a> Positions<'a> {
         state: &WalletDepositBalancesState,
         sponsored: bool,
     ) -> Result<SolActionPlan, SdkError> {
-        require_unsponsored_plan(sponsored)?;
         if amount_lamports == 0 {
             return Err(SdkError::Validation(
                 "merge amount must be greater than zero".into(),
@@ -629,7 +674,6 @@ impl<'a> Positions<'a> {
         state: &WalletDepositBalancesState,
         sponsored: bool,
     ) -> Result<SolActionPlan, SdkError> {
-        require_unsponsored_plan(sponsored)?;
         if amount_lamports == 0 {
             return Err(SdkError::Validation(
                 "redeem amount must be greater than zero".into(),
@@ -690,8 +734,8 @@ impl<'a> Positions<'a> {
     /// account selection checks at most eight blockhash-scoped seeds. Missing RPC
     /// values, exhausted seeds, a changing rebuilt fee, invalid or mismatched state,
     /// and insufficient native or canonical funds return an error before submission.
-    /// Sponsored planning is rejected until a concrete sponsor owns transaction
-    /// fees and account rent; the SDK does not verify or arrange sponsorship.
+    /// Sponsored submission pays network fees through the external wallet service.
+    /// Account creation funding must be verified for the exact deployment flow.
     pub async fn plan_native_sol_withdrawal(
         &self,
         recipient: Pubkey,
@@ -699,7 +743,6 @@ impl<'a> Positions<'a> {
         state: &WalletDepositBalancesState,
         sponsored: bool,
     ) -> Result<SolActionPlan, SdkError> {
-        require_unsponsored_plan(sponsored)?;
         if amount_lamports == 0 {
             return Err(SdkError::Validation(
                 "withdraw amount must be greater than zero".into(),
@@ -905,7 +948,7 @@ impl<'a> Positions<'a> {
         };
         let availability = SolBalanceAvailability::from_costs(breakdown, costs)?;
         let wallet_costs = if sponsored {
-            0
+            upfront_rent_lamports
         } else {
             fee_lamports
                 .checked_add(upfront_rent_lamports)
@@ -1232,10 +1275,20 @@ impl<'a> Positions<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{deposit_token_balances_query, validated_conversion_wallet};
+    use super::{
+        account_creation_top_up, deposit_token_balances_query, validated_conversion_wallet,
+    };
     use crate::{auth::AuthCredentials, domain::position::WalletDepositBalancesState};
     use chrono::{Duration, Utc};
     use solana_pubkey::Pubkey;
+
+    #[test]
+    fn prefunded_unallocated_account_still_needs_the_rent_gap() {
+        assert_eq!(account_creation_top_up(Some((600, 0)), 1000), 400);
+        assert_eq!(account_creation_top_up(Some((1000, 0)), 1000), 0);
+        assert_eq!(account_creation_top_up(Some((10, 165)), 1000), 0);
+        assert_eq!(account_creation_top_up(None, 1000), 1000);
+    }
 
     #[cfg(feature = "native")]
     #[test]
@@ -1837,6 +1890,11 @@ mod tests {
                 "result": {"context": {"slot": 1}, "value": null}
             }),
             serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": 2_039_280}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": {"context": {"slot": 1}, "value": null}}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": 3_000_000}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": 2_039_280}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": {"context": {"slot": 1}, "value": null}}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": {"context": {"slot": 1}, "value": null}}),
             serde_json::json!({
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -1862,15 +1920,20 @@ mod tests {
 
         assert_eq!(plan.kind, super::SolActionKind::Split);
         assert_eq!(plan.transaction.message().instructions.len(), 4);
-        assert_eq!(plan.costs.upfront_rent_lamports, 2_039_280);
-        assert_eq!(plan.availability.reserve_lamports, 3_500_000);
-        assert_eq!(plan.expected_delta.native_lamports, -502_044_280);
+        assert_eq!(plan.costs.upfront_rent_lamports, 9_117_840);
+        assert_eq!(plan.availability.reserve_lamports, 9_122_840);
+        assert_eq!(plan.expected_delta.native_lamports, -509_122_840);
         assert_eq!(plan.expected_delta.canonical_wsol_lamports, 0);
         let requests = requests.lock().unwrap();
         assert!(requests[0].contains("getAccountInfo"));
         assert!(requests[1].contains("getMinimumBalanceForRentExemption"));
-        assert!(requests[2].contains("getLatestBlockhash"));
-        assert!(requests[3].contains("getFeeForMessage"));
+        assert!(requests[2].contains("getAccountInfo"));
+        assert!(requests[3].contains("getMinimumBalanceForRentExemption"));
+        assert!(requests[4].contains("getMinimumBalanceForRentExemption"));
+        assert!(requests[5].contains("getAccountInfo"));
+        assert!(requests[6].contains("getAccountInfo"));
+        assert!(requests[7].contains("getLatestBlockhash"));
+        assert!(requests[8].contains("getFeeForMessage"));
     }
 
     #[cfg(feature = "native")]
@@ -2551,17 +2614,8 @@ mod tests {
 
     #[cfg(feature = "native")]
     #[tokio::test]
-    async fn sol_planners_reject_unsupported_sponsorship_and_invalid_redeem_outcomes() {
+    async fn sol_planners_reject_invalid_redeem_outcomes() {
         let (client, state, _) = planning_client("http://127.0.0.1:1", "1.000000000");
-
-        let sponsored = client
-            .positions()
-            .plan_native_sol_withdrawal(Pubkey::new_unique(), 1, &state, true)
-            .await
-            .unwrap_err();
-        assert!(sponsored
-            .to_string()
-            .contains("sponsored SOL action planning is not supported"));
 
         let invalid_outcome = client
             .positions()

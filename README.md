@@ -73,10 +73,14 @@ Transaction Sponsorship Capability is a client-wide trusted application assertio
 that defaults to false. It bypasses the generic check for external signing, while
 local-keypair submission rejects it with `transaction sponsorship is not supported
 with local-keypair signing`. The SDK does not infer sponsorship from a wallet
-provider. The existing Privy transaction endpoint cannot return signed bytes for
-message validation, so SDK-owned Privy transaction submission fails before any
-request. Use a v1-capable external signer that returns the signed transaction;
-Privy off-chain order signing remains available. See
+provider. For sponsored submission, an external signer must implement
+`send_sponsored_transaction` and return the submitted signature. The SDK passes
+the prepared transaction to that signer once and confirms its signature. It
+does not use the ordinary raw RPC send path or the prepared blockhash expiry,
+because the sponsor may replace the fee payer and blockhash. Unsponsored
+submission still requires a v1-capable signer that returns signed bytes. A lost
+sponsored response returns `SponsoredSubmissionUnknown` and is never replayed
+automatically. See
 [ADR 0002](docs/adr/0002-transaction-fee-funding-preflight.md) and the
 [v1 signing contract](docs/adr/0004-solana-v1.md).
 

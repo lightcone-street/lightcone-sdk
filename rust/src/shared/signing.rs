@@ -56,9 +56,9 @@ pub trait ExternalSigner: Send + Sync {
     /// Return the public key of the connected wallet controlled by this signer.
     ///
     /// Unsponsored transaction submission requires `Some` with the transaction's
-    /// fee payer; `None` fails before signing. Message-only signers can retain
-    /// the default. Sponsored submission does not require a wallet identity,
-    /// but identity-bound SOL planners still do.
+    /// fee payer; `None` fails before signing. Sponsored submission also
+    /// requires the signer to identify the prepared Trading Wallet.
+    /// Message-only signers can retain the default.
     fn wallet_address(&self) -> Option<Pubkey> {
         None
     }
@@ -77,6 +77,19 @@ pub trait ExternalSigner: Send + Sync {
         &'a self,
         tx_bytes: &'a [u8],
     ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + 'a>>;
+
+    /// Submit one sponsored transaction through the external wallet service.
+    ///
+    /// The implementation must validate `wallet` against its active session.
+    /// It must make at most one network submission attempt. Ordinary adapters
+    /// reject this operation instead of falling back to an unsponsored send.
+    fn send_sponsored_transaction<'a>(
+        &'a self,
+        _tx_bytes: &'a [u8],
+        _wallet: Pubkey,
+    ) -> Pin<Box<dyn Future<Output = Result<String, String>> + 'a>> {
+        Box::pin(async { Err("sponsored transaction submission is unavailable".into()) })
+    }
 }
 
 /// Signing strategy for the client.
