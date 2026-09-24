@@ -77,7 +77,7 @@ impl SolBalanceBreakdown {
 pub struct SolActionCosts {
     /// Fee returned by `getFeeForMessage`, in lamports.
     pub fee_lamports: u64,
-    /// Rent that must be funded before the transaction can execute, even if refunded later.
+    /// Upfront rent paid by the Trading Wallet, even if refunded later.
     pub upfront_rent_lamports: u64,
     /// Whether this transaction creates the canonical WSOL ATA.
     pub creates_canonical_wsol_account: bool,
@@ -88,13 +88,13 @@ pub struct SolActionCosts {
 impl SolActionCosts {
     /// Reserve enough native SOL for live costs and the configured safety floor.
     pub fn reserve_lamports(self) -> Result<u64, SdkError> {
+        if self.sponsored {
+            return Ok(self.upfront_rent_lamports);
+        }
         let live_costs = self
             .fee_lamports
             .checked_add(self.upfront_rent_lamports)
             .ok_or_else(|| SdkError::Validation("SOL transaction costs overflow u64".into()))?;
-        if self.sponsored {
-            return Ok(0);
-        }
         let floor = if self.creates_canonical_wsol_account {
             SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS
         } else {
@@ -129,6 +129,12 @@ impl SolBalanceAvailability {
             .ok_or_else(|| SdkError::Validation("SOL balance breakdown overflows u64".into()))?;
         let reserve_lamports = costs.reserve_lamports()?;
         if breakdown.native_lamports < reserve_lamports {
+            if costs.sponsored {
+                return Err(SdkError::InsufficientSolForAccountRent {
+                    available_lamports: breakdown.native_lamports,
+                    required_lamports: reserve_lamports,
+                });
+            }
             return Err(SdkError::InsufficientSolForTransactionFees {
                 available_lamports: breakdown.native_lamports,
                 required_lamports: reserve_lamports,
@@ -724,15 +730,49 @@ mod tests {
             breakdown,
             SolActionCosts {
                 fee_lamports: 20_000_000,
-                upfront_rent_lamports: 20_000_000,
+                upfront_rent_lamports: 3_000_000,
                 creates_canonical_wsol_account: true,
                 sponsored: true,
             },
         )
         .unwrap();
-        assert_eq!(sponsored.reserve_lamports, 0);
-        assert_eq!(sponsored.spendable_lamports, 15_000_000);
-        assert!(SolBalanceAvailability::from_costs(
+        assert_eq!(sponsored.reserve_lamports, 3_000_000);
+        assert_eq!(sponsored.spendable_lamports, 12_000_000);
+        let sponsored_fee_only = SolBalanceAvailability::from_costs(
+            SolBalanceBreakdown {
+                native_lamports: 0,
+                canonical_wsol_lamports: 5_000_000,
+            },
+            SolActionCosts {
+                fee_lamports: 20_000_000,
+                upfront_rent_lamports: 0,
+                creates_canonical_wsol_account: false,
+                sponsored: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(sponsored_fee_only.reserve_lamports, 0);
+        let rent_shortfall = SolBalanceAvailability::from_costs(
+            SolBalanceBreakdown {
+                native_lamports: 0,
+                canonical_wsol_lamports: 5_000_000,
+            },
+            SolActionCosts {
+                fee_lamports: 20_000_000,
+                upfront_rent_lamports: 1,
+                creates_canonical_wsol_account: false,
+                sponsored: true,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(
+            rent_shortfall,
+            SdkError::InsufficientSolForAccountRent {
+                available_lamports: 0,
+                required_lamports: 1
+            }
+        ));
+        let sponsored_large_fee = SolBalanceAvailability::from_costs(
             breakdown,
             SolActionCosts {
                 fee_lamports: u64::MAX,
@@ -741,7 +781,8 @@ mod tests {
                 sponsored: true,
             },
         )
-        .is_err());
+        .unwrap();
+        assert_eq!(sponsored_large_fee.reserve_lamports, 1);
     }
 
     #[test]

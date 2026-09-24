@@ -14,6 +14,10 @@ pub enum SdkError {
         reason: String,
     },
 
+    /// The sponsored wallet RPC may have submitted, but returned no signature.
+    #[error("Sponsored transaction status is unknown. Check wallet activity and balances before trying again.")]
+    SponsoredSubmissionUnknown,
+
     /// The RPC rejected this send before queuing it. No automatic retry is performed.
     #[error("RPC rejected transaction {signature} ({code}): {reason}")]
     SubmissionRejected {
@@ -40,6 +44,17 @@ pub enum SdkError {
         /// Confirmed Native SOL Balance in the declared fee payer, in lamports.
         available_lamports: u64,
         /// Exact transaction fee or planner-owned reserve required, in lamports.
+        required_lamports: u64,
+    },
+
+    /// A sponsored action creates an account with the Trading Wallet as payer.
+    #[error(
+        "Insufficient SOL for account creation rent. Deposit SOL to your wallet and try again."
+    )]
+    InsufficientSolForAccountRent {
+        /// Native SOL currently held by the Trading Wallet, in lamports.
+        available_lamports: u64,
+        /// Wallet-funded account rent needed before the action can execute, in lamports.
         required_lamports: u64,
     },
 

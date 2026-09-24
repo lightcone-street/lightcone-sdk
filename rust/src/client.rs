@@ -28,7 +28,7 @@ use crate::rpc::Rpc;
 use crate::rpc_failover::{
     is_infrastructure_error_http, with_failover, ActiveRpc, RpcFailoverState,
 };
-use crate::shared::signing::{ExternalSigner, SigningStrategy};
+use crate::shared::signing::{ExternalSigner, SigningStrategy, SponsoredSubmissionError};
 use crate::shared::OrderbookRules;
 use crate::shared::{DepositSource, PubkeyStr};
 use crate::ws::WsConfig;
@@ -533,6 +533,44 @@ impl LightconeClient {
         Ok(!value.is_null())
     }
 
+    /// Fetch the funding and allocation state used by wallet-paid account creation.
+    pub async fn account_funding_state(
+        &self,
+        address: &Pubkey,
+    ) -> Result<Option<(u64, usize)>, SdkError> {
+        let response: serde_json::Value = self
+            .rpc_call_with_failover(&serde_json::json!({
+                "id": 1,
+                "jsonrpc": "2.0",
+                "method": "getAccountInfo",
+                "params": [address.to_string(), { "commitment": "confirmed", "encoding": "base64" }]
+            }))
+            .await?;
+        if let Some(error) = response.get("error") {
+            return Err(SdkError::Other(format!("RPC error: {error}")));
+        }
+        let value = response
+            .get("result")
+            .and_then(|result| result.get("value"))
+            .ok_or_else(|| SdkError::Other("missing account value in RPC response".into()))?;
+        if value.is_null() {
+            return Ok(None);
+        }
+        let lamports = value
+            .get("lamports")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| SdkError::Other("account lamports are missing or invalid".into()))?;
+        let encoded = value
+            .get("data")
+            .and_then(serde_json::Value::as_array)
+            .and_then(|data| data.first())
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| SdkError::Other("account base64 data is missing".into()))?;
+        let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
+            .map_err(|_| SdkError::Other("account base64 data is invalid".into()))?;
+        Ok(Some((lamports, data.len())))
+    }
+
     /// Return exact confirmed facts for the Trading Wallet's canonical WSOL account.
     ///
     /// `address` must equal the supplied Trading Wallet's Tokenkeg native-mint
@@ -795,9 +833,9 @@ impl LightconeClient {
 
     /// Reject invalid payer and sponsorship combinations before submission can yield.
     ///
-    /// Unsponsored known signers must control the payer being classified. Sponsored
-    /// external flows may use a different payer, while native sponsorship is rejected
-    /// before blockhash RPC or caller-transaction mutation.
+    /// Unsponsored known signers must control the payer being classified.
+    /// The final sponsored submission check also requires the external signer
+    /// to control the prepared Trading Wallet. Native sponsorship is rejected.
     fn validate_transaction_fee_funding_context(
         &self,
         fee_payer: &Pubkey,
@@ -830,6 +868,11 @@ impl LightconeClient {
         sponsorship_enabled: bool,
     ) -> Result<(), SdkError> {
         self.validate_transaction_fee_funding_context(fee_payer, strategy, sponsorship_enabled)?;
+        if sponsorship_enabled && strategy.wallet_address() != Some(*fee_payer) {
+            return Err(SdkError::Validation(
+                "sponsored signer does not control the prepared wallet".into(),
+            ));
+        }
         if !sponsorship_enabled && strategy.wallet_address().is_none() {
             return Err(SdkError::Validation(
                 "signing strategy wallet identity is required".into(),
@@ -1083,8 +1126,8 @@ impl LightconeClient {
     /// to send once that prior transaction has confirmed. See
     /// [`Self::confirm_signature`] for the terminal error taxonomy.
     ///
-    /// Confirmation retains the original blockhash expiry for both native and
-    /// wallet signing. A wallet response that changes the message is rejected.
+    /// Sponsored confirmation does not reuse the prepared message's expiry.
+    /// Privy may replace its blockhash before submitting the transaction.
     pub async fn sign_and_submit_tx_confirmed(
         &self,
         tx: V1Transaction,
@@ -1210,7 +1253,9 @@ impl LightconeClient {
         })
     }
 
-    /// Validate funding, sign the exact message, simulate, and submit once.
+    /// Validate funding and submit once through the selected signing path.
+    /// The ordinary path signs and simulates the exact message. The sponsored
+    /// wallet service may replace the fee payer and blockhash before sending.
     async fn sign_and_submit_tx_inner(
         &self,
         tx: V1Transaction,
@@ -1224,6 +1269,24 @@ impl LightconeClient {
         self.preflight_transaction_fee_funding(&tx, &strategy, sponsorship_enabled)
             .await?;
         self.ensure_v1_supported().await?;
+        if sponsorship_enabled {
+            let SigningStrategy::WalletAdapter(signer) = strategy else {
+                return Err(SdkError::Validation(
+                    "sponsored submission requires an external signer".into(),
+                ));
+            };
+            let signature = signer
+                .send_sponsored_transaction(&tx.to_wire_bytes()?, *payer)
+                .await
+                .map_err(|error| match error {
+                    SponsoredSubmissionError::Unknown => SdkError::SponsoredSubmissionUnknown,
+                    SponsoredSubmissionError::Rejected(reason) => SdkError::Signing(reason),
+                })?;
+            signature
+                .parse::<solana_signature::Signature>()
+                .map_err(|_| SdkError::SponsoredSubmissionUnknown)?;
+            return Ok((signature, None));
+        }
         let height = tx.context().last_valid_block_height;
         let signed = match strategy {
             #[cfg(feature = "native-auth")]
@@ -1647,6 +1710,8 @@ mod tests {
     struct RecordingExternalSigner {
         wallet: Pubkey,
         transaction_calls: Arc<AtomicUsize>,
+        sponsored_calls: Arc<AtomicUsize>,
+        sponsored_response_unknown: bool,
     }
 
     #[cfg(feature = "native")]
@@ -1670,6 +1735,27 @@ mod tests {
         {
             self.transaction_calls.fetch_add(1, Ordering::SeqCst);
             Box::pin(async move { Ok(tx_bytes.to_vec()) })
+        }
+
+        fn send_sponsored_transaction<'a>(
+            &'a self,
+            _tx_bytes: &'a [u8],
+            wallet: Pubkey,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<String, SponsoredSubmissionError>> + 'a>,
+        > {
+            self.sponsored_calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {
+                if self.sponsored_response_unknown {
+                    return Err(SponsoredSubmissionError::Unknown);
+                }
+                if wallet != self.wallet {
+                    return Err(SponsoredSubmissionError::Rejected(
+                        "wrong sponsored wallet".into(),
+                    ));
+                }
+                Ok(solana_signature::Signature::default().to_string())
+            })
         }
     }
 
@@ -1913,36 +1999,70 @@ mod tests {
 
     #[cfg(feature = "native")]
     #[tokio::test]
-    async fn sponsored_prepared_external_signer_may_differ_from_fee_payer(
+    async fn sponsored_prepared_submission_uses_only_the_external_wallet_service(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let (rpc_url, attempts) = spawn_failing_rpc_server(Some(5_000), Some(5_000)).await?;
         let transaction_calls = Arc::new(AtomicUsize::new(0));
+        let sponsored_calls = Arc::new(AtomicUsize::new(0));
+        let payer = Pubkey::new_unique();
         let signer = RecordingExternalSigner {
-            wallet: Pubkey::new_unique(),
+            wallet: payer,
             transaction_calls: Arc::clone(&transaction_calls),
+            sponsored_calls: Arc::clone(&sponsored_calls),
+            sponsored_response_unknown: false,
         };
         let client = LightconeClient::builder()
             .rpc_url(&rpc_url)
             .external_signer(Arc::new(signer))
             .transaction_sponsorship(true)
             .build()?;
-        let payer = Pubkey::new_unique();
         let transaction = test_transaction(&payer);
 
-        let error = client
-            .sign_and_submit_prepared_tx_confirmed_with_slot(transaction)
-            .await
-            .unwrap_err();
+        let signature = client.sign_and_submit_tx(transaction).await?;
+        assert_eq!(
+            signature,
+            solana_signature::Signature::default().to_string()
+        );
         assert_eq!(
             transaction_calls.load(Ordering::SeqCst),
-            1,
-            "unexpected error before signing: {error}"
+            0,
+            "sponsored submission must not use the ordinary signing path"
         );
+        assert_eq!(sponsored_calls.load(Ordering::SeqCst), 1);
         assert_eq!(
             attempts.load(Ordering::SeqCst),
             1,
-            "unexpected error before submission: {error}"
+            "only the v1 feature check may use ordinary RPC"
         );
+        Ok(())
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn sponsored_lost_response_reports_unknown_submission_without_replay(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (rpc_url, attempts) = spawn_failing_rpc_server(Some(5_000), Some(5_000)).await?;
+        let sponsored_calls = Arc::new(AtomicUsize::new(0));
+        let payer = Pubkey::new_unique();
+        let signer = RecordingExternalSigner {
+            wallet: payer,
+            transaction_calls: Arc::new(AtomicUsize::new(0)),
+            sponsored_calls: Arc::clone(&sponsored_calls),
+            sponsored_response_unknown: true,
+        };
+        let client = LightconeClient::builder()
+            .rpc_url(&rpc_url)
+            .external_signer(Arc::new(signer))
+            .transaction_sponsorship(true)
+            .build()?;
+
+        let error = client
+            .sign_and_submit_tx(test_transaction(&payer))
+            .await
+            .unwrap_err();
+        assert!(matches!(error, SdkError::SponsoredSubmissionUnknown));
+        assert_eq!(sponsored_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
         Ok(())
     }
 
