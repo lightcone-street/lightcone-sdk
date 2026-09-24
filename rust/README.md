@@ -408,8 +408,9 @@ let Relayed { body: session, set_cookie } = client
 ```
 
 Relayed variants exist for login, Privy registration, session check, logout,
-X disconnect, max-slippage preference, order submit and cancel (including
-trigger orders), and `jurisdiction().geoblock_relayed`.
+X disconnect, max-slippage preference, notification dismissal, referral
+redemption, order submit and cancel (including trigger orders), and
+`jurisdiction().geoblock_relayed`.
 
 ## Environment Configuration
 
