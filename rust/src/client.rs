@@ -1592,14 +1592,19 @@ impl LightconeClientBuilder {
     }
 
     pub fn build(self) -> Result<LightconeClient, SdkError> {
-        #[cfg(target_arch = "wasm32")]
-        if self
+        let has_api_key = self
             .api_key
             .as_deref()
-            .is_some_and(|key| !key.trim().is_empty())
-        {
+            .is_some_and(|key| !key.trim().is_empty());
+        #[cfg(target_arch = "wasm32")]
+        if has_api_key {
             return Err(SdkError::Validation(
                 "API keys may only be configured in server-side SDK builds".to_string(),
+            ));
+        }
+        if has_api_key && !LightconeHttp::api_key_origin_is_secure(&self.base_url) {
+            return Err(SdkError::Validation(
+                "API keys require HTTPS or a loopback HTTP origin".to_string(),
             ));
         }
         if let Some(resources) = self.transaction_resources {
@@ -1639,6 +1644,23 @@ impl LightconeClientBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn api_key_requires_tls_or_loopback() {
+        assert!(matches!(
+            LightconeClient::builder()
+                .base_url("http://api.example.com")
+                .api_key("test-key")
+                .build(),
+            Err(SdkError::Validation(_))
+        ));
+        assert!(LightconeClient::builder()
+            .base_url("http://127.0.0.1:3001")
+            .api_key("test-key")
+            .build()
+            .is_ok());
+    }
 
     #[cfg(target_arch = "wasm32")]
     #[test]

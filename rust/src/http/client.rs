@@ -200,6 +200,19 @@ const CREDENTIAL_RESTORE_TIMEOUT: Duration = Duration::from_secs(30);
 const CREDENTIAL_RESTORE_TIMEOUT: Duration = Duration::from_millis(300);
 
 impl LightconeHttp {
+    /// Keys may traverse TLS or a local development loopback connection only.
+    pub(crate) fn api_key_origin_is_secure(base_url: &str) -> bool {
+        let Ok(url) = reqwest::Url::parse(base_url) else {
+            return false;
+        };
+        url.scheme() == "https"
+            || (url.scheme() == "http"
+                && url.host_str().is_some_and(|host| {
+                    let host = host.trim_start_matches('[').trim_end_matches(']');
+                    host.eq_ignore_ascii_case("localhost") || matches!(host, "127.0.0.1" | "::1")
+                }))
+    }
+
     pub fn new(base_url: &str) -> Self {
         Self::with_api_key(base_url, None)
     }
@@ -868,6 +881,13 @@ impl LightconeHttp {
         #[cfg(not(target_arch = "wasm32"))]
         if self.is_api_origin(url) {
             if let Some(api_key) = self.api_key.as_deref() {
+                // Defence in depth for callers constructing this public transport
+                // directly instead of using the validating LightconeClient builder.
+                if !Self::api_key_origin_is_secure(&self.base_url) {
+                    return Err(ApiRequestError::Http(HttpError::BadRequest(
+                        "API keys require HTTPS or a loopback HTTP origin".to_string(),
+                    )));
+                }
                 req = req.header(API_KEY_HEADER, api_key.as_str());
             }
         }
@@ -2239,6 +2259,28 @@ mod tests {
         );
         assert!(!heads[1].contains("x-lightcone-api-key"), "{}", heads[1]);
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn api_key_refuses_non_loopback_cleartext_origin() {
+        assert!(LightconeHttp::api_key_origin_is_secure(
+            "https://api.example.com"
+        ));
+        assert!(LightconeHttp::api_key_origin_is_secure(
+            "http://127.0.0.1:3001"
+        ));
+        assert!(!LightconeHttp::api_key_origin_is_secure(
+            "http://api.example.com"
+        ));
+        let http =
+            LightconeHttp::with_api_key("http://api.example.com", Some("test-key".to_string()));
+        let result: Result<serde_json::Value, _> = http
+            .get("http://api.example.com/api/markets", RetryPolicy::None)
+            .await;
+        assert!(matches!(
+            result,
+            Err(SdkError::Http(HttpError::BadRequest(_)))
+        ));
     }
 
     #[tokio::test]

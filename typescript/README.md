@@ -523,7 +523,7 @@ In browsers, use the ordinary methods. The browser supplies the cookie through `
 ## API Key
 
 Configure an API key when a server-side client calls a deployed REST API host.
-The backend [REST Admission decision](https://github.com/lightcone-street/lightcone-backend/blob/staging/docs/adr/0004-rest-api-key-admission.md)
+The backend [REST Admission decision](https://github.com/lightcone-street/lightcone-backend/blob/9678af27617d55aef2c67bed9f838b1d8514b7d8/docs/adr/0004-rest-api-key-admission.md)
 owns the admission and allowance rules; this section covers SDK setup only.
 
 ```ts
@@ -536,7 +536,8 @@ const client = LightconeClient.builder()
 The SDK sends the key as `x-lightcone-api-key` only to the configured API
 origin and never logs it. Keep it server-side: a key shipped to a browser is
 readable by anyone who loads the page.
-The client rejects API-key configuration in a browser.
+The client rejects API-key configuration in a browser window or Worker.
+Keys require HTTPS except for loopback HTTP in local development.
 
 ## Environment Configuration
 

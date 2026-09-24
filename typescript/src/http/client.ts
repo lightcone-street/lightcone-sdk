@@ -109,6 +109,9 @@ export class LightconeHttp {
     if (apiKey && isBrowserRuntime()) {
       throw new Error("API keys may only be configured in server-side SDK builds");
     }
+    if (apiKey && !isSecureApiKeyOrigin(this.normalizedBaseUrl)) {
+      throw new Error("API keys require HTTPS or a loopback HTTP origin");
+    }
     this.apiKey = apiKey ? apiKey : undefined;
   }
 
@@ -451,7 +454,7 @@ export class LightconeHttp {
     // Cookie injection is origin-gated: session credentials only ride to the
     // configured API origin, never to an arbitrary absolute URL a caller
     // supplies. In a browser the runtime owns cookie scoping instead.
-    if (!hasBrowserWindow() && this.isApiOrigin(url)) {
+    if (!isBrowserRuntime() && this.isApiOrigin(url)) {
       const cookie = this.cookieHeader(authMode);
       if (cookie) {
         headers.Cookie = cookie;
@@ -480,7 +483,7 @@ export class LightconeHttp {
         // branch is an explicit "omit" because the fetch default is
         // "same-origin" — a URL foreign to the API but matching the PAGE
         // origin would still get that origin's cookies.
-        ...(hasBrowserWindow()
+        ...(isBrowserRuntime()
           ? {
               credentials: (this.isApiOrigin(url)
                 ? "include"
@@ -504,7 +507,7 @@ export class LightconeHttp {
       // Set-Cookie into the process-wide token slot would leak that user's
       // rotated token to every later request from a shared server client
       // (the python SDK has always skipped this; typescript now matches).
-      if (!hasBrowserWindow() && authMode.kind !== "cookieOverride") {
+      if (!isBrowserRuntime() && authMode.kind !== "cookieOverride") {
         this.captureCookies(response);
       }
 
@@ -533,7 +536,7 @@ export class LightconeHttp {
   }
 
   private cookieHeader(authMode: AuthMode): string | undefined {
-    if (hasBrowserWindow()) {
+    if (isBrowserRuntime()) {
       return undefined;
     }
 
@@ -675,4 +678,15 @@ function hasBrowserWindow(): boolean {
 function isBrowserRuntime(): boolean {
   // Browser workers have no `window`, but still must not accept a server key.
   return hasBrowserWindow() || "importScripts" in globalThis;
+}
+
+function isSecureApiKeyOrigin(baseUrl: string): boolean {
+  try {
+    const url = new URL(baseUrl);
+    return url.protocol === "https:" ||
+      (url.protocol === "http:" &&
+        ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname));
+  } catch {
+    return false;
+  }
 }

@@ -4,7 +4,9 @@ use crate::client::LightconeClient;
 use crate::domain::orderbook::aggregation::BookAggregation;
 use crate::domain::orderbook::wire::{DecimalsResponse, OrderbookDepthResponse};
 use crate::error::SdkError;
-use crate::http::{RelayContext, RetryPolicy};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::http::RelayContext;
+use crate::http::RetryPolicy;
 use crate::program::instructions;
 use crate::program::transaction::{V1Transaction, V1TransactionContext};
 use crate::program::types::CloseOrderbookParams;

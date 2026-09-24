@@ -195,10 +195,14 @@ client.set_order_nonce(await client.orders().current_nonce(keypair.pubkey()))
 ## API Key
 
 Configure an API key when a server-side client calls a deployed REST API host.
-The backend [REST Admission decision](https://github.com/lightcone-street/lightcone-backend/blob/staging/docs/adr/0004-rest-api-key-admission.md)
+The backend [REST Admission decision](https://github.com/lightcone-street/lightcone-backend/blob/9678af27617d55aef2c67bed9f838b1d8514b7d8/docs/adr/0004-rest-api-key-admission.md)
 owns the admission and allowance rules; this section covers SDK setup only.
 
 ```python
+import os
+
+from lightcone_sdk import LightconeClientBuilder, LightconeEnv
+
 client = (
     LightconeClientBuilder()
     .env(LightconeEnv.STAGING)
@@ -208,7 +212,7 @@ client = (
 ```
 
 The SDK sends the key as `x-lightcone-api-key` only to the configured API
-origin and never logs it. Keep it out of source control.
+origin and never logs it. Keys require HTTPS except for loopback HTTP in local development. Keep it out of source control.
 
 ## Environment Configuration
 

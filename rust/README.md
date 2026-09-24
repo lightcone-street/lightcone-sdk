@@ -372,7 +372,7 @@ If you maintain a non-Rust SDK (TypeScript, Python) and need to support an SSR c
 ## API Key
 
 Configure an API key when a server-side client calls a deployed REST API host.
-The backend [REST Admission decision](https://github.com/lightcone-street/lightcone-backend/blob/staging/docs/adr/0004-rest-api-key-admission.md)
+The backend [REST Admission decision](https://github.com/lightcone-street/lightcone-backend/blob/9678af27617d55aef2c67bed9f838b1d8514b7d8/docs/adr/0004-rest-api-key-admission.md)
 owns the admission and allowance rules; this section covers SDK setup only.
 
 ```rust
@@ -383,7 +383,7 @@ let client = LightconeClient::builder()
 ```
 
 The SDK sends the key as `x-lightcone-api-key` only to the configured API
-origin and never logs it. WASM builds reject API-key configuration because
+origin and never logs it. Keys require HTTPS except for loopback HTTP in local development. WASM builds reject API-key configuration because
 browser-managed redirects cannot safely carry the key. Keep it out of browsers
 and source control.
 

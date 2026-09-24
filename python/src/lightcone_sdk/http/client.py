@@ -66,6 +66,8 @@ class LightconeHttp:
         # API key sent as ``x-lightcone-api-key`` on every request to the API
         # origin. It identifies an API Consumer, never a user; never logged.
         self._api_key = api_key.strip() if api_key and api_key.strip() else None
+        if self._api_key is not None and not self._is_secure_api_key_origin():
+            raise ValueError("API keys require HTTPS or a loopback HTTP origin")
         self._auth_token: str | None = None
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._session: aiohttp.ClientSession | None = None
@@ -102,6 +104,15 @@ class LightconeHttp:
     def has_api_key(self) -> bool:
         """True when an API key is configured on this transport."""
         return self._api_key is not None
+
+    def _is_secure_api_key_origin(self) -> bool:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self._base_url)
+        return (parsed.scheme == "https" and parsed.hostname is not None) or (
+            parsed.scheme == "http"
+            and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+        )
 
     @property
     def auth_token(self) -> str | None:

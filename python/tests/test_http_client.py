@@ -926,3 +926,10 @@ def test_builder_passes_the_api_key_to_the_http_client() -> None:
     )
     assert client._http.has_api_key
     assert client.has_api_key
+
+
+def test_api_key_rejects_non_loopback_cleartext_origin() -> None:
+    with pytest.raises(ValueError, match="HTTPS or a loopback HTTP origin"):
+        LightconeHttp("http://api.example.com", api_key="test-key")
+    assert LightconeHttp("http://127.0.0.1:3001", api_key="test-key").has_api_key
+    assert LightconeHttp("https://api.example.com", api_key="test-key").has_api_key
