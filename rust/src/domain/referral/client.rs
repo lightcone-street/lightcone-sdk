@@ -5,6 +5,8 @@ use crate::domain::referral::wire::{RedeemRequest, RedeemResponse, ReferralStatu
 use crate::domain::referral::{RedeemResult, ReferralCodeInfo, ReferralStatus};
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::http::{RelayContext, Relayed};
 
 pub struct Referrals<'a> {
     pub(crate) client: &'a LightconeClient,
@@ -68,6 +70,29 @@ impl<'a> Referrals<'a> {
             .await?;
 
         Ok(redeem_result_from_wire(resp))
+    }
+
+    /// Redeem on behalf of one visitor, preserving its cookies and verified
+    /// country and returning any backend Set-Cookie headers to the caller.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn redeem_relayed(
+        &self,
+        code: &str,
+        context: &RelayContext,
+    ) -> Result<Relayed<RedeemResult>, SdkError> {
+        let url = format!("{}/api/referral/redeem", self.client.http.base_url());
+        let body = RedeemRequest {
+            code: code.to_string(),
+        };
+        let relayed: Relayed<RedeemResponse> = self
+            .client
+            .http
+            .post_relayed(&url, &body, RetryPolicy::None, context)
+            .await?;
+        Ok(Relayed {
+            body: redeem_result_from_wire(relayed.body),
+            set_cookie: relayed.set_cookie,
+        })
     }
 }
 

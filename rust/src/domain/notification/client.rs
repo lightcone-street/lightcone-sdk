@@ -4,6 +4,8 @@ use crate::client::LightconeClient;
 use crate::domain::notification::Notification;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::http::{RelayContext, Relayed};
 use serde::{Deserialize, Serialize};
 
 pub struct Notifications<'a> {
@@ -75,5 +77,28 @@ impl<'a> Notifications<'a> {
             .post_with_cookies(&url, &body, RetryPolicy::None, cookie_header)
             .await?;
         Ok(())
+    }
+
+    /// Dismiss on behalf of one visitor, preserving its cookies and verified
+    /// country and returning any backend Set-Cookie headers to the caller.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn dismiss_relayed(
+        &self,
+        notification_id: &str,
+        context: &RelayContext,
+    ) -> Result<Relayed<()>, SdkError> {
+        let url = format!("{}/api/notifications/dismiss", self.client.http.base_url());
+        let body = DismissRequest {
+            notification_id: notification_id.to_string(),
+        };
+        let relayed: Relayed<serde_json::Value> = self
+            .client
+            .http
+            .post_relayed(&url, &body, RetryPolicy::None, context)
+            .await?;
+        Ok(Relayed {
+            body: (),
+            set_cookie: relayed.set_cookie,
+        })
     }
 }
