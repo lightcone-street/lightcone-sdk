@@ -111,11 +111,15 @@ impl<'a> Orderbooks<'a> {
         orderbook_id: &str,
         context: &RelayContext,
     ) -> Result<DecimalsResponse, SdkError> {
-        let ready = {
-            let cache = self.client.orderbook_rules.read().await;
-            cache.get(orderbook_id).and_then(|cell| cell.get().cloned())
+        let cell = {
+            let mut cache = self.client.orderbook_rules.write().await;
+            Arc::clone(
+                cache
+                    .entry(orderbook_id.to_string())
+                    .or_insert_with(|| Arc::new(OnceCell::new())),
+            )
         };
-        if let Some(rules) = ready {
+        if let Some(rules) = cell.get().cloned() {
             return Ok(rules);
         }
         let url = format!(
@@ -132,6 +136,18 @@ impl<'a> Orderbooks<'a> {
         rules
             .validate_for_orderbook(orderbook_id)
             .map_err(crate::program::error::SdkError::from)?;
+        // Publish only completed, validated public rules. Never wait on an
+        // ordinary in-flight initializer: it may use the shared session and
+        // must not delay the visitor-scoped relay. A removed/replaced cell
+        // means cache invalidation happened during this fetch.
+        let completed = Arc::new(OnceCell::from(rules.clone()));
+        let mut cache = self.client.orderbook_rules.write().await;
+        if cache
+            .get(orderbook_id)
+            .is_some_and(|current| Arc::ptr_eq(current, &cell) && current.get().is_none())
+        {
+            cache.insert(orderbook_id.to_string(), completed);
+        }
         Ok(rules)
     }
 
@@ -237,7 +253,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn relayed_rule_discovery_uses_the_visitor_context() {
+    async fn relayed_rule_discovery_uses_the_visitor_context_and_caches_rules() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (sender, receiver) = tokio::sync::oneshot::channel();
@@ -262,6 +278,20 @@ mod tests {
             .orderbooks()
             .decimals_relayed("ob", &context)
             .await
+            .unwrap();
+
+        // The successful visitor-scoped fetch may populate the shared cache
+        // because the response is immutable public trading rules.
+        timeout(
+            Duration::from_secs(1),
+            client.orderbooks().decimals_relayed("ob", &context),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        timeout(Duration::from_secs(1), client.orderbooks().decimals("ob"))
+            .await
+            .unwrap()
             .unwrap();
 
         let request_head = receiver.await.unwrap();
