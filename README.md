@@ -61,6 +61,9 @@ ADR](docs/adr/0001-persistent-canonical-wsol.md).
 
 ## Transaction Fee Funding
 
+This section describes the Rust SDK. The TypeScript and Python SDKs retain
+their existing unsponsored submission paths.
+
 Every ordinary and prepared on-chain transaction submitted through a shared SDK
 submission API performs a best-effort pre-signing check of its exact message fee
 and declared fee-payer Native SOL Balance. A proven shortfall returns the typed
@@ -74,13 +77,15 @@ that defaults to false. It bypasses the generic check for external signing, whil
 local-keypair submission rejects it with `transaction sponsorship is not supported
 with local-keypair signing`. The SDK does not infer sponsorship from a wallet
 provider. For sponsored submission, an external signer must implement
-`send_sponsored_transaction` and return the submitted signature. The SDK passes
+`send_sponsored_transaction` and return the submitted signature. Its typed error
+must be `Unknown` when a request may have landed without a trustworthy response.
+The SDK passes
 the prepared transaction to that signer once and confirms its signature. It
 does not use the ordinary raw RPC send path or the prepared blockhash expiry,
 because the sponsor may replace the fee payer and blockhash. Unsponsored
 submission still requires a v1-capable signer that returns signed bytes. A lost
-sponsored response returns `SponsoredSubmissionUnknown` and is never replayed
-automatically. See
+or malformed sponsored response returns `SponsoredSubmissionUnknown` and is never
+replayed automatically. See
 [ADR 0002](docs/adr/0002-transaction-fee-funding-preflight.md) and the
 [v1 signing contract](docs/adr/0004-solana-v1.md).
 

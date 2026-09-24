@@ -28,7 +28,7 @@ use crate::rpc::Rpc;
 use crate::rpc_failover::{
     is_infrastructure_error_http, with_failover, ActiveRpc, RpcFailoverState,
 };
-use crate::shared::signing::{ExternalSigner, SigningStrategy};
+use crate::shared::signing::{ExternalSigner, SigningStrategy, SponsoredSubmissionError};
 use crate::shared::OrderbookRules;
 use crate::shared::{DepositSource, PubkeyStr};
 use crate::ws::WsConfig;
@@ -1278,12 +1278,9 @@ impl LightconeClient {
             let signature = signer
                 .send_sponsored_transaction(&tx.to_wire_bytes()?, *payer)
                 .await
-                .map_err(|error| {
-                    if error == "PRIVY_SPONSORED_SUBMISSION_UNKNOWN" {
-                        SdkError::SponsoredSubmissionUnknown
-                    } else {
-                        SdkError::Signing(error)
-                    }
+                .map_err(|error| match error {
+                    SponsoredSubmissionError::Unknown => SdkError::SponsoredSubmissionUnknown,
+                    SponsoredSubmissionError::Rejected(reason) => SdkError::Signing(reason),
                 })?;
             signature
                 .parse::<solana_signature::Signature>()
@@ -1744,15 +1741,18 @@ mod tests {
             &'a self,
             _tx_bytes: &'a [u8],
             wallet: Pubkey,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + 'a>>
-        {
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<String, SponsoredSubmissionError>> + 'a>,
+        > {
             self.sponsored_calls.fetch_add(1, Ordering::SeqCst);
             Box::pin(async move {
                 if self.sponsored_response_unknown {
-                    return Err("PRIVY_SPONSORED_SUBMISSION_UNKNOWN".into());
+                    return Err(SponsoredSubmissionError::Unknown);
                 }
                 if wallet != self.wallet {
-                    return Err("wrong sponsored wallet".into());
+                    return Err(SponsoredSubmissionError::Rejected(
+                        "wrong sponsored wallet".into(),
+                    ));
                 }
                 Ok(solana_signature::Signature::default().to_string())
             })
