@@ -143,6 +143,10 @@ impl LightconeClient {
         PriceHistoryClient { client: self }
     }
 
+    pub fn jurisdiction(&self) -> crate::domain::jurisdiction::Jurisdiction<'_> {
+        crate::domain::jurisdiction::Jurisdiction { client: self }
+    }
+
     pub fn auth(&self) -> Auth<'_> {
         Auth { client: self }
     }
@@ -1456,6 +1460,7 @@ impl Clone for LightconeClient {
 pub struct LightconeClientBuilder {
     transaction_resources: Option<V1ResourceConfig>,
     base_url: String,
+    api_key: Option<String>,
     ws_url: String,
     auth_credentials: Option<AuthCredentials>,
     program_id: Pubkey,
@@ -1471,6 +1476,7 @@ impl Default for LightconeClientBuilder {
         let environment = LightconeEnv::default();
         Self {
             base_url: environment.api_url().to_string(),
+            api_key: None,
             transaction_resources: None,
             ws_url: environment.ws_url().to_string(),
             auth_credentials: None,
@@ -1512,6 +1518,15 @@ impl LightconeClientBuilder {
 
     pub fn ws_url(mut self, url: &str) -> Self {
         self.ws_url = url.to_string();
+        self
+    }
+
+    /// Set the API key sent as `x-lightcone-api-key` on every REST request to
+    /// the API origin. The backend requires a key on every REST endpoint;
+    /// WebSocket connections need none. Keep the key server-side: it identifies
+    /// an API Consumer, never a user, and it is never logged by the SDK.
+    pub fn api_key(mut self, api_key: &str) -> Self {
+        self.api_key = Some(api_key.to_string());
         self
     }
 
@@ -1577,11 +1592,26 @@ impl LightconeClientBuilder {
     }
 
     pub fn build(self) -> Result<LightconeClient, SdkError> {
+        let has_api_key = self
+            .api_key
+            .as_deref()
+            .is_some_and(|key| !key.trim().is_empty());
+        #[cfg(target_arch = "wasm32")]
+        if has_api_key {
+            return Err(SdkError::Validation(
+                "API keys may only be configured in server-side SDK builds".to_string(),
+            ));
+        }
+        if has_api_key && !LightconeHttp::api_key_origin_is_secure(&self.base_url) {
+            return Err(SdkError::Validation(
+                "API keys require HTTPS or a loopback HTTP origin".to_string(),
+            ));
+        }
         if let Some(resources) = self.transaction_resources {
             resources.validate()?;
         }
         Ok(LightconeClient {
-            http: LightconeHttp::new(&self.base_url),
+            http: LightconeHttp::with_api_key(&self.base_url, self.api_key),
             transaction_resources: self.transaction_resources,
             ws_config: WsConfig {
                 url: self.ws_url,
@@ -1614,6 +1644,31 @@ impl LightconeClientBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn api_key_requires_tls_or_loopback() {
+        assert!(matches!(
+            LightconeClient::builder()
+                .base_url("http://api.example.com")
+                .api_key("test-key")
+                .build(),
+            Err(SdkError::Validation(_))
+        ));
+        assert!(LightconeClient::builder()
+            .base_url("http://127.0.0.1:3001")
+            .api_key("test-key")
+            .build()
+            .is_ok());
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn browser_build_rejects_api_key_configuration() {
+        let result = LightconeClient::builder().api_key("test-key").build();
+        assert!(matches!(result, Err(SdkError::Validation(_))));
+    }
+
     #[cfg(feature = "native")]
     fn test_transaction(payer: &Pubkey) -> V1Transaction {
         V1Transaction::compile(

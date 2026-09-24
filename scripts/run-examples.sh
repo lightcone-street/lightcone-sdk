@@ -26,6 +26,7 @@ usage() {
     echo ""
     echo "Environment variables:"
     echo "  LIGHTCONE_ENV              Required. Target environment (local, staging, prod)"
+    echo "  LIGHTCONE_API_KEY          Required on deployed REST hosts after admission cutover"
     echo "  LIGHTCONE_WALLET_PATH      Wallet keypair path for Rust examples"
     echo "  LIGHTCONE_WALLET_PATH_TS   Wallet keypair path for TypeScript examples"
     echo "  LIGHTCONE_WALLET_PATH_PYTHON  Wallet keypair path for Python examples"

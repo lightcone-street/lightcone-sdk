@@ -786,3 +786,130 @@ describe("auth logout error propagation", () => {
     });
   });
 });
+
+describe("API key transport", () => {
+  async function withHeaderCapture(
+    test: (baseUrl: string, headersSeen: () => (string | undefined)[]) => Promise<void>,
+  ): Promise<void> {
+    const seen: (string | undefined)[] = [];
+    const server = createServer((request, response) => {
+      seen.push(request.headers["x-lightcone-api-key"] as string | undefined);
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end('{"status":"success","body":{"ok":true}}');
+    });
+    await listen(server);
+    const address = server.address() as AddressInfo;
+    try {
+      await test(`http://127.0.0.1:${address.port}`, () => seen);
+    } finally {
+      await close(server);
+    }
+  }
+
+  it("sends the configured key only to the API origin", async () => {
+    await withHeaderCapture(async (baseUrl, headersSeen) => {
+      const http = new LightconeHttp(baseUrl, { apiKey: "lc_local_key" });
+      assert.equal(http.hasApiKey(), true);
+      await http.get(`${baseUrl}/api/markets`, RetryPolicy.None);
+      const foreign = new LightconeHttp("http://127.0.0.1:1", { apiKey: "lc_local_key" });
+      await foreign.get(`${baseUrl}/api/markets`, RetryPolicy.None);
+      assert.deepEqual(headersSeen(), ["lc_local_key", undefined]);
+    });
+  });
+
+  it("sends no key header when none is configured", async () => {
+    await withHeaderCapture(async (baseUrl, headersSeen) => {
+      const http = new LightconeHttp(baseUrl, { apiKey: "  " });
+      assert.equal(http.hasApiKey(), false);
+      await http.get(`${baseUrl}/api/markets`, RetryPolicy.None);
+      assert.deepEqual(headersSeen(), [undefined]);
+    });
+  });
+
+  it("rejects API key configuration in a browser", () => {
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+    try {
+      assert.throws(
+        () => new LightconeHttp("https://api.lightcone.xyz", { apiKey: "test-key" }),
+        /server-side SDK builds/,
+      );
+    } finally {
+      if (previousWindow) {
+        Object.defineProperty(globalThis, "window", previousWindow);
+      } else {
+        Reflect.deleteProperty(globalThis, "window");
+      }
+    }
+  });
+
+  it("rejects API key configuration in a browser worker", () => {
+    const previousImportScripts = Object.getOwnPropertyDescriptor(globalThis, "importScripts");
+    Object.defineProperty(globalThis, "importScripts", {
+      configurable: true,
+      value: () => undefined,
+    });
+    try {
+      assert.throws(
+        () => new LightconeHttp("https://api.lightcone.xyz", { apiKey: "test-key" }),
+        /server-side SDK builds/,
+      );
+    } finally {
+      if (previousImportScripts) {
+        Object.defineProperty(globalThis, "importScripts", previousImportScripts);
+      } else {
+        Reflect.deleteProperty(globalThis, "importScripts");
+      }
+    }
+  });
+
+  it("lets the browser own cookies in a worker", async () => {
+    const previousImportScripts = Object.getOwnPropertyDescriptor(globalThis, "importScripts");
+    const previousFetch = globalThis.fetch;
+    const seen: RequestInit[] = [];
+    Object.defineProperty(globalThis, "importScripts", {
+      configurable: true,
+      value: () => undefined,
+    });
+    globalThis.fetch = (async (_url, options) => {
+      seen.push(options ?? {});
+      return new Response('{"status":"success","body":{"ok":true}}', {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    try {
+      const http = new LightconeHttp("https://api.example.com");
+      await http.getWithCookies(
+        "https://api.example.com/api/markets",
+        RetryPolicy.None,
+        "lightcone-token=visitor-session",
+      );
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0].credentials, "include");
+      assert.equal(new Headers(seen[0].headers).has("Cookie"), false);
+    } finally {
+      globalThis.fetch = previousFetch;
+      if (previousImportScripts) {
+        Object.defineProperty(globalThis, "importScripts", previousImportScripts);
+      } else {
+        Reflect.deleteProperty(globalThis, "importScripts");
+      }
+    }
+  });
+
+  it("rejects an API key on a non-loopback cleartext origin", () => {
+    assert.throws(
+      () => new LightconeHttp("http://api.example.com", { apiKey: "test-key" }),
+      /HTTPS or a loopback HTTP origin/,
+    );
+    assert.equal(
+      new LightconeHttp("http://127.0.0.1:3001", { apiKey: "test-key" }).hasApiKey(),
+      true,
+    );
+    assert.equal(
+      new LightconeHttp("https://api.example.com", { apiKey: "test-key" }).hasApiKey(),
+      true,
+    );
+  });
+});

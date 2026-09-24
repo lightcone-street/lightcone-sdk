@@ -16,6 +16,7 @@ from solders.pubkey import Pubkey
 from .auth import AuthCredentials
 from .auth.client import Auth
 from .domain.faucet import FaucetRequest, FaucetResponse
+from .domain.jurisdiction.client import Jurisdiction
 from .domain.market.client import Markets
 from .domain.metrics.client import Metrics
 from .domain.notification.client import Notifications
@@ -113,9 +114,15 @@ class LightconeClient:
         self._referrals = Referrals(self)
         self._notifications = Notifications(self)
         self._metrics = Metrics(self)
+        self._jurisdiction = Jurisdiction(self)
         self._rpc = Rpc(self)
 
     # ── Properties ───────────────────────────────────────────────────────
+
+    @property
+    def has_api_key(self) -> bool:
+        """Whether this client has a server-side API key configured."""
+        return self._http.has_api_key
 
     @property
     def program_id(self) -> Pubkey:
@@ -488,6 +495,10 @@ class LightconeClient:
         deposit-token volume metrics, market leaderboard, and time-series history."""
         return self._metrics
 
+    def jurisdiction(self) -> Jurisdiction:
+        """Jurisdiction classification for this direct API caller."""
+        return self._jurisdiction
+
     async def claim(self, wallet_address: str) -> FaucetResponse:
         """Request testnet SOL + whitelisted deposit tokens for a wallet.
 
@@ -581,6 +592,7 @@ class LightconeClientBuilder:
         self._primary_rpc_url: str | None = environment.rpc_url
         self._backup_rpc_url: str | None = None
         self._connection: object | None = None
+        self._api_key: str | None = None
 
     def env(self, environment: LightconeEnv) -> LightconeClientBuilder:
         """Set the deployment environment. Configures the API URL, WebSocket URL,
@@ -593,6 +605,14 @@ class LightconeClientBuilder:
         self._ws_url = environment.ws_url
         self._program_id = environment.program_id
         self._primary_rpc_url = environment.rpc_url
+        return self
+
+    def api_key(self, key: str) -> LightconeClientBuilder:
+        """Set the API key sent as ``x-lightcone-api-key`` on every REST request
+        to the API origin. Keep it server-side: it identifies an API Consumer,
+        never a user, and the SDK never logs it.
+        """
+        self._api_key = key
         return self
 
     def base_url(self, url: str) -> LightconeClientBuilder:
@@ -682,6 +702,7 @@ class LightconeClientBuilder:
         http = LightconeHttp(
             base_url=self._base_url,
             timeout=self._timeout,
+            api_key=self._api_key,
         )
 
         ws_config = self._ws_config or WsConfig(

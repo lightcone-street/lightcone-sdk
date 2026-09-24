@@ -1,4 +1,5 @@
 export * as faucet from "./faucet";
+export * as jurisdiction from "./jurisdiction";
 export * as market from "./market";
 export * as metrics from "./metrics";
 export * as notification from "./notification";

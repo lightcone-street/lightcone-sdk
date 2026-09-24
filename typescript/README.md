@@ -14,6 +14,7 @@ TypeScript SDK for the Lightcone impact market protocol on Solana.
      - [Step 6: Exit a Position](#step-6-exit-a-position)
      - [Step 7: Withdraw](#step-7-withdraw)
 - [Authentication](#authentication)
+- [API Key](#api-key)
 - [Environment Configuration](#environment-configuration)
 - [Examples](#examples)
 - [Error Handling](#error-handling)
@@ -518,6 +519,28 @@ const positions = await client
 ```
 
 In browsers, use the ordinary methods. The browser supplies the cookie through `credentials: "include"`.
+
+## API Key
+
+Configure an API key when a server-side client calls a deployed REST API host.
+The backend [REST Admission decision](https://github.com/lightcone-street/lightcone-backend/blob/9678af27617d55aef2c67bed9f838b1d8514b7d8/docs/adr/0004-rest-api-key-admission.md)
+owns the admission and allowance rules; this section covers SDK setup only.
+
+```ts
+const client = LightconeClient.builder()
+  .env(LightconeEnv.Staging)
+  .apiKey(process.env.LIGHTCONE_API_KEY!)
+  .build();
+```
+
+The SDK sends the key as `x-lightcone-api-key` only to the configured API
+origin and never logs it. Keep it server-side: a key shipped to a browser is
+readable by anyone who loads the page.
+The client rejects API-key configuration in a browser window or Worker.
+Keys require HTTPS except for loopback HTTP in local development.
+
+`await client.jurisdiction().geoblock()` returns the typed jurisdiction
+response for this direct API caller, including the required `relayed` stamp.
 
 ## Environment Configuration
 

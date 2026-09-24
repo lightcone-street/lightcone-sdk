@@ -53,8 +53,22 @@ const NO_RETRY_CONFIG: RetryConfig = {
  * after this bound instead of deadlocking. */
 const CREDENTIAL_RESTORE_TIMEOUT_MS = 30_000;
 
+/** Request header that carries an API key. */
+export const API_KEY_HEADER = "x-lightcone-api-key";
+
+export interface LightconeHttpOptions {
+  /**
+   * API key sent as `x-lightcone-api-key` on every request to the API
+   * origin. The backend requires a key on every REST endpoint; WebSocket
+   * connections need none. Keep it server-side: it identifies an API
+   * Consumer, never a user, and the SDK never logs it.
+   */
+  apiKey?: string;
+}
+
 export class LightconeHttp {
   private readonly normalizedBaseUrl: string;
+  private readonly apiKey: string | undefined;
   private authToken: string | undefined;
   private credentialRestorer: CredentialRestorer | undefined;
   /**
@@ -89,8 +103,21 @@ export class LightconeHttp {
   /** Overridable for tests (hung-restorer coverage at test speed). */
   private credentialRestoreTimeoutMs = CREDENTIAL_RESTORE_TIMEOUT_MS;
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, options: LightconeHttpOptions = {}) {
     this.normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+    const apiKey = options.apiKey?.trim();
+    if (apiKey && isBrowserRuntime()) {
+      throw new Error("API keys may only be configured in server-side SDK builds");
+    }
+    if (apiKey && !isSecureApiKeyOrigin(this.normalizedBaseUrl)) {
+      throw new Error("API keys require HTTPS or a loopback HTTP origin");
+    }
+    this.apiKey = apiKey ? apiKey : undefined;
+  }
+
+  /** True when an API key is configured on this transport. */
+  hasApiKey(): boolean {
+    return this.apiKey !== undefined;
   }
 
   /**
@@ -419,11 +446,15 @@ export class LightconeHttp {
       headers["Content-Type"] = "application/json";
     }
     headers["x-request-id"] = requestId;
+    // The API key rides only to the configured API origin, like cookies.
+    if (this.apiKey !== undefined && this.isApiOrigin(url)) {
+      headers[API_KEY_HEADER] = this.apiKey;
+    }
 
     // Cookie injection is origin-gated: session credentials only ride to the
     // configured API origin, never to an arbitrary absolute URL a caller
     // supplies. In a browser the runtime owns cookie scoping instead.
-    if (!hasBrowserWindow() && this.isApiOrigin(url)) {
+    if (!isBrowserRuntime() && this.isApiOrigin(url)) {
       const cookie = this.cookieHeader(authMode);
       if (cookie) {
         headers.Cookie = cookie;
@@ -452,7 +483,7 @@ export class LightconeHttp {
         // branch is an explicit "omit" because the fetch default is
         // "same-origin" — a URL foreign to the API but matching the PAGE
         // origin would still get that origin's cookies.
-        ...(hasBrowserWindow()
+        ...(isBrowserRuntime()
           ? {
               credentials: (this.isApiOrigin(url)
                 ? "include"
@@ -476,7 +507,7 @@ export class LightconeHttp {
       // Set-Cookie into the process-wide token slot would leak that user's
       // rotated token to every later request from a shared server client
       // (the python SDK has always skipped this; typescript now matches).
-      if (!hasBrowserWindow() && authMode.kind !== "cookieOverride") {
+      if (!isBrowserRuntime() && authMode.kind !== "cookieOverride") {
         this.captureCookies(response);
       }
 
@@ -505,7 +536,7 @@ export class LightconeHttp {
   }
 
   private cookieHeader(authMode: AuthMode): string | undefined {
-    if (hasBrowserWindow()) {
+    if (isBrowserRuntime()) {
       return undefined;
     }
 
@@ -642,4 +673,20 @@ function escapeRegExp(value: string): string {
 
 function hasBrowserWindow(): boolean {
   return typeof globalThis !== "undefined" && "window" in globalThis;
+}
+
+function isBrowserRuntime(): boolean {
+  // Browser workers have no `window`, but still must not accept a server key.
+  return hasBrowserWindow() || "importScripts" in globalThis;
+}
+
+function isSecureApiKeyOrigin(baseUrl: string): boolean {
+  try {
+    const url = new URL(baseUrl);
+    return url.protocol === "https:" ||
+      (url.protocol === "http:" &&
+        ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname));
+  } catch {
+    return false;
+  }
 }

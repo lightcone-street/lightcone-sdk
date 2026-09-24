@@ -29,6 +29,7 @@ export type { ClientContext } from "./context";
 
 export { Auth } from "./auth";
 export { Markets } from "./domain/market";
+export { Jurisdiction } from "./domain/jurisdiction";
 export { Metrics } from "./domain/metrics";
 export { Orderbooks } from "./domain/orderbook";
 export { Orders } from "./domain/order";
@@ -299,6 +300,11 @@ export type {
   ReferralStatus,
 } from "./domain/referral";
 
+export type {
+  JurisdictionCapabilities,
+  JurisdictionResponse,
+} from "./domain/jurisdiction";
+
 export {
   RetryPolicy,
   type CredentialRestorer,
@@ -319,6 +325,7 @@ export { subscribeBooks, unsubscribeBooks } from "./ws";
 
 export type AuthClient = import("./auth").Auth;
 export type MarketsClient = import("./domain/market").Markets;
+export type JurisdictionClient = import("./domain/jurisdiction").Jurisdiction;
 export type MarketsResult = import("./domain/market").MarketsResult;
 export type GlobalDepositAssetsResult = import("./domain/market").GlobalDepositAssetsResult;
 export type FavoriteMarkets = import("./domain/market").FavoriteMarkets;

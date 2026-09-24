@@ -8,9 +8,24 @@ import pytest
 from aiohttp import web
 
 from lightcone_sdk.auth.client import Auth
+from lightcone_sdk.client import LightconeClientBuilder
 from lightcone_sdk.error import ApiRejected, HttpError, is_unauthorized
 from lightcone_sdk.http.client import LightconeHttp
 from lightcone_sdk.http.retry import RetryConfig, RetryPolicy
+
+
+async def _start_server(
+    handler: Callable[[web.Request], Awaitable[web.Response]],
+) -> tuple[str, Callable[[], Awaitable[None]]]:
+    app = web.Application()
+    app.router.add_route("*", "/{tail:.*}", handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    sockets = site._server.sockets  # type: ignore[union-attr]
+    port = sockets[0].getsockname()[1]
+    return f"http://127.0.0.1:{port}", runner.cleanup
 
 
 async def _server(
@@ -39,19 +54,12 @@ async def _server(
             status=status, text=body, content_type="application/json", headers=headers
         )
 
-    app = web.Application()
-    app.router.add_route("*", "/{tail:.*}", handler)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "127.0.0.1", 0)
-    await site.start()
-    sockets = site._server.sockets  # type: ignore[union-attr]
-    port = sockets[0].getsockname()[1]
+    base_url, cleanup = await _start_server(handler)
 
     return (
-        f"http://127.0.0.1:{port}",
+        base_url,
         lambda: attempts,
-        runner.cleanup,
+        cleanup,
     )
 
 
@@ -648,7 +656,9 @@ async def test_ambient_cookie_jar_is_disabled() -> None:
 
     try:
         await client.get_with_cookies(
-            "/override", RetryPolicy.IDEMPOTENT, cookie_header="lightcone-token=forwarded"
+            "/override",
+            RetryPolicy.IDEMPOTENT,
+            cookie_header="lightcone-token=forwarded",
         )
         await client.get("/plain", RetryPolicy.IDEMPOTENT)
         assert cookies_seen == ["lightcone-token=forwarded", None]
@@ -839,7 +849,9 @@ async def test_simultaneous_timeouts_share_one_cancellation_grace() -> None:
         await asyncio.sleep(0.25)
         # Mid-unwind: must join the dying task, not start restorer #2.
         joiner = asyncio.create_task(client.get("/c", RetryPolicy.IDEMPOTENT))
-        results = await asyncio.gather(waiter_a, waiter_b, joiner, return_exceptions=True)
+        results = await asyncio.gather(
+            waiter_a, waiter_b, joiner, return_exceptions=True
+        )
 
         assert calls == 1
         for result in results[:2]:
@@ -851,3 +863,73 @@ async def test_simultaneous_timeouts_share_one_cancellation_grace() -> None:
     finally:
         await client.close()
         await cleanup()
+
+
+async def _header_capture_server() -> (
+    tuple[str, list[str | None], Callable[[], Awaitable[None]]]
+):
+    seen: list[str | None] = []
+
+    async def handler(request: web.Request) -> web.Response:
+        seen.append(request.headers.get("x-lightcone-api-key"))
+        return web.Response(
+            status=200,
+            text='{"status":"success","body":{"ok":true}}',
+            content_type="application/json",
+        )
+
+    base_url, cleanup = await _start_server(handler)
+    return base_url, seen, cleanup
+
+
+@pytest.mark.asyncio
+async def test_api_key_rides_only_to_the_api_origin() -> None:
+    base_url, seen, cleanup = await _header_capture_server()
+    try:
+        http = LightconeHttp(base_url, api_key="lc_local_key")
+        assert http.has_api_key
+        await http.get(f"{base_url}/api/markets", RetryPolicy.NONE)
+        foreign = LightconeHttp("http://127.0.0.1:1", api_key="lc_local_key")
+        await foreign.get(f"{base_url}/api/markets", RetryPolicy.NONE)
+        assert seen == ["lc_local_key", None]
+        await http.close()
+        await foreign.close()
+    finally:
+        await cleanup()
+
+
+@pytest.mark.asyncio
+async def test_blank_api_key_sends_no_header() -> None:
+    base_url, seen, cleanup = await _header_capture_server()
+    try:
+        http = LightconeHttp(base_url, api_key="   ")
+        assert not http.has_api_key
+        await http.get(f"{base_url}/api/markets", RetryPolicy.NONE)
+        assert seen == [None]
+        await http.close()
+    finally:
+        await cleanup()
+
+
+def test_builder_builds_without_an_api_key() -> None:
+    client = LightconeClientBuilder().base_url("http://127.0.0.1:1").build()
+    assert not client._http.has_api_key
+    assert not client.has_api_key
+
+
+def test_builder_passes_the_api_key_to_the_http_client() -> None:
+    client = (
+        LightconeClientBuilder()
+        .base_url("http://127.0.0.1:1")
+        .api_key("lc_local_key")
+        .build()
+    )
+    assert client._http.has_api_key
+    assert client.has_api_key
+
+
+def test_api_key_rejects_non_loopback_cleartext_origin() -> None:
+    with pytest.raises(ValueError, match="HTTPS or a loopback HTTP origin"):
+        LightconeHttp("http://api.example.com", api_key="test-key")
+    assert LightconeHttp("http://127.0.0.1:3001", api_key="test-key").has_api_key
+    assert LightconeHttp("https://api.example.com", api_key="test-key").has_api_key

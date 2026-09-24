@@ -19,6 +19,9 @@ Equivalent observable behavior across all three SDKs, expressed with each langua
 numeric, and error conventions.
 _Avoid_: Identical APIs
 
+**Request-Scoped Relay Adapter**:
+The native Rust `RelayContext` and `Relayed<T>` operations are a server adapter for the Dioxus web app, which holds one API Key while forwarding each browser visitor's own cookies and verified country. They are not shared-client authentication state and are not mirrored as Python or TypeScript client methods. This is a deliberate language-specific integration seam, not a difference in the backend wire contract. Python and server-side TypeScript direct clients use their own API Keys and backend-observed request context; browser TypeScript clients never send an API Key. A future multi-visitor server integration in those languages needs its own request-scoped relay design.
+
 ## SDK Terms
 
 **SOL Action Plan**:

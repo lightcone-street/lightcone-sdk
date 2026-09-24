@@ -5,6 +5,8 @@ use crate::domain::referral::wire::{RedeemRequest, RedeemResponse, ReferralStatu
 use crate::domain::referral::{RedeemResult, ReferralCodeInfo, ReferralStatus};
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::http::{RelayContext, Relayed};
 
 pub struct Referrals<'a> {
     pub(crate) client: &'a LightconeClient,
@@ -46,10 +48,58 @@ impl<'a> Referrals<'a> {
             .post(&url, &body, RetryPolicy::None)
             .await?;
 
-        Ok(RedeemResult {
-            success: resp.success,
-            is_beta: resp.is_beta,
+        Ok(redeem_result_from_wire(resp))
+    }
+
+    /// Same as [`Self::redeem`], but forwards the supplied raw `Cookie` header (`privy-token` and/or `lightcone-token`) for this
+    /// call instead of the SDK's process-wide token store. For server-side
+    /// cookie forwarding (SSR / server functions).
+    pub async fn redeem_with_cookies(
+        &self,
+        code: &str,
+        cookie_header: &str,
+    ) -> Result<RedeemResult, SdkError> {
+        let url = format!("{}/api/referral/redeem", self.client.http.base_url());
+        let body = RedeemRequest {
+            code: code.to_string(),
+        };
+        let resp: RedeemResponse = self
+            .client
+            .http
+            .post_with_cookies(&url, &body, RetryPolicy::None, cookie_header)
+            .await?;
+
+        Ok(redeem_result_from_wire(resp))
+    }
+
+    /// Redeem on behalf of one visitor, preserving its cookies and verified
+    /// country and returning any backend Set-Cookie headers to the caller.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn redeem_relayed(
+        &self,
+        code: &str,
+        context: &RelayContext,
+    ) -> Result<Relayed<RedeemResult>, SdkError> {
+        let url = format!("{}/api/referral/redeem", self.client.http.base_url());
+        let body = RedeemRequest {
+            code: code.to_string(),
+        };
+        let relayed: Relayed<RedeemResponse> = self
+            .client
+            .http
+            .post_relayed(&url, &body, RetryPolicy::None, context)
+            .await?;
+        Ok(Relayed {
+            body: redeem_result_from_wire(relayed.body),
+            set_cookie: relayed.set_cookie,
         })
+    }
+}
+
+fn redeem_result_from_wire(resp: RedeemResponse) -> RedeemResult {
+    RedeemResult {
+        success: resp.success,
+        is_beta: resp.is_beta,
     }
 }
 
