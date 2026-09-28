@@ -86,7 +86,10 @@ pub struct SolActionCosts {
 }
 
 impl SolActionCosts {
-    /// Reserve enough native SOL for live costs and the configured safety floor.
+    /// Reserve enough native SOL for this action.
+    ///
+    /// An unsponsored action reserves live fees and rent, with the configured safety floor.
+    /// A sponsored action reserves only its wallet-funded rent, with no fee and no floor.
     pub fn reserve_lamports(self) -> Result<u64, SdkError> {
         if self.sponsored {
             return Ok(self.upfront_rent_lamports);
@@ -695,7 +698,7 @@ mod tests {
     }
 
     #[test]
-    /// Uses live costs above a floor and only honors explicit sponsorship.
+    /// Uses live costs above the matching unsponsored floor.
     fn availability_uses_live_costs_or_the_matching_unsponsored_floor() {
         let breakdown = SolBalanceBreakdown {
             native_lamports: 10_000_000,
@@ -725,7 +728,15 @@ mod tests {
         )
         .unwrap();
         assert_eq!(creates_account.reserve_lamports, 4_000_000);
+    }
 
+    #[test]
+    /// A sponsored reserve holds only wallet-funded rent, with no fee and no floor.
+    fn sponsored_availability_reserves_only_wallet_funded_rent() -> Result<(), SdkError> {
+        let breakdown = SolBalanceBreakdown {
+            native_lamports: 10_000_000,
+            canonical_wsol_lamports: 5_000_000,
+        };
         let sponsored = SolBalanceAvailability::from_costs(
             breakdown,
             SolActionCosts {
@@ -734,45 +745,43 @@ mod tests {
                 creates_canonical_wsol_account: true,
                 sponsored: true,
             },
-        )
-        .unwrap();
+        )?;
         assert_eq!(sponsored.reserve_lamports, 3_000_000);
         assert_eq!(sponsored.spendable_lamports, 12_000_000);
-        let sponsored_fee_only = SolBalanceAvailability::from_costs(
-            SolBalanceBreakdown {
-                native_lamports: 0,
-                canonical_wsol_lamports: 5_000_000,
-            },
+
+        let zero_native = SolBalanceBreakdown {
+            native_lamports: 0,
+            canonical_wsol_lamports: 5_000_000,
+        };
+        let fee_only = SolBalanceAvailability::from_costs(
+            zero_native,
             SolActionCosts {
                 fee_lamports: 20_000_000,
                 upfront_rent_lamports: 0,
                 creates_canonical_wsol_account: false,
                 sponsored: true,
             },
-        )
-        .unwrap();
-        assert_eq!(sponsored_fee_only.reserve_lamports, 0);
+        )?;
+        assert_eq!(fee_only.reserve_lamports, 0);
+
         let rent_shortfall = SolBalanceAvailability::from_costs(
-            SolBalanceBreakdown {
-                native_lamports: 0,
-                canonical_wsol_lamports: 5_000_000,
-            },
+            zero_native,
             SolActionCosts {
                 fee_lamports: 20_000_000,
                 upfront_rent_lamports: 1,
                 creates_canonical_wsol_account: false,
                 sponsored: true,
             },
-        )
-        .unwrap_err();
+        );
         assert!(matches!(
             rent_shortfall,
-            SdkError::InsufficientSolForAccountRent {
+            Err(SdkError::InsufficientSolForAccountRent {
                 available_lamports: 0,
                 required_lamports: 1
-            }
+            })
         ));
-        let sponsored_large_fee = SolBalanceAvailability::from_costs(
+
+        let large_fee = SolBalanceAvailability::from_costs(
             breakdown,
             SolActionCosts {
                 fee_lamports: u64::MAX,
@@ -780,9 +789,9 @@ mod tests {
                 creates_canonical_wsol_account: true,
                 sponsored: true,
             },
-        )
-        .unwrap();
-        assert_eq!(sponsored_large_fee.reserve_lamports, 1);
+        )?;
+        assert_eq!(large_fee.reserve_lamports, 1);
+        Ok(())
     }
 
     #[test]

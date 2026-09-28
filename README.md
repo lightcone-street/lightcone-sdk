@@ -61,9 +61,6 @@ ADR](docs/adr/0001-persistent-canonical-wsol.md).
 
 ## Transaction Fee Funding
 
-This section describes the Rust SDK. The TypeScript and Python SDKs retain
-their existing unsponsored submission paths.
-
 Every ordinary and prepared on-chain transaction submitted through a shared SDK
 submission API performs a best-effort pre-signing check of its exact message fee
 and declared fee-payer Native SOL Balance. A proven shortfall returns the typed
@@ -76,18 +73,24 @@ Transaction Sponsorship Capability is a client-wide trusted application assertio
 that defaults to false. It bypasses the generic check for external signing, while
 local-keypair submission rejects it with `transaction sponsorship is not supported
 with local-keypair signing`. The SDK does not infer sponsorship from a wallet
-provider. For sponsored submission, an external signer must implement
-`send_sponsored_transaction` and return the submitted signature. Its typed error
-must be `Unknown` when a request may have landed without a trustworthy response.
-The SDK passes
-the prepared transaction to that signer once and confirms its signature. It
-does not use the ordinary raw RPC send path or the prepared blockhash expiry,
-because the sponsor may replace the fee payer and blockhash. Unsponsored
-submission still requires a v1-capable signer that returns signed bytes. A lost
-or malformed sponsored response returns `SponsoredSubmissionUnknown` and is never
-replayed automatically. See
-[ADR 0002](docs/adr/0002-transaction-fee-funding-preflight.md) and the
-[v1 signing contract](docs/adr/0004-solana-v1.md).
+provider. Refer to [ADR 0002](docs/adr/0002-transaction-fee-funding-preflight.md).
+
+### Sponsored Submission (Rust only)
+
+Only the Rust SDK has a wallet-service sponsored send path and plans sponsored SOL actions. The TypeScript and Python SDKs keep the Transaction Sponsorship Capability described above but reject sponsored SOL planning. [ADR 0005](docs/adr/0005-sponsored-external-submission.md) records this exception and the complete contract.
+
+A sponsored send works like this:
+
+1. Build the client with `transaction_sponsorship(true)` and an external signer.
+2. The signer's `wallet_address()` must equal the transaction's fee payer. Otherwise the send fails with a validation error before any request.
+3. The SDK passes the prepared transaction to `ExternalSigner::send_sponsored_transaction` once. It does not sign locally, simulate, or send through Solana RPC, because the wallet service may replace the fee payer and the blockhash.
+4. The signer returns the submitted signature, or a `SponsoredSubmissionError`. Return `Rejected` only when the wallet service accepted no request. Return `Unknown` when a request may have landed without a trustworthy response.
+5. `Unknown` and an unparsable signature become `SdkError::SponsoredSubmissionUnknown`. The SDK never sends the transaction again.
+6. Confirmation has no expiry bound, because the submitted blockhash is unknown. Only the poll limit ends the wait, with `SdkError::ConfirmationTimeout`.
+
+Callers must show `SponsoredSubmissionUnknown` and `ConfirmationTimeout` as unresolved outcomes. Check wallet activity and authoritative balances before another attempt.
+
+A sponsored SOL plan reserves only the rent that its instructions charge to the Trading Wallet. It has no network fee and no safety floor. [ADR 0005](docs/adr/0005-sponsored-external-submission.md#funding) lists the rent that each action counts.
 
 ## Development Setup
 

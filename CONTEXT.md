@@ -15,8 +15,7 @@ The backend owns payload meaning. This repository owns compatible decoding, vali
 language-specific representation of those payloads.
 
 **Cross-Language Parity**:
-Equivalent observable behavior across all three SDKs, expressed with each language's naming,
-numeric, and error conventions.
+Equivalent observable behavior across all three SDKs, expressed with each language's naming, numeric, and error conventions. Sponsored submission is a recorded Rust-only exception in `docs/adr/0005-sponsored-external-submission.md`.
 _Avoid_: Identical APIs
 
 ## SDK Terms
@@ -27,8 +26,7 @@ used to authorize that exact message. The account lifecycle is owned by
 `docs/adr/0001-persistent-canonical-wsol.md`.
 
 **Prepared Transaction**:
-A transaction whose message, including its fee payer and recent blockhash, was used for fee
-estimation. Submission may add signatures but may not replace message fields.
+A transaction whose message, including its fee payer and recent blockhash, was used for fee estimation. Unsponsored submission may add signatures but may not replace message fields. In the Rust SDK, sponsored submission lets the wallet service replace the fee payer and the blockhash. Refer to `docs/adr/0005-sponsored-external-submission.md`.
 
 **Canonical WSOL Account**:
 The persistent Tokenkeg associated token account referenced by SOL planning contracts. Use the

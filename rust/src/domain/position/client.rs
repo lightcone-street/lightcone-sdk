@@ -8,7 +8,7 @@
 //! authoritative state before planning another action.
 
 use crate::auth::AuthCredentials;
-use crate::client::LightconeClient;
+use crate::client::{AccountFundingState, LightconeClient};
 use crate::domain::market::Market;
 use crate::domain::position::builders::{
     build_direct_native_withdraw_transaction, build_sol_merge_transaction,
@@ -50,11 +50,18 @@ fn deposit_token_balances_query(min_context_slot: Option<u64>) -> Vec<(&'static 
         .unwrap_or_default()
 }
 
-/// The program creates zero-data accounts and debits only the missing rent.
-fn account_creation_top_up(state: Option<(u64, usize)>, minimum: u64) -> u64 {
+/// Return whether the account already has data, so no instruction creates it.
+fn is_allocated(state: Option<AccountFundingState>) -> bool {
+    state.is_some_and(|state| state.data_len_bytes > 0)
+}
+
+/// Return the rent lamports the wallet must add to create this account.
+///
+/// The program creates an account without data and debits only the rent it still lacks.
+fn account_creation_top_up(state: Option<AccountFundingState>, minimum: u64) -> u64 {
     match state {
-        Some((_, len)) if len > 0 => 0,
-        Some((lamports, _)) => minimum.saturating_sub(lamports),
+        Some(state) if state.data_len_bytes > 0 => 0,
+        Some(state) => minimum.saturating_sub(state.lamports),
         None => minimum,
     }
 }
@@ -143,7 +150,7 @@ impl<'a> Positions<'a> {
         let position = get_position_pda(wallet, market, &self.client.program_id).0;
         let mut rent = 0_u64;
         let position_state = self.client.account_funding_state(&position).await?;
-        if position_state.map(|(_, len)| len == 0).unwrap_or(true) {
+        if !is_allocated(position_state) {
             let minimum = self
                 .client
                 .minimum_balance_for_rent_exemption(Position::LEN)
@@ -159,7 +166,7 @@ impl<'a> Positions<'a> {
                 get_conditional_mint_pda(market, deposit_mint, outcome, &self.client.program_id).0;
             let account = get_conditional_token_ata(&position, &mint);
             let account_state = self.client.account_funding_state(&account).await?;
-            if account_state.map(|(_, len)| len == 0).unwrap_or(true) {
+            if !is_allocated(account_state) {
                 let top_up = account_creation_top_up(account_state, token_rent);
                 rent = rent.checked_add(top_up).ok_or_else(|| {
                     SdkError::Validation("split account rent overflows u64".into())
@@ -1276,18 +1283,29 @@ impl<'a> Positions<'a> {
 #[cfg(test)]
 mod tests {
     use super::{
-        account_creation_top_up, deposit_token_balances_query, validated_conversion_wallet,
+        account_creation_top_up, deposit_token_balances_query, is_allocated,
+        validated_conversion_wallet,
     };
+    use crate::client::AccountFundingState;
     use crate::{auth::AuthCredentials, domain::position::WalletDepositBalancesState};
     use chrono::{Duration, Utc};
     use solana_pubkey::Pubkey;
 
     #[test]
     fn prefunded_unallocated_account_still_needs_the_rent_gap() {
-        assert_eq!(account_creation_top_up(Some((600, 0)), 1000), 400);
-        assert_eq!(account_creation_top_up(Some((1000, 0)), 1000), 0);
-        assert_eq!(account_creation_top_up(Some((10, 165)), 1000), 0);
+        let state = |lamports, data_len_bytes| {
+            Some(AccountFundingState {
+                lamports,
+                data_len_bytes,
+            })
+        };
+        assert_eq!(account_creation_top_up(state(600, 0), 1000), 400);
+        assert_eq!(account_creation_top_up(state(1000, 0), 1000), 0);
+        assert_eq!(account_creation_top_up(state(10, 165), 1000), 0);
         assert_eq!(account_creation_top_up(None, 1000), 1000);
+        assert!(!is_allocated(state(600, 0)));
+        assert!(is_allocated(state(10, 165)));
+        assert!(!is_allocated(None));
     }
 
     #[cfg(feature = "native")]

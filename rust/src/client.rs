@@ -71,6 +71,15 @@ struct TransactionSigningContext {
     sponsorship_enabled: bool,
 }
 
+/// Existing account state that decides how much creation rent a wallet must fund.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct AccountFundingState {
+    /// Lamports the account already holds.
+    pub(crate) lamports: u64,
+    /// Allocated account data length, in bytes. Zero means the account is not created yet.
+    pub(crate) data_len_bytes: usize,
+}
+
 /// The primary entry point for the Lightcone SDK.
 ///
 /// Provides nested sub-client accessors for each domain:
@@ -533,11 +542,13 @@ impl LightconeClient {
         Ok(!value.is_null())
     }
 
-    /// Fetch the funding and allocation state used by wallet-paid account creation.
-    pub async fn account_funding_state(
+    /// Fetch the lamports and data size that decide wallet-paid account creation rent.
+    ///
+    /// Returns `None` when the account does not exist.
+    pub(crate) async fn account_funding_state(
         &self,
         address: &Pubkey,
-    ) -> Result<Option<(u64, usize)>, SdkError> {
+    ) -> Result<Option<AccountFundingState>, SdkError> {
         let response: serde_json::Value = self
             .rpc_call_with_failover(&serde_json::json!({
                 "id": 1,
@@ -568,7 +579,10 @@ impl LightconeClient {
             .ok_or_else(|| SdkError::Other("account base64 data is missing".into()))?;
         let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
             .map_err(|_| SdkError::Other("account base64 data is invalid".into()))?;
-        Ok(Some((lamports, data.len())))
+        Ok(Some(AccountFundingState {
+            lamports,
+            data_len_bytes: data.len(),
+        }))
     }
 
     /// Return exact confirmed facts for the Trading Wallet's canonical WSOL account.
@@ -2056,10 +2070,9 @@ mod tests {
             .transaction_sponsorship(true)
             .build()?;
 
-        let error = client
-            .sign_and_submit_tx(test_transaction(&payer))
-            .await
-            .unwrap_err();
+        let Err(error) = client.sign_and_submit_tx(test_transaction(&payer)).await else {
+            return Err("a lost sponsored response must not report success".into());
+        };
         assert!(matches!(error, SdkError::SponsoredSubmissionUnknown));
         assert_eq!(sponsored_calls.load(Ordering::SeqCst), 1);
         assert_eq!(attempts.load(Ordering::SeqCst), 1);

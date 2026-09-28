@@ -14,7 +14,7 @@ pub enum SdkError {
         reason: String,
     },
 
-    /// The sponsored wallet RPC may have submitted, but returned no signature.
+    /// The sponsored wallet request may have landed, but no valid signature came back.
     #[error("Sponsored transaction status is unknown. Check wallet activity and balances before trying again.")]
     SponsoredSubmissionUnknown,
 

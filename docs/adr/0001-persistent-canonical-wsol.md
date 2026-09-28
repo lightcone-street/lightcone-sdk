@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-19
+- Amended by: [ADR 0005](0005-sponsored-external-submission.md) for sponsored submission in the Rust SDK
 
 ## Context
 
@@ -16,17 +17,12 @@ Rust, TypeScript, and Python expose equivalent `SolBalanceBreakdown`, cost, avai
 - Native SOL Balance is the exact lamport balance in the Trading Wallet system account.
 - Canonical wSOL Balance is the exact token amount in the canonical Tokenkeg native-mint ATA for the Trading Wallet.
 - Displayed SOL Balance is Native SOL Balance plus Canonical wSOL Balance.
-- SOL Transaction Reserve is zero only for an explicitly sponsored action. Otherwise it is the greater of live fee plus required up-front rent and 0.0035 SOL when creating the canonical ATA, or 0.001 SOL otherwise.
+- SOL Transaction Reserve for a sponsored Rust plan follows [ADR 0005](0005-sponsored-external-submission.md#funding). Otherwise it is the greater of live fee plus required up-front rent and 0.0035 SOL when creating the canonical ATA, or 0.001 SOL otherwise.
 - Spendable SOL Balance is Displayed SOL Balance minus SOL Transaction Reserve, provided native SOL can fund the reserve.
 
 Every planner requires initialized matching-wallet state and live RPC results. It returns an unsigned transaction, exact costs and availability, and a `SolBalanceDelta` with separate expected native and canonical balance changes. Callers rebuild the plan at their final account-operation boundary, submit through the slot-bearing confirmed API, freeze one projection from the final plan, and restore authority only from a complete snapshot covering the confirmation slot.
 
-All action amounts, costs, reserves, and component deltas are lamports. Planning
-rejects zero or out-of-range action amounts, incomplete or wrong-wallet state,
-unavailable RPC authority, inconsistent canonical-account state, insufficient funds,
-and sponsored requests until a concrete sponsor owns transaction fees and account
-rent. Shared cost and availability values model sponsored accounting, but action
-planners do not accept it and the SDK does not verify or arrange sponsorship.
+All action amounts, costs, reserves, and component deltas are lamports. Planning rejects zero or out-of-range action amounts, incomplete or wrong-wallet state, unavailable RPC authority, inconsistent canonical-account state, insufficient funds, and sponsored requests in TypeScript and Python. The Rust SDK accepts sponsored planning under [ADR 0005](0005-sponsored-external-submission.md).
 
 ## Action Flow
 
@@ -86,7 +82,7 @@ The seed is the first 16 SHA-256 digest bytes encoded as exactly 32 lowercase he
 
 ## Cross-Language Parity
 
-The three SDKs use the same units, reserve formulas, instruction order, deltas, signer restrictions, full-account semantics, and native conversion lifecycle. Tests decode transactions rather than relying only on instruction counts. Non-production examples may act on an existing canonical balance, print the exact close and future-rent warning, wrap a small exact amount, unwrap the complete resulting account without an interactive pause, and refresh complete state past each confirmed slot. The shared runner executes them for every SDK wallet in local aggregate runs and includes them in staging CI when the globally gated stateful example workflow is enabled; that workflow currently disables all stateful CI jobs. Production remains forbidden.
+The three SDKs use the same units, unsponsored reserve formulas, instruction order, deltas, signer restrictions, full-account semantics, and native conversion lifecycle. Tests decode transactions rather than relying only on instruction counts. Non-production examples may act on an existing canonical balance, print the exact close and future-rent warning, wrap a small exact amount, unwrap the complete resulting account without an interactive pause, and refresh complete state past each confirmed slot. The shared runner executes them for every SDK wallet in local aggregate runs and includes them in staging CI when the globally gated stateful example workflow is enabled; that workflow currently disables all stateful CI jobs. Production remains forbidden.
 
 The shared temporary-withdraw seed fixture produces:
 
@@ -101,4 +97,4 @@ Planning does not mutate cached balance state and does not submit transactions. 
 
 ## Non-Goals
 
-This decision does not enable Web self-custody, expose standalone conversion in Lightcone Web, permit Privy or wallet-adapter conversion signing, enforce the backend authentication-method policy for native SDK users, support partial canonical unwrap, enable gas sponsorship, change protocol-held deposits or accounting, or restore implicit canonical-account closure. Broader native-user authentication enforcement remains separate future work.
+This decision does not enable Web self-custody, expose standalone conversion in Lightcone Web, permit Privy or wallet-adapter conversion signing, enforce the backend authentication-method policy for native SDK users, support partial canonical unwrap, enable gas sponsorship (the Rust SDK adds it in ADR 0005), change protocol-held deposits or accounting, or restore implicit canonical-account closure. Broader native-user authentication enforcement remains separate future work.
