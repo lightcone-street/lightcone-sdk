@@ -149,6 +149,10 @@ impl UserOpenLimitOrders {
                             .closed_reason
                             .get_or_insert_with(|| closure.reason.clone());
                         order.status = OrderStatus::Closed;
+                        // Older order facts must not reopen the closed order.
+                        order.committed_revision = order
+                            .committed_revision
+                            .max(closure.commit.committed_revision);
                         closed += 1;
                     }
                 }
@@ -405,6 +409,12 @@ mod tests {
         assert_eq!(order.cancelled_size, Decimal::from(5));
         assert_eq!(order.status, OrderStatus::Closed);
         assert_eq!(order.closed_reason.as_deref(), Some("cancel_all"));
+        assert_eq!(order.committed_revision, 900);
+        // A fact older than the closure cannot reopen the order.
+        assert_eq!(
+            container.apply(&live_order(11, "5.00000000", "3.00000000", None)),
+            ApplyOutcome::Stale
+        );
     }
 
     #[test]

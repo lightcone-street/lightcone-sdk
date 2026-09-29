@@ -108,8 +108,8 @@ impl<'a> Metrics<'a> {
     }
 
     /// One page of [`Self::orderbook_tickers`]. `cursor` is a previous page's
-    /// `next_cursor` (an orderbook pubkey); `limit` defaults to and is capped
-    /// at 8 server-side.
+    /// `next_cursor` (an orderbook pubkey); `limit` defaults to 8 and must be
+    /// within 1..=8 (other values are rejected with `INVALID_LIMIT`).
     pub async fn orderbook_tickers_page(
         &self,
         deposit_asset: Option<&str>,

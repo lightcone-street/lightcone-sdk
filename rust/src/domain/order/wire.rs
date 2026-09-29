@@ -38,7 +38,7 @@ pub struct OrderState {
     /// Whether the order is live for matching at this revision.
     pub ready: bool,
     /// Why the order stopped resting, when it did.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "serde_util::deserialize_nonempty_string")]
     pub closed_reason: Option<String>,
     #[serde(with = "serde_util::u64_text")]
     pub committed_revision: u64,
@@ -56,7 +56,7 @@ pub struct RecordedOrderState {
     pub pending_base: Decimal,
     pub open_base: Decimal,
     pub cancelled_base: Decimal,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "serde_util::deserialize_nonempty_string")]
     pub closed_reason: Option<String>,
     #[serde(with = "serde_util::u64_text")]
     pub committed_revision: u64,
@@ -185,7 +185,7 @@ pub struct UserOrderFill {
     /// Quote exchanged by confirmed fills, in quote-token units.
     pub confirmed_quote: Decimal,
     pub status: OrderStatus,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "serde_util::deserialize_nonempty_string")]
     pub closed_reason: Option<String>,
     #[serde(with = "serde_util::timestamp_ms")]
     pub created_at: DateTime<Utc>,
@@ -345,7 +345,7 @@ pub struct OrderUpdate {
     pub tif: TimeInForce,
     pub funding_source: FundingSource,
     pub funding_account: PubkeyStr,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "serde_util::deserialize_nonempty_string")]
     pub closed_reason: Option<String>,
     /// Whether the order is live for matching (false when not actionable).
     #[serde(default)]

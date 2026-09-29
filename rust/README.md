@@ -593,7 +593,7 @@ Transport, validation, authorization, and availability failures carry an `error_
 | `EngineUnavailable` | 503 | Engine unavailable. For submission the outcome is unknown: reconcile by order hash before resubmitting |
 | `TradingUnavailable` | 503 | Committed trading state or orderbook metadata unavailable (also an unknown orderbook on submit) |
 | `EngineInternalError` | 500 | Engine failure without a public reason |
-| `InvalidTif`, `InvalidDepositSource`, `InvalidSignature`, `InvalidPubkey`, `InvalidCursor`, `InvalidOrderHash`, `UnexpectedQuery` | 400 | Request validation |
+| `InvalidTif`, `InvalidDepositSource`, `InvalidSignature`, `InvalidPubkey`, `InvalidCursor`, `InvalidOrderHash`, `UnexpectedQuery`, `InvalidLimit` | 400 | Request validation |
 | `NotFound` | 404 | Resource not found |
 | `RateLimited` | 429 | Request rate limit |
 | `Unknown(String)` | — | Unrecognized code |

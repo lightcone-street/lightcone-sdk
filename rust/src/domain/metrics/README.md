@@ -137,7 +137,7 @@ async fn orderbook_tickers_page(
 ) -> Result<OrderbookTickersResponse, SdkError>
 ```
 
-Best bid / best ask / midpoint for every ready orderbook, optionally filtered by deposit asset. The endpoint returns at most 8 tickers per page (`next_cursor` is an orderbook pubkey, and a page can be empty while `has_more` is true). `orderbook_tickers` follows every page and returns them merged; `orderbook_tickers_page` fetches one page. Price fields are `None` for books without liquidity.
+Best bid / best ask / midpoint for every ready orderbook, optionally filtered by deposit asset. The endpoint returns at most 8 tickers per page (`limit` must be within 1..=8, `next_cursor` is an orderbook pubkey, and a page can be empty while `has_more` is true). `orderbook_tickers` follows every page and returns them merged; `orderbook_tickers_page` fetches one page. Price fields are `None` for books without liquidity.
 
 ### `orderbook`
 

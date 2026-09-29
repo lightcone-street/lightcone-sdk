@@ -210,6 +210,8 @@ pub enum ErrorCode {
     InvalidOrderHash,
     /// 400: the route does not accept a query string.
     UnexpectedQuery,
+    /// 400: a page `limit` is outside the route's accepted range.
+    InvalidLimit,
     /// 429: request rate limit exceeded.
     RateLimited,
     Unknown(String),
@@ -238,6 +240,7 @@ impl ErrorCode {
             Self::InvalidCursor => "INVALID_CURSOR",
             Self::InvalidOrderHash => "INVALID_ORDER_HASH",
             Self::UnexpectedQuery => "UNEXPECTED_QUERY",
+            Self::InvalidLimit => "INVALID_LIMIT",
             Self::RateLimited => "RATE_LIMITED",
             Self::Unknown(code) => code,
         }
@@ -265,6 +268,7 @@ impl ErrorCode {
             "INVALID_CURSOR" => Self::InvalidCursor,
             "INVALID_ORDER_HASH" => Self::InvalidOrderHash,
             "UNEXPECTED_QUERY" => Self::UnexpectedQuery,
+            "INVALID_LIMIT" => Self::InvalidLimit,
             "RATE_LIMITED" => Self::RateLimited,
             other => Self::Unknown(other.to_string()),
         }
@@ -440,6 +444,7 @@ mod tests {
             ErrorCode::InvalidCursor,
             ErrorCode::InvalidOrderHash,
             ErrorCode::UnexpectedQuery,
+            ErrorCode::InvalidLimit,
             ErrorCode::RateLimited,
         ];
         for code in codes {
