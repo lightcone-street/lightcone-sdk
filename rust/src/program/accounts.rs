@@ -9,7 +9,7 @@ use crate::program::constants::{
     EXCHANGE_DISCRIMINATOR, EXCHANGE_SIZE, GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR,
     GLOBAL_DEPOSIT_TOKEN_SIZE, MARKET_DISCRIMINATOR, MARKET_SIZE, MAX_OUTCOMES,
     ORDERBOOK_DISCRIMINATOR, ORDERBOOK_SIZE, ORDER_STATUS_DISCRIMINATOR, ORDER_STATUS_SIZE,
-    POSITION_DISCRIMINATOR, POSITION_SIZE, USER_NONCE_DISCRIMINATOR, USER_NONCE_SIZE,
+    POSITION_DISCRIMINATOR, POSITION_SIZE,
 };
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::types::MarketStatus;
@@ -378,56 +378,6 @@ impl OrderStatus {
 }
 
 // ============================================================================
-// UserNonce Account (16 bytes)
-// ============================================================================
-
-/// User nonce account - tracks user's current nonce for mass cancellation
-///
-/// Layout:
-/// - [0..8]  discriminator (8 bytes)
-/// - [8..16] nonce (8 bytes)
-#[derive(Debug, Clone)]
-pub struct UserNonce {
-    /// Account discriminator
-    pub discriminator: [u8; 8],
-    /// Current nonce value
-    pub nonce: u64,
-}
-
-impl UserNonce {
-    /// Account size in bytes
-    pub const LEN: usize = USER_NONCE_SIZE;
-
-    /// Deserialize from account data
-    pub fn deserialize(data: &[u8]) -> SdkResult<Self> {
-        if data.len() < Self::LEN {
-            return Err(SdkError::InvalidDataLength {
-                expected: Self::LEN,
-                actual: data.len(),
-            });
-        }
-
-        let discriminator = read_bytes::<8>(data, 0);
-        if discriminator != USER_NONCE_DISCRIMINATOR {
-            return Err(SdkError::InvalidDiscriminator {
-                expected: hex::encode(USER_NONCE_DISCRIMINATOR),
-                actual: hex::encode(discriminator),
-            });
-        }
-
-        Ok(Self {
-            discriminator,
-            nonce: read_u64(data, 8),
-        })
-    }
-
-    /// Check if account data has the user nonce discriminator
-    pub fn is_user_nonce_account(data: &[u8]) -> bool {
-        data.len() >= 8 && data[0..8] == USER_NONCE_DISCRIMINATOR
-    }
-}
-
-// ============================================================================
 // Orderbook Account (176 bytes)
 // ============================================================================
 
@@ -722,17 +672,6 @@ mod tests {
         assert_eq!(order_status.remaining, 1000);
         assert_eq!(order_status.base_remaining, 750);
         assert!(!order_status.is_cancelled);
-    }
-
-    #[test]
-    fn test_user_nonce_deserialization() {
-        let mut data = vec![0u8; USER_NONCE_SIZE];
-        data[0..8].copy_from_slice(&USER_NONCE_DISCRIMINATOR);
-        // nonce at offset 8
-        data[8..16].copy_from_slice(&99u64.to_le_bytes());
-
-        let user_nonce = UserNonce::deserialize(&data).unwrap();
-        assert_eq!(user_nonce.nonce, 99);
     }
 
     #[test]

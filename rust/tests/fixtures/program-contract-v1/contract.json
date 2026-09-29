@@ -1,0 +1,155 @@
+{
+  "schema_version": "1",
+  "contract_version": "1",
+  "backend_source_revision": "50445761e3bb92dc6c09b102d4b04eb0cf4611fd",
+  "program_source_revision": "0ff76348ddd99aec6bc715e549884887d3214a97",
+  "program_artifact": {
+    "sha256": "2457ce3605f928728fd68234645d262944899e6f43d48f289a0c5234e0ce1c3b",
+    "source_revision": "0ff76348ddd99aec6bc715e549884887d3214a97",
+    "status": "built"
+  },
+  "deployment": {
+    "program_id": null,
+    "genesis_hash": null,
+    "loader": null,
+    "deployment_identity": null,
+    "status": "not_configured"
+  },
+  "transaction_format": "V1",
+  "runtime_requirements": [
+    "Target cluster must support V1 transactions; local compilation does not prove deployment support.",
+    "Conservative resource profiles must reference the final program artifact."
+  ],
+  "measured_resource_evidence": {
+      "measured_on": "2026-09-24",
+      "artifact_sha256": "2457ce3605f928728fd68234645d262944899e6f43d48f289a0c5234e0ce1c3b",
+      "rebuild": "git archive 0ff76348 + cargo build-sbf --tools-version v1.54: byte-identical sha256",
+      "runtime": "solana-program-test 4.2.2 (agave-unstable-api), enable_tx_v1 active, 1,400,000 CU limit, default heap",
+      "workload": "program test suite (resources 440-layout matrix, nonce_removal, trading, workflows, markets, custody); 7930 successful transactions",
+      "engine_filter": "canonical engine account layouts only; settlement trace bound <= 64; init position tokens with one collateral",
+      "trace_bound_check": "engine trace formula never below observed trace (0 of 7930)",
+      "worst_packable_compute_units": {
+          "direct": "777715",
+          "deposit_and_swap": "808001",
+          "init_position_tokens": "214967",
+          "cancel_order": "24337",
+          "close_order_status": "17381"
+      },
+      "worst_loaded_account_bytes": "577888",
+      "max_invocation_depth": "3",
+      "program_binary_bytes": "352616",
+      "unmeasured": [
+          "target cluster deployment and V1 runtime",
+          "nested SPL program identities on the target cluster"
+      ]
+  },
+  "layout": {
+    "signed_preimage_len": "161",
+    "signed_order_len": "225",
+    "compact_order_len": "33",
+    "maker_record_len": "113",
+    "match_body_header_len": "100",
+    "deposit_swap_body_header_len": "102",
+    "max_makers": "11",
+    "event_schema": "2",
+    "attribution_version": "1"
+  },
+  "dependencies": {
+    "backend": {
+      "solana-account": [
+        "3.4.0",
+        "4.3.2"
+      ],
+      "solana-hash": [
+        "4.5.0"
+      ],
+      "solana-instruction": [
+        "3.4.1"
+      ],
+      "solana-message": [
+        "4.4.1"
+      ],
+      "solana-pubkey": [
+        "3.0.0",
+        "4.2.1"
+      ],
+      "solana-transaction": [
+        "4.1.6"
+      ],
+      "wincode": [
+        "0.5.5"
+      ],
+      "yellowstone-grpc-client": [
+        "13.3.0"
+      ],
+      "yellowstone-grpc-proto": [
+        "12.6.0"
+      ]
+    },
+    "program": {
+      "pinocchio": [
+        "0.9.2"
+      ],
+      "pinocchio-token": [
+        "0.4.0"
+      ],
+      "solana-account": [
+        "3.4.0",
+        "4.3.2"
+      ],
+      "solana-hash": [
+        "2.1.0",
+        "4.5.0"
+      ],
+      "solana-instruction": [
+        "2.1.0",
+        "3.4.1"
+      ],
+      "solana-message": [
+        "4.4.1"
+      ],
+      "solana-pubkey": [
+        "2.1.0",
+        "3.0.0",
+        "4.2.1"
+      ],
+      "solana-transaction": [
+        "4.1.6"
+      ],
+      "wincode": [
+        "0.5.5"
+      ]
+    }
+  },
+  "fixtures": [
+    "signing.json",
+    "instructions.json",
+    "accounts.json",
+    "arithmetic.json",
+    "events.json",
+    "attribution.json"
+  ],
+  "fixture_encoding": {
+    "integers": "Exact decimal integer strings; never floating point.",
+    "byte_strings": "Lowercase hex unless field explicitly names another representation.",
+    "expected_values": "Independent source-grounded reference calculations; tests do not regenerate expectations."
+  },
+  "evidence": {
+    "source_review": "Baseline e26c496f8ddca7fba663717e1244cfe582e6f93b plus independently reviewed participant attribution; no transfer arithmetic or successful event format changed.",
+    "signing_reference": "Python struct + PyCryptodome Keccak + PyNaCl Ed25519, independent of replacement Rust helpers.",
+    "local_checks": [
+      "cargo check --locked --offline --workspace --all-targets: passed (rustc/cargo 1.96.1, protoc 35.1).",
+      "orderbook shared contract: 4 passed; existing book unit regressions: 164 passed.",
+      "engine contract integration: 9 passed; signed failure contexts: 6 passed; accounts/fees: 11 passed; signature: 24 passed.",
+      "engine event batches: 11 passed; program errors: 12 passed; program logs: 15 passed; retained event authentication: 9 passed.",
+      "RPC recording adapter: 1 passed; failed-receipt isolation: 1 passed. No simulation or Solana runtime used.",
+      "Rust offline signer: 2 passed; Python offline signer: 4 passed.",
+      "Program pure lib/unit/ABI: 43 passed; shared fixture test explicitly selected and passed (4 vectors plus malformed signatures).",
+      "Program client offline/transaction_v1/events/nonce_removal: 32 passed.",
+      "SBF platform-tools v1.54 build succeeded; LTO and unknown-syscall warnings remain. Runtime/deployment acceptance is unverified.",
+      "Changed Rust files rustfmt and git diff --check passed; workspace-wide rustfmt has unrelated existing API/database/WebSocket differences."
+    ],
+    "runtime": "unverified",
+    "integration": "unverified"
+  }
+}

@@ -1,5 +1,7 @@
 //! Order envelope types: fluent builders that produce signed SubmitOrderRequests.
 
+use std::sync::OnceLock;
+
 use solana_pubkey::Pubkey;
 
 #[cfg(feature = "native-auth")]
@@ -13,15 +15,19 @@ use crate::shared::scaling::{
     scale_price_size, validate_raw_amounts, validate_signed_fields, OrderbookRules,
 };
 #[cfg(feature = "trigger_orders")]
-use crate::shared::{validate_trigger_price, ExactDecimal, TriggerType};
+use crate::shared::{validate_trigger_price, ExactDecimal, SubmitTriggerOrderRequest, TriggerType};
 use crate::shared::{DepositSource, SubmitOrderRequest, TimeInForce};
 
 // ─── Shared base fields ─────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Default)]
 struct OrderFields {
-    nonce: Option<u64>,
-    salt: Option<u64>,
+    /// The salt is the order's only identity. When the caller does not set
+    /// one, the first build draws a random salt and every later `payload()`,
+    /// `sign()`, `finalize()`, or `submit()` on this envelope reuses it, so the
+    /// hash a wallet signs is the hash that is submitted. A clone taken before
+    /// that first build draws its own salt.
+    salt: OnceLock<u64>,
     maker: Option<Pubkey>,
     market: Option<Pubkey>,
     base_mint: Option<Pubkey>,
@@ -36,6 +42,11 @@ struct OrderFields {
 }
 
 impl OrderFields {
+    /// The caller's salt, or the salt this envelope drew on its first build.
+    fn fixed_salt(&self) -> u64 {
+        *self.salt.get_or_init(generate_salt)
+    }
+
     fn to_payload(&self) -> Result<OrderPayload, SdkError> {
         let amount_in = self
             .amount_in
@@ -53,14 +64,10 @@ impl OrderFields {
                 "amount_out must be greater than 0".into(),
             ));
         }
-
-        let nonce = self.nonce.unwrap_or(0);
-        let salt = self.salt.unwrap_or_else(generate_salt);
-        validate_signed_fields(amount_in, amount_out, salt, nonce)?;
+        validate_signed_fields(amount_in, amount_out)?;
 
         Ok(OrderPayload {
-            nonce,
-            salt,
+            salt: self.fixed_salt(),
             maker: self
                 .maker
                 .ok_or_else(|| SdkError::MissingField("maker".into()))?,
@@ -84,7 +91,7 @@ impl OrderFields {
     }
 
     /// Auto-fill market, base_mint, and quote_mint from the orderbook if not
-    /// explicitly set by the caller.
+    /// explicitly set by the caller, and fix the salt.
     fn auto_fill_from_orderbook(&mut self, orderbook: &OrderBookPair) -> Result<(), SdkError> {
         use crate::domain::market::tokens::Token;
 
@@ -93,9 +100,7 @@ impl OrderFields {
                 SdkError::MissingField(format!("invalid market pubkey: {error}"))
             })?);
         }
-        if self.salt.is_none() {
-            self.salt = Some(generate_salt())
-        }
+        self.fixed_salt();
         if self.base_mint.is_none() {
             self.base_mint = Some(orderbook.base.pubkey().to_pubkey().map_err(|error| {
                 SdkError::MissingField(format!("invalid base mint pubkey: {error}"))
@@ -147,14 +152,17 @@ impl OrderFields {
 
 /// Shared fluent API for building orders.
 ///
-/// Implemented by both `LimitOrderEnvelope` and `TriggerOrderEnvelope`.
+/// Implemented by `LimitOrderEnvelope` and, with the `trigger_orders`
+/// feature, `TriggerOrderEnvelope`.
 ///
-/// Prefer `client.orders().limit_order().await` or `client.orders().trigger_order().await`
-/// which pre-seed the client's deposit source. Direct construction via `::new()` is
-/// also available for standalone use.
+/// Prefer `client.orders().limit_order().await` which pre-seeds the client's
+/// deposit source. Direct construction via `::new()` is also available for
+/// standalone use.
 pub trait OrderEnvelope: Sized {
+    /// Signed REST request produced by `sign()` and `finalize()`.
+    type Request;
+
     fn new() -> Self;
-    fn nonce(self, nonce: u64) -> Self;
     fn salt(self, salt: u64) -> Self;
     fn maker(self, maker: Pubkey) -> Self;
     fn market(self, market: Pubkey) -> Self;
@@ -171,9 +179,12 @@ pub trait OrderEnvelope: Sized {
     fn deposit_source(self, ds: DepositSource) -> Self;
 
     /// Build an unsigned `OrderPayload` without consuming the envelope.
+    ///
+    /// Fixes the salt on first use, so a later `finalize()` submits the order
+    /// whose hash this payload produced.
     fn payload(&self) -> Result<OrderPayload, SdkError>;
 
-    /// Sign and produce a `SubmitOrderRequest`. Consumes the envelope.
+    /// Sign and produce the REST request. Consumes the envelope.
     ///
     /// Fetched rules are mandatory. Human values are constructed exactly and
     /// raw amounts are preflighted against the same admission rules.
@@ -183,9 +194,9 @@ pub trait OrderEnvelope: Sized {
         keypair: &Keypair,
         orderbook: &OrderBookPair,
         rules: &OrderbookRules,
-    ) -> Result<SubmitOrderRequest, SdkError>;
+    ) -> Result<Self::Request, SdkError>;
 
-    /// Apply an external wallet-adapter signature and produce a `SubmitOrderRequest`.
+    /// Apply an external wallet-adapter signature and produce the REST request.
     /// Consumes the envelope.
     ///
     /// Performs the same exact preflight as `sign()` before attaching the signature.
@@ -194,7 +205,7 @@ pub trait OrderEnvelope: Sized {
         sig_bs58: &str,
         orderbook: &OrderBookPair,
         rules: &OrderbookRules,
-    ) -> Result<SubmitOrderRequest, SdkError>;
+    ) -> Result<Self::Request, SdkError>;
 }
 
 // ─── Shared implementations via macro ───────────────────────────────────────
@@ -205,13 +216,8 @@ macro_rules! impl_base_methods {
             Self::default()
         }
 
-        fn nonce(mut self, nonce: u64) -> Self {
-            self.fields.nonce = Some(nonce);
-            self
-        }
-
         fn salt(mut self, salt: u64) -> Self {
-            self.fields.salt = Some(salt);
+            self.fields.salt = OnceLock::from(salt);
             self
         }
 
@@ -295,9 +301,8 @@ macro_rules! impl_base_methods {
 ///
 /// Fields like `market`, `base_mint`, `quote_mint` are auto-populated from the
 /// `OrderBookPair` passed to `sign()`/`finalize()` when not set explicitly.
-/// When using `submit()`, `nonce` is auto-populated from the client's cached
-/// nonce if not explicitly set (falling back to 0). When using `sign()`/`finalize()`
-/// directly, `nonce` defaults to 0. `salt` is auto-generated when omitted.
+/// `salt` is drawn at random on first build when omitted and then kept, so
+/// `payload()` followed by `finalize()` signs and submits the same order.
 ///
 /// # Example (via client builder — recommended)
 ///
@@ -327,6 +332,8 @@ pub struct LimitOrderEnvelope {
 }
 
 impl OrderEnvelope for LimitOrderEnvelope {
+    type Request = SubmitOrderRequest;
+
     impl_base_methods!(LimitOrderEnvelope);
 
     #[cfg(feature = "native-auth")]
@@ -344,8 +351,6 @@ impl OrderEnvelope for LimitOrderEnvelope {
         payload.to_submit_request(
             orderbook.orderbook_id.as_str(),
             self.time_in_force,
-            None,
-            None,
             self.fields.deposit_source,
         )
     }
@@ -364,15 +369,13 @@ impl OrderEnvelope for LimitOrderEnvelope {
         payload.to_submit_request(
             orderbook.orderbook_id.as_str(),
             self.time_in_force,
-            None,
-            None,
             self.fields.deposit_source,
         )
     }
 }
 
 impl LimitOrderEnvelope {
-    /// Set time-in-force policy (GTC, IOC, FOK, ALO).
+    /// Set time-in-force policy (GTC, IOC, FOK).
     pub fn time_in_force(mut self, tif: TimeInForce) -> Self {
         self.time_in_force = Some(tif);
         self
@@ -391,11 +394,10 @@ impl LimitOrderEnvelope {
 ///
 /// Fields like `market`, `base_mint`, `quote_mint` are auto-populated from the
 /// `OrderBookPair` passed to `sign()`/`finalize()` when not set explicitly.
-/// When using `submit()`, `nonce` is auto-populated from the client's cached
-/// nonce if not explicitly set (falling back to 0). When using `sign()`/`finalize()`
-/// directly, `nonce` defaults to 0. `salt` is auto-generated when omitted.
+/// `salt` is drawn at random on first build when omitted and then kept.
 ///
-/// Requires the `trigger_orders` feature.
+/// Requires the `trigger_orders` feature. The current backend has no trigger
+/// orders and rejects their submission.
 ///
 /// # Example (via client builder — recommended)
 ///
@@ -432,6 +434,8 @@ pub struct TriggerOrderEnvelope {
 
 #[cfg(feature = "trigger_orders")]
 impl OrderEnvelope for TriggerOrderEnvelope {
+    type Request = SubmitTriggerOrderRequest;
+
     impl_base_methods!(TriggerOrderEnvelope);
 
     #[cfg(feature = "native-auth")]
@@ -440,7 +444,7 @@ impl OrderEnvelope for TriggerOrderEnvelope {
         keypair: &Keypair,
         orderbook: &OrderBookPair,
         rules: &OrderbookRules,
-    ) -> Result<SubmitOrderRequest, SdkError> {
+    ) -> Result<SubmitTriggerOrderRequest, SdkError> {
         let (trigger_price, trigger_type) = self.validated_trigger(rules)?;
 
         self.fields.auto_fill_from_orderbook(orderbook)?;
@@ -448,13 +452,15 @@ impl OrderEnvelope for TriggerOrderEnvelope {
             .apply_rules(rules, orderbook.orderbook_id.as_str())?;
         let mut payload = self.fields.to_payload()?;
         payload.sign(keypair, rules)?;
-        payload.to_submit_request(
-            orderbook.orderbook_id.as_str(),
-            self.time_in_force,
-            Some(trigger_price),
-            Some(trigger_type),
-            self.fields.deposit_source,
-        )
+        Ok(SubmitTriggerOrderRequest {
+            order: payload.to_submit_request(
+                orderbook.orderbook_id.as_str(),
+                self.time_in_force,
+                self.fields.deposit_source,
+            )?,
+            trigger_price,
+            trigger_type,
+        })
     }
 
     fn finalize(
@@ -462,7 +468,7 @@ impl OrderEnvelope for TriggerOrderEnvelope {
         sig_bs58: &str,
         orderbook: &OrderBookPair,
         rules: &OrderbookRules,
-    ) -> Result<SubmitOrderRequest, SdkError> {
+    ) -> Result<SubmitTriggerOrderRequest, SdkError> {
         let (trigger_price, trigger_type) = self.validated_trigger(rules)?;
 
         self.fields.auto_fill_from_orderbook(orderbook)?;
@@ -470,13 +476,15 @@ impl OrderEnvelope for TriggerOrderEnvelope {
             .apply_rules(rules, orderbook.orderbook_id.as_str())?;
         let mut payload = self.fields.to_payload()?;
         payload.apply_signature(sig_bs58.to_string(), rules)?;
-        payload.to_submit_request(
-            orderbook.orderbook_id.as_str(),
-            self.time_in_force,
-            Some(trigger_price),
-            Some(trigger_type),
-            self.fields.deposit_source,
-        )
+        Ok(SubmitTriggerOrderRequest {
+            order: payload.to_submit_request(
+                orderbook.orderbook_id.as_str(),
+                self.time_in_force,
+                self.fields.deposit_source,
+            )?,
+            trigger_price,
+            trigger_type,
+        })
     }
 }
 
@@ -499,7 +507,7 @@ impl TriggerOrderEnvelope {
         Ok((trigger_price, trigger_type))
     }
 
-    /// Set time-in-force policy (GTC, IOC, FOK, ALO).
+    /// Set time-in-force policy (GTC, IOC, FOK).
     pub fn time_in_force(mut self, tif: TimeInForce) -> Self {
         self.time_in_force = Some(tif);
         self
@@ -532,11 +540,6 @@ impl TriggerOrderEnvelope {
         self.time_in_force(TimeInForce::Fok)
     }
 
-    /// Add-liquidity-only (post-only).
-    pub fn alo(self) -> Self {
-        self.time_in_force(TimeInForce::Alo)
-    }
-
     /// Take-profit shorthand: sets trigger_price and trigger_type in one call.
     pub fn take_profit(self, price: &str) -> Self {
         self.trigger_price(price)
@@ -558,7 +561,6 @@ impl LimitOrderEnvelope {
     ///
     /// - **Native**: signs locally with keypair, submits via REST
     /// - **WalletAdapter**: signs via external signer, submits via REST
-    /// - **Privy**: sends to backend for signing and submission
     ///
     /// Automatically fills orderbook-derived fields (market, mints, salt) and
     /// scales price/size to raw amounts before signing.
@@ -577,22 +579,11 @@ impl LimitOrderEnvelope {
             .await?;
         // Pre-fill orderbook-derived fields (market, mints, salt) and validate
         // price/size before the signing strategy runs. This is necessary because
-        // the WalletAdapter path calls `payload()` to hash for external signing,
-        // and the Privy path reads fields like `get_market()`, both of which
-        // happen before `sign()`/`finalize()` where these would otherwise run.
+        // the WalletAdapter path calls `payload()` to hash for external signing
+        // before `finalize()`, where these would otherwise run.
         self.fields.auto_fill_from_orderbook(orderbook)?;
         self.fields
             .apply_rules(&rules, orderbook.orderbook_id.as_str())?;
-
-        // Cache nonce if explicitly provided, or auto-populate from cache
-        match self.fields.nonce {
-            Some(nonce) => {
-                client.set_order_nonce(nonce).await;
-            }
-            None => {
-                self.fields.nonce = Some(client.order_nonce().await.unwrap_or(0));
-            }
-        }
 
         let strategy = client.signing_strategy().await.ok_or_else(|| {
             crate::error::SdkError::Validation("signing strategy is not set on the client".into())
@@ -624,7 +615,6 @@ impl TriggerOrderEnvelope {
     ///
     /// - **Native**: signs locally with keypair, submits via REST
     /// - **WalletAdapter**: signs via external signer, submits via REST
-    /// - **Privy**: sends to backend for signing and submission
     ///
     /// Automatically fills orderbook-derived fields (market, mints, salt) and
     /// scales price/size to raw amounts before signing.
@@ -650,16 +640,6 @@ impl TriggerOrderEnvelope {
         self.fields.auto_fill_from_orderbook(orderbook)?;
         self.fields
             .apply_rules(&rules, orderbook.orderbook_id.as_str())?;
-
-        // Cache nonce if explicitly provided, or auto-populate from cache
-        match self.fields.nonce {
-            Some(nonce) => {
-                client.set_order_nonce(nonce).await;
-            }
-            None => {
-                self.fields.nonce = Some(client.order_nonce().await.unwrap_or(0));
-            }
-        }
 
         let strategy = client.signing_strategy().await.ok_or_else(|| {
             crate::error::SdkError::Validation("signing strategy is not set on the client".into())
@@ -688,8 +668,9 @@ impl TriggerOrderEnvelope {
 // ─── Public accessor for privy helpers ──────────────────────────────────────
 
 impl LimitOrderEnvelope {
+    /// The salt, once set by the caller or fixed by the first build.
     pub fn get_salt(&self) -> Option<u64> {
-        self.fields.salt
+        self.fields.salt.get().copied()
     }
     pub fn get_maker(&self) -> Option<&Pubkey> {
         self.fields.maker.as_ref()
@@ -714,9 +695,6 @@ impl LimitOrderEnvelope {
     }
     pub fn get_expiration(&self) -> i64 {
         self.fields.expiration
-    }
-    pub fn get_nonce(&self) -> Option<u64> {
-        self.fields.nonce
     }
     pub fn get_deposit_source(&self) -> Option<DepositSource> {
         self.fields.deposit_source
@@ -725,8 +703,9 @@ impl LimitOrderEnvelope {
 
 #[cfg(feature = "trigger_orders")]
 impl TriggerOrderEnvelope {
+    /// The salt, once set by the caller or fixed by the first build.
     pub fn get_salt(&self) -> Option<u64> {
-        self.fields.salt
+        self.fields.salt.get().copied()
     }
     pub fn get_maker(&self) -> Option<&Pubkey> {
         self.fields.maker.as_ref()
@@ -751,9 +730,6 @@ impl TriggerOrderEnvelope {
     }
     pub fn get_expiration(&self) -> i64 {
         self.fields.expiration
-    }
-    pub fn get_nonce(&self) -> Option<u64> {
-        self.fields.nonce
     }
     pub fn get_deposit_source(&self) -> Option<DepositSource> {
         self.fields.deposit_source
@@ -830,7 +806,6 @@ mod tests {
         let quote_mint = Pubkey::new_unique();
 
         let env = LimitOrderEnvelope::new()
-            .nonce(1)
             .salt(0)
             .maker(maker)
             .market(market)
@@ -841,7 +816,7 @@ mod tests {
             .amount_out(500_000);
 
         let payload = env.payload().unwrap();
-        assert_eq!(payload.nonce, 1);
+        assert_eq!(payload.salt, 0);
         assert_eq!(payload.maker, maker);
         assert_eq!(payload.side, OrderSide::Bid);
         assert!(!payload.is_signed());
@@ -855,7 +830,6 @@ mod tests {
         let ob = test_orderbook();
 
         let request = LimitOrderEnvelope::new()
-            .nonce(1)
             .salt(0)
             .maker(maker)
             .market(Pubkey::new_unique())
@@ -868,13 +842,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(request.maker, maker.to_string());
-        assert_eq!(request.nonce, 1);
+        assert_eq!(request.salt, 0);
         assert_eq!(request.side, 0); // Bid
         assert_eq!(request.orderbook_id, "test_ob");
         assert_eq!(request.signature.len(), 128);
         assert_eq!(request.time_in_force, None);
-        assert_eq!(request.trigger_price, None);
-        assert_eq!(request.trigger_type, None);
+        assert_eq!(request.deposit_source, None);
     }
 
     #[test]
@@ -885,7 +858,6 @@ mod tests {
         let ob = test_orderbook();
 
         let request = LimitOrderEnvelope::new()
-            .nonce(1)
             .salt(0)
             .maker(maker)
             .market(Pubkey::new_unique())
@@ -912,7 +884,6 @@ mod tests {
         let ob = test_orderbook();
 
         let request = TriggerOrderEnvelope::new()
-            .nonce(1)
             .salt(0)
             .maker(maker)
             .market(Pubkey::new_unique())
@@ -926,11 +897,11 @@ mod tests {
             .sign(&keypair, &ob, &test_rules())
             .unwrap();
 
-        assert_eq!(request.trigger_price.unwrap().as_str(), "0.75");
-        assert_eq!(request.trigger_type, Some(TriggerType::TakeProfit));
-        assert_eq!(request.time_in_force, Some(TimeInForce::Gtc));
-        assert_eq!(request.side, 1); // Ask
-        assert_eq!(request.signature.len(), 128);
+        assert_eq!(request.trigger_price.as_str(), "0.75");
+        assert_eq!(request.trigger_type, TriggerType::TakeProfit);
+        assert_eq!(request.order.time_in_force, Some(TimeInForce::Gtc));
+        assert_eq!(request.order.side, 1); // Ask
+        assert_eq!(request.order.signature.len(), 128);
     }
 
     #[test]
@@ -941,7 +912,6 @@ mod tests {
         let trigger_price = "9007199254.740993";
 
         let request = TriggerOrderEnvelope::new()
-            .nonce(1)
             .salt(0)
             .maker(keypair.pubkey())
             .market(Pubkey::new_unique())
@@ -955,10 +925,7 @@ mod tests {
             .sign(&keypair, &ob, &test_rules())
             .unwrap();
 
-        assert_eq!(
-            request.trigger_price.as_ref().unwrap().as_str(),
-            trigger_price
-        );
+        assert_eq!(request.trigger_price.as_str(), trigger_price);
         assert!(serde_json::to_string(&request)
             .unwrap()
             .contains(r#""trigger_price":9007199254.740993"#));
@@ -1033,7 +1000,6 @@ mod tests {
         // is not a valid JSON number and cannot be submitted as one.
         assert!(validate_trigger_price("+0.75", 6).is_ok());
         let result = TriggerOrderEnvelope::new()
-            .nonce(1)
             .salt(0)
             .maker(Pubkey::new_unique())
             .bid()
@@ -1059,7 +1025,6 @@ mod tests {
         let ob = test_orderbook();
 
         let result = TriggerOrderEnvelope::new()
-            .nonce(1)
             .salt(0)
             .maker(keypair.pubkey())
             .market(Pubkey::new_unique())
@@ -1083,7 +1048,6 @@ mod tests {
         let ob = test_orderbook();
 
         let request = TriggerOrderEnvelope::new()
-            .nonce(1)
             .salt(0)
             .maker(keypair.pubkey())
             .market(Pubkey::new_unique())
@@ -1097,15 +1061,14 @@ mod tests {
             .sign(&keypair, &ob, &test_rules())
             .unwrap();
 
-        assert_eq!(request.time_in_force, Some(TimeInForce::Ioc));
-        assert_eq!(request.trigger_price.unwrap().as_str(), "0.30");
-        assert_eq!(request.trigger_type, Some(TriggerType::StopLoss));
+        assert_eq!(request.order.time_in_force, Some(TimeInForce::Ioc));
+        assert_eq!(request.trigger_price.as_str(), "0.30");
+        assert_eq!(request.trigger_type, TriggerType::StopLoss);
     }
 
     #[test]
     fn test_limit_envelope_zero_amount_in() {
         let result = LimitOrderEnvelope::new()
-            .nonce(1)
             .salt(0)
             .maker(Pubkey::new_unique())
             .market(Pubkey::new_unique())
@@ -1131,7 +1094,6 @@ mod tests {
         rules.orderbook_id = "another_ob".into();
 
         let result = LimitOrderEnvelope::new()
-            .nonce(1)
             .salt(0)
             .maker(keypair.pubkey())
             .market(Pubkey::new_unique())
@@ -1154,7 +1116,6 @@ mod tests {
     #[test]
     fn test_limit_envelope_zero_amount_out() {
         let result = LimitOrderEnvelope::new()
-            .nonce(1)
             .salt(0)
             .maker(Pubkey::new_unique())
             .market(Pubkey::new_unique())
@@ -1172,24 +1133,68 @@ mod tests {
     }
 
     #[test]
-    fn test_limit_envelope_nonce_defaults_to_zero() {
-        let payload = LimitOrderEnvelope::new()
+    fn unset_salt_is_drawn_once_and_reused() {
+        let envelope = LimitOrderEnvelope::new()
             .maker(Pubkey::new_unique())
             .market(Pubkey::new_unique())
             .base_mint(Pubkey::new_unique())
             .quote_mint(Pubkey::new_unique())
             .bid()
             .amount_in(1_000_000)
-            .amount_out(500_000)
-            .payload()
+            .amount_out(500_000);
+        let untouched_clone = envelope.clone();
+        assert_eq!(envelope.get_salt(), None);
+
+        let first = envelope.payload().unwrap();
+        assert_eq!(envelope.get_salt(), Some(first.salt));
+        let second = envelope.payload().unwrap();
+        assert_eq!(second.salt, first.salt);
+        assert_eq!(second.hash(), first.hash());
+
+        // A clone taken after the salt is fixed keeps it; one taken before
+        // draws its own on first use.
+        assert_eq!(envelope.clone().payload().unwrap().salt, first.salt);
+        assert_eq!(untouched_clone.get_salt(), None);
+        untouched_clone.payload().unwrap();
+        assert!(untouched_clone.get_salt().is_some());
+
+        let overridden = envelope.salt(7);
+        assert_eq!(overridden.payload().unwrap().salt, 7);
+    }
+
+    #[test]
+    #[cfg(feature = "native-auth")]
+    fn wallet_adapter_flow_submits_the_hash_it_signed() {
+        let keypair = Keypair::new();
+        let ob = test_orderbook();
+        let envelope = LimitOrderEnvelope::new()
+            .maker(keypair.pubkey())
+            .market(Pubkey::new_unique())
+            .base_mint(Pubkey::new_unique())
+            .quote_mint(Pubkey::new_unique())
+            .bid()
+            .amount_in(1_000_000)
+            .amount_out(500_000);
+
+        // An external wallet signs the payload's hash before finalize().
+        let payload = envelope.payload().unwrap();
+        let signature = keypair.sign_message(payload.hash_hex().as_bytes());
+        let request = envelope
+            .finalize(&signature.to_string(), &ob, &test_rules())
             .unwrap();
-        assert_eq!(payload.nonce, 0);
+
+        assert_eq!(request.salt, payload.salt);
+        assert_eq!(request.signature, hex::encode(signature.as_ref()));
+        let submitted = OrderPayload {
+            signature: signature.into(),
+            ..payload
+        };
+        submitted.verify_signature().unwrap();
     }
 
     #[test]
     fn test_limit_envelope_missing_side() {
         let result = LimitOrderEnvelope::new()
-            .nonce(1)
             .salt(0)
             .maker(Pubkey::new_unique())
             .market(Pubkey::new_unique())
@@ -1213,7 +1218,6 @@ mod tests {
         let ob = test_orderbook();
 
         let request = LimitOrderEnvelope::new()
-            .nonce(1)
             .salt(0)
             .maker(maker)
             .market(Pubkey::new_unique())
@@ -1236,7 +1240,6 @@ mod tests {
         let ob = test_orderbook();
 
         let request = LimitOrderEnvelope::new()
-            .nonce(1)
             .salt(0)
             .maker(keypair.pubkey())
             .market(Pubkey::new_unique())
@@ -1255,5 +1258,29 @@ mod tests {
     fn test_limit_envelope_deposit_source_accessor() {
         let env = LimitOrderEnvelope::new().deposit_source(DepositSource::Market);
         assert_eq!(env.get_deposit_source(), Some(DepositSource::Market));
+    }
+
+    #[test]
+    #[cfg(feature = "native-auth")]
+    fn conditional_deposit_source_serializes_for_the_backend() {
+        let keypair = Keypair::new();
+        let request = LimitOrderEnvelope::new()
+            .salt(0)
+            .maker(keypair.pubkey())
+            .market(Pubkey::new_unique())
+            .base_mint(Pubkey::new_unique())
+            .quote_mint(Pubkey::new_unique())
+            .bid()
+            .amount_in(1_000_000)
+            .amount_out(500_000)
+            .deposit_source(DepositSource::Market)
+            .time_in_force(TimeInForce::Fok)
+            .sign(&keypair, &test_orderbook(), &test_rules())
+            .unwrap();
+        let json = serde_json::to_value(&request).unwrap();
+
+        assert_eq!(json["deposit_source"], "conditional");
+        assert_eq!(json["tif"], "FOK");
+        assert!(json.get("nonce").is_none());
     }
 }

@@ -74,7 +74,12 @@ let resources = V1ResourceConfig {
     heap_size: None,
 };
 let context = client.transaction_context_with_resources(resources).await?;
-let tx = client.orders().increment_nonce_tx(&payer, &context)?;
+let tx = client.positions().merge()
+    .user(payer)
+    .market(&market)
+    .mint(deposit_mint)
+    .amount(1_000_000)
+    .build_tx(&context)?;
 let confirmed = client.sign_and_submit_tx_confirmed_with_slot(tx).await?;
 ```
 
@@ -171,7 +176,6 @@ let signed = lightcone::auth::native::sign_login_message(keypair.as_ref(), &nonc
 client.auth().login_with_message(
     &signed.message, &signed.signature_bs58, &signed.pubkey_bytes, None,
 ).await?;
-client.set_order_nonce(u64::from(client.orders().current_nonce(&payer).await?)).await;
 ```
 
 ### Step 1: Find a Market
@@ -505,8 +509,8 @@ status, so refresh authoritative balances before any retry. See the
 
 | Example | Description |
 |---------|-------------|
-| [`read_onchain`](examples/read_onchain.rs) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
-| [`onchain_transactions`](examples/onchain_transactions.rs) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
+| [`read_onchain`](examples/read_onchain.rs) | Read exchange, market, orderbook, and position state and PDA derivations via RPC |
+| [`onchain_transactions`](examples/onchain_transactions.rs) | Build, sign, and submit mint/merge complete set on-chain |
 | [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.rs) | Deposit to the global pool, move capital into a market, withdraw from global, and merge back to keep the run net-neutral |
 
 Every instruction builder appends the program's event transport trailer (the event-authority PDA and the program account, both read-only), and public Lightcone instructions require transaction-level invocation except for the governance CPI allowlist. See the [program module docs](src/program/README.md#event-transport-trailer).

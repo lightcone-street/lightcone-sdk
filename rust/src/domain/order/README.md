@@ -97,7 +97,8 @@ Execution constraint for trigger orders.
 | `Gtc` | `"GTC"` | Good-til-cancelled (default) |
 | `Ioc` | `"IOC"` | Immediate-or-cancel |
 | `Fok` | `"FOK"` | Fill-or-kill |
-| `Alo` | `"ALO"` | Add-liquidity-only (post-only) |
+
+The backend has no post-only policy and rejects `"ALO"`.
 
 ### `TriggerType`
 
@@ -226,10 +227,10 @@ Cancel all open orders, optionally scoped to a specific orderbook. **Not retried
 ### `submit_trigger`
 
 ```rust
-async fn submit_trigger(&self, request: &impl Serialize) -> Result<TriggerOrderResponse, SdkError>
+async fn submit_trigger(&self, request: &SubmitTriggerOrderRequest) -> Result<TriggerOrderResponse, SdkError>
 ```
 
-Submit a signed trigger order (take-profit or stop-loss). **Not retried.**
+Submit a signed trigger order (take-profit or stop-loss). `SubmitTriggerOrderRequest` flattens the limit-order `SubmitOrderRequest` and adds `trigger_price` and `trigger_type`; the plain limit request never carries them. The current backend has no trigger orders and rejects this request. **Not retried.**
 
 ### `cancel_trigger`
 
@@ -297,15 +298,6 @@ fn cancel_order_tx(&self, maker: &Pubkey, market: &Pubkey, order: &OrderPayload,
 
 Build a CancelOrder instruction/transaction for on-chain order cancellation.
 
-#### `increment_nonce_ix` / `increment_nonce_tx`
-
-```rust
-fn increment_nonce_ix(&self, user: &Pubkey) -> Instruction
-fn increment_nonce_tx(&self, user: &Pubkey, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
-```
-
-Build an IncrementNonce instruction/transaction — invalidates all orders with a nonce lower than the new value.
-
 #### `close_order_status_ix` / `close_order_status_tx`
 
 ```rust
@@ -352,7 +344,7 @@ Preflight and sign orders in one step. Requires fetched trading rules and the
 fn hash_order(&self, order: &OrderPayload) -> [u8; 32]
 ```
 
-Compute the Keccak256 hash of an order (excludes the signature field).
+Compute the Keccak256 hash of an order's 161-byte signing preimage (salt first; the signature is excluded). There is no per-user nonce, so the salt is the order's only identity.
 
 #### `sign_order`
 
@@ -390,7 +382,6 @@ let response = client.orders().limit_order().await
     .bid()                          // or .ask()
     .price("0.55")                  // human-readable price
     .size("100")                    // human-readable size
-    .nonce(nonce)
     .expiration(0)                  // 0 = no expiration
     // .deposit_source(DepositSource::Global) // override if needed
     .submit(&client, &orderbook).await?; // fetch/cache rules, validate, sign, submit
@@ -421,9 +412,8 @@ let request = client.orders().trigger_order().await
     .bid()
     .price("0.55")
     .size("100")
-    .nonce(nonce)
     .take_profit("0.65")            // exact decimal string; or .stop_loss("0.45")
-    .gtc()                          // or .ioc(), .fok(), .alo()
+    .gtc()                          // or .ioc(), .fok()
     // .deposit_source(DepositSource::Global) // override if needed
     .submit(&client, &orderbook).await?;
 
@@ -448,10 +438,10 @@ Both envelope types implement the `OrderEnvelope` trait with these shared method
 | `.bid()` / `.ask()` | Set the order side |
 | `.price(str)` | Set the human-readable price |
 | `.size(str)` | Set the human-readable size |
-| `.nonce(u32)` | Set the order nonce. When using `submit()`, auto-populated from `client.order_nonce()` if omitted (falls back to 0). |
+| `.salt(u64)` | Set the order's identity salt (any u64). When omitted, a random salt is drawn on the first `payload()`, `sign()`, `finalize()`, or `submit()` and reused, so the hash a wallet signs is the order submitted. |
 | `.expiration(i64)` | Set expiration (0 = none) |
-| `.deposit_source(ds)` | Set collateral source (`Global` or `Market`). Pre-seeded by factory methods. |
-| `.sign(&keypair, orderbook, rules)` | Validate exact construction, sign, and produce `SubmitOrderRequest` |
+| `.deposit_source(ds)` | Set collateral source (`Global`, or `Market`, which serializes as `"conditional"`). Pre-seeded by factory methods. |
+| `.sign(&keypair, orderbook, rules)` | Validate exact construction, sign, and produce the envelope's `Request` (`SubmitOrderRequest` for limit orders) |
 | `.finalize(sig_bs58, orderbook, rules)` | Validate and attach an external signature |
 | `.submit(client, orderbook)` | Fetch/cache rules, validate before wallet signing, and submit |
 | `.payload()` | Get the raw `OrderPayload` (for manual signing) |
@@ -462,13 +452,13 @@ Both envelope types implement the `OrderEnvelope` trait with these shared method
 |--------|-------------|
 | `.take_profit(price)` | Set trigger type to take-profit at the given price |
 | `.stop_loss(price)` | Set trigger type to stop-loss at the given price |
-| `.gtc()` / `.ioc()` / `.fok()` / `.alo()` | Set time-in-force |
+| `.gtc()` / `.ioc()` / `.fok()` | Set time-in-force |
 
 ### Exact construction
 
 `client.orderbooks().decimals()` returns the mandatory `OrderbookRules`.
 Human values are parsed as exact decimal strings; raw amount callers are
-preflighted against the same price, size, ratio, and signed-64-bit rules. All
+preflighted against the same price, size, ratio, and nonzero-u64 rules. All
 validation completes before hashing or invoking a wallet signer.
 
 ## State Containers
@@ -540,7 +530,6 @@ async fn market_make(client: &LightconeClient, keypair: &Keypair) -> Result<(), 
     let decimals = client.orderbooks().decimals(ob.orderbook_id.as_str()).await?;
 
     // 3. Place a bid
-    let order_nonce = 1u32;
     let bid_request = client.orders().limit_order().await
         .maker(keypair.pubkey())
         .market(market.pubkey.to_pubkey().unwrap())
@@ -549,7 +538,6 @@ async fn market_make(client: &LightconeClient, keypair: &Keypair) -> Result<(), 
         .bid()
         .price("0.50")
         .size("100")
-        .nonce(order_nonce.into())
         .sign(keypair, ob, &decimals)?;
 
     let response = client.orders().submit(&bid_request).await?;
@@ -607,7 +595,6 @@ async fn place_take_profit(
         .ask()
         .price("0.70")
         .size("50")
-        .nonce(2)
         .take_profit("0.65")
         .gtc()
         .sign(keypair, ob, &rules)?;

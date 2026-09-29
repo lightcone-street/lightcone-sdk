@@ -93,10 +93,6 @@ pub struct LightconeClient {
     /// The capability defaults to false. Cloned clients share this context so each
     /// submission can capture a consistent signer/capability pair before yielding.
     transaction_signing_context: Arc<RwLock<TransactionSigningContext>>,
-    /// Cached order nonce. When the user provides a nonce via `.nonce()` on an
-    /// envelope, it is stored here. Subsequent orders that omit `.nonce()` will
-    /// use this cached value, falling back to 0 if nothing has been cached.
-    pub(crate) order_nonce: Arc<RwLock<Option<u64>>>,
     pub(crate) orderbook_rules: Arc<RwLock<HashMap<String, OrderbookRulesCell>>>,
     /// Primary Solana RPC URL for blockhash fetching and transaction submission.
     pub(crate) primary_rpc_url: Option<String>,
@@ -250,24 +246,6 @@ impl LightconeClient {
             Some(source) => source,
             None => self.deposit_source().await,
         }
-    }
-
-    // ── Nonce cache ────────────────────────────────────────────────────
-
-    /// Get the cached order nonce, if one has been set.
-    pub async fn order_nonce(&self) -> Option<u64> {
-        *self.order_nonce.read().await
-    }
-
-    /// Cache an order nonce. This value will be used as the default nonce
-    /// for subsequent orders that don't explicitly call `.nonce()`.
-    pub async fn set_order_nonce(&self, nonce: u64) {
-        *self.order_nonce.write().await = Some(nonce);
-    }
-
-    /// Clear the cached nonce (e.g. on logout).
-    pub async fn clear_order_nonce(&self) {
-        *self.order_nonce.write().await = None;
     }
 
     // ── Signing strategy ────────────────────────────────────────────────
@@ -1425,7 +1403,6 @@ impl Clone for LightconeClient {
             auth_credentials: self.auth_credentials.clone(),
             program_id: self.program_id,
             deposit_source: self.deposit_source.clone(),
-            order_nonce: self.order_nonce.clone(),
             orderbook_rules: self.orderbook_rules.clone(),
             transaction_signing_context: self.transaction_signing_context.clone(),
             primary_rpc_url: self.primary_rpc_url.clone(),
@@ -1590,7 +1567,6 @@ impl LightconeClientBuilder {
             auth_credentials: Arc::new(RwLock::new(self.auth_credentials)),
             program_id: self.program_id,
             deposit_source: Arc::new(RwLock::new(self.deposit_source)),
-            order_nonce: Arc::new(RwLock::new(None)),
             orderbook_rules: Arc::new(RwLock::new(HashMap::new())),
             transaction_signing_context: Arc::new(RwLock::new(TransactionSigningContext {
                 strategy: self.signing_strategy,

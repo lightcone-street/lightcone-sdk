@@ -20,7 +20,7 @@ pub use rejection::RejectionCode;
 pub use scaling::{
     exact_scaled_integer, scale_price_size, validate_raw_amounts, validate_signed_fields,
     validate_trigger_price, OrderbookRules, ScaledAmounts, ScalingError, TradingRules, I64_MAX_U64,
-    NONCE_MAX, PRICE_SCALE,
+    PRICE_SCALE,
 };
 
 use rust_decimal::Decimal;
@@ -307,7 +307,8 @@ impl std::str::FromStr for Side {
 
 /// Time-in-force policy for order execution.
 ///
-/// Serializes as uppercase strings: `"GTC"`, `"IOC"`, `"FOK"`, `"ALO"`.
+/// Serializes as uppercase strings: `"GTC"`, `"IOC"`, `"FOK"`. The backend
+/// has no post-only (`"ALO"`) policy and rejects it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum TimeInForce {
     /// Good-til-cancelled (default)
@@ -320,9 +321,6 @@ pub enum TimeInForce {
     /// Fill-or-kill
     #[serde(rename = "FOK")]
     Fok,
-    /// Add-liquidity-only (post-only)
-    #[serde(rename = "ALO")]
-    Alo,
 }
 
 // ─── TriggerType ─────────────────────────────────────────────────────────────
@@ -410,14 +408,17 @@ pub enum TriggerResultStatus {
 
 /// Where collateral should be sourced when matching an order.
 ///
-/// Use `None` for the default behavior (auto: global if available, then market).
-/// Serializes as `"global"` or `"market"` to match the REST API.
+/// Use `None` for the default behavior (the backend's `"auto"` funding).
+/// Serializes as `"global"` or `"conditional"` to match the REST API;
+/// `"market"` still deserializes as [`DepositSource::Market`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum DepositSource {
     /// Always use the user's global deposit balance.
+    #[serde(rename = "global")]
     Global,
-    /// Only use market-level balance (no global fallback).
+    /// Only use conditional tokens already held in the market position (no
+    /// global fallback). The wire value is `"conditional"`.
+    #[serde(rename = "conditional", alias = "market")]
     Market,
 }
 
@@ -662,7 +663,6 @@ mod tests {
             (TimeInForce::Gtc, "\"GTC\""),
             (TimeInForce::Ioc, "\"IOC\""),
             (TimeInForce::Fok, "\"FOK\""),
-            (TimeInForce::Alo, "\"ALO\""),
         ];
         for (variant, expected_json) in &cases {
             let json = serde_json::to_string(variant).unwrap();
@@ -670,6 +670,7 @@ mod tests {
             let back: TimeInForce = serde_json::from_str(&json).unwrap();
             assert_eq!(&back, variant);
         }
+        assert!(serde_json::from_str::<TimeInForce>("\"ALO\"").is_err());
     }
 
     #[test]
@@ -691,70 +692,71 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_submit_order_request_without_tif_trigger() {
-        let req = SubmitOrderRequest {
+    fn sample_submit_request() -> SubmitOrderRequest {
+        SubmitOrderRequest {
             maker: "maker".into(),
-            nonce: 1,
-            salt: 0,
+            salt: u64::MAX,
             market_pubkey: "market".into(),
             base_token: "base".into(),
             quote_token: "quote".into(),
-            side: 0,
+            side: 1,
             amount_in: 100,
             amount_out: 50,
-            expiration: 0,
+            expiration: 1_700_000_000,
             signature: "sig".into(),
             orderbook_id: "ob".into(),
             time_in_force: None,
-            trigger_price: None,
-            trigger_type: None,
             deposit_source: None,
-        };
-        let json = serde_json::to_string(&req).unwrap();
-        // Optional fields should be omitted when None
-        assert!(!json.contains("tif"));
-        assert!(!json.contains("trigger_price"));
-        assert!(!json.contains("trigger_type"));
-        assert!(!json.contains("deposit_source"));
+        }
     }
 
     #[test]
-    fn test_submit_order_request_with_tif_trigger() {
-        let req = SubmitOrderRequest {
-            maker: "maker".into(),
-            nonce: 1,
-            salt: 0,
-            market_pubkey: "market".into(),
-            base_token: "base".into(),
-            quote_token: "quote".into(),
-            side: 0,
-            amount_in: 100,
-            amount_out: 50,
-            expiration: 0,
-            signature: "sig".into(),
-            orderbook_id: "ob".into(),
-            time_in_force: Some(TimeInForce::Ioc),
-            trigger_price: Some("0.55".parse().unwrap()),
-            trigger_type: Some(TriggerType::TakeProfit),
-            deposit_source: None,
-        };
-        let json = serde_json::to_string(&req).unwrap();
-        assert!(json.contains("\"tif\":\"IOC\""));
-        assert!(json.contains("\"trigger_price\":0.55"));
-        assert!(json.contains("\"trigger_type\":\"TP\""));
+    fn submit_order_request_serializes_only_backend_fields() {
+        let json = serde_json::to_value(sample_submit_request()).unwrap();
+        // Exactly the backend's deny_unknown_fields request; optional
+        // policy fields are omitted when None.
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "maker": "maker",
+                "salt": 18446744073709551615u64,
+                "market_pubkey": "market",
+                "base_token": "base",
+                "quote_token": "quote",
+                "side": 1,
+                "amount_in": 100,
+                "amount_out": 50,
+                "expiration": 1700000000,
+                "signature": "sig",
+                "orderbook_id": "ob",
+            })
+        );
+        assert!(serde_json::to_string(&sample_submit_request())
+            .unwrap()
+            .contains(r#""salt":18446744073709551615,"#));
+    }
 
-        let back: SubmitOrderRequest = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.time_in_force, Some(TimeInForce::Ioc));
-        assert_eq!(back.trigger_price.unwrap().as_str(), "0.55");
-        assert_eq!(back.trigger_type, Some(TriggerType::TakeProfit));
+    #[test]
+    fn submit_order_request_serializes_tif_and_deposit_source() {
+        let req = SubmitOrderRequest {
+            time_in_force: Some(TimeInForce::Ioc),
+            deposit_source: Some(DepositSource::Market),
+            ..sample_submit_request()
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["tif"], "IOC");
+        assert_eq!(json["deposit_source"], "conditional");
+        assert_eq!(json.as_object().unwrap().len(), 13);
+
+        let back: SubmitOrderRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(back, req);
     }
 
     #[test]
     fn test_deposit_source_serde_roundtrip() {
         let cases = [
             (DepositSource::Global, "\"global\""),
-            (DepositSource::Market, "\"market\""),
+            (DepositSource::Market, "\"conditional\""),
         ];
         for (variant, expected_json) in &cases {
             let json = serde_json::to_string(variant).unwrap();
@@ -762,87 +764,74 @@ mod tests {
             let back: DepositSource = serde_json::from_str(&json).unwrap();
             assert_eq!(&back, variant);
         }
+        let legacy: DepositSource = serde_json::from_str("\"market\"").unwrap();
+        assert_eq!(legacy, DepositSource::Market);
     }
 
     #[test]
-    fn test_submit_order_request_with_deposit_source() {
-        let req = SubmitOrderRequest {
-            maker: "maker".into(),
-            nonce: 1,
-            salt: 0,
-            market_pubkey: "market".into(),
-            base_token: "base".into(),
-            quote_token: "quote".into(),
-            side: 0,
-            amount_in: 100,
-            amount_out: 50,
-            expiration: 0,
-            signature: "sig".into(),
-            orderbook_id: "ob".into(),
-            time_in_force: None,
-            trigger_price: None,
-            trigger_type: None,
-            deposit_source: Some(DepositSource::Global),
+    #[cfg(feature = "trigger_orders")]
+    fn trigger_request_flattens_the_limit_request() {
+        let req = SubmitTriggerOrderRequest {
+            order: sample_submit_request(),
+            trigger_price: "0.55".parse().unwrap(),
+            trigger_type: TriggerType::TakeProfit,
         };
         let json = serde_json::to_string(&req).unwrap();
-        assert!(json.contains("\"deposit_source\":\"global\""));
-
-        let back: SubmitOrderRequest = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.deposit_source, Some(DepositSource::Global));
-    }
-
-    #[test]
-    fn test_submit_order_request_deposit_source_omitted_when_none() {
-        let req = SubmitOrderRequest {
-            maker: "maker".into(),
-            nonce: 1,
-            salt: 0,
-            market_pubkey: "market".into(),
-            base_token: "base".into(),
-            quote_token: "quote".into(),
-            side: 0,
-            amount_in: 100,
-            amount_out: 50,
-            expiration: 0,
-            signature: "sig".into(),
-            orderbook_id: "ob".into(),
-            time_in_force: None,
-            trigger_price: None,
-            trigger_type: None,
-            deposit_source: None,
-        };
-        let json = serde_json::to_string(&req).unwrap();
-        assert!(!json.contains("deposit_source"));
+        assert!(json.contains(r#""salt":18446744073709551615,"#));
+        assert!(json.contains(r#""trigger_price":0.55"#));
+        assert!(json.contains(r#""trigger_type":"TP""#));
     }
 }
 
 // ─── SubmitOrderRequest ──────────────────────────────────────────────────────
 
-/// Request for submitting a signed order via REST API.
+/// Request for submitting a signed limit order via REST API.
 ///
 /// Bridges the program module (on-chain order signing) with the API module
-/// (REST order submission).
+/// (REST order submission). Serializes exactly the fields
+/// `POST /api/orders/submit` accepts; the backend rejects unknown fields.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SubmitOrderRequest {
+    /// Maker wallet (base58). Must match the authenticated session wallet.
     pub maker: String,
-    pub nonce: u64,
+    /// Order identity salt, serialized as a JSON number. Any u64 is valid.
     pub salt: u64,
     pub market_pubkey: String,
+    /// Base conditional mint (base58).
     pub base_token: String,
+    /// Quote conditional mint (base58).
     pub quote_token: String,
+    /// 0 = bid, 1 = ask.
     pub side: u32,
+    /// Raw atoms the maker gives (quote for a bid, base for an ask).
     pub amount_in: u64,
+    /// Raw atoms the maker receives (base for a bid, quote for an ask).
     pub amount_out: u64,
+    /// Expiration as Unix seconds (0 = no expiration).
     #[serde(default)]
     pub expiration: i64,
+    /// Ed25519 signature over the order hash hex, as 128 hex characters.
     pub signature: String,
     pub orderbook_id: String,
+    /// Omitted means GTC.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "tif")]
     pub time_in_force: Option<TimeInForce>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trigger_price: Option<ExactDecimal>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trigger_type: Option<TriggerType>,
+    /// Omitted means the backend's automatic funding.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deposit_source: Option<DepositSource>,
+}
+
+/// Request for submitting a signed trigger (take-profit / stop-loss) order.
+///
+/// The trigger fields travel beside the plain limit-order request, which is
+/// flattened into the same JSON object. The current backend has no trigger
+/// orders and rejects these fields.
+#[cfg(feature = "trigger_orders")]
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct SubmitTriggerOrderRequest {
+    #[serde(flatten)]
+    pub order: SubmitOrderRequest,
+    /// Trigger price in quote per base, sent as an exact JSON number.
+    pub trigger_price: ExactDecimal,
+    pub trigger_type: TriggerType,
 }

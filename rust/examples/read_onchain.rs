@@ -26,7 +26,6 @@ async fn main() -> ExampleResult {
         .orderbooks()
         .get_onchain(&base_mint, &quote_mint)
         .await?;
-    let nonce = client.orders().current_nonce(&keypair.pubkey()).await?;
     let position = client
         .positions()
         .get_onchain(&keypair.pubkey(), &market_pubkey)
@@ -49,7 +48,6 @@ async fn main() -> ExampleResult {
         onchain_orderbook.outcome_index,
         onchain_orderbook.bump
     );
-    println!("user nonce: {}", nonce);
     println!("position exists: {}", position.is_some());
     println!(
         "pdas: exchange={} market={} position={} global_deposit={}",

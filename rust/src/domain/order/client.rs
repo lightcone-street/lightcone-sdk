@@ -14,9 +14,10 @@ use crate::program::orders::OrderPayload;
 use crate::program::transaction::{V1Transaction, V1TransactionContext};
 use crate::program::types::{CloseOrderStatusParams, OrderSide};
 use crate::shared::{
-    validate_raw_amounts, validate_signed_fields, validate_trigger_price, OrderBookId, PubkeyStr,
-    SubmitOrderRequest,
+    validate_raw_amounts, OrderBookId, OrderbookRules, PubkeyStr, SubmitOrderRequest,
 };
+#[cfg(feature = "trigger_orders")]
+use crate::shared::{validate_trigger_price, SubmitTriggerOrderRequest};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use solana_instruction::Instruction;
@@ -246,11 +247,6 @@ impl<'a> Orders<'a> {
         crate::program::pda::get_order_status_pda(order_hash, &self.client.program_id).0
     }
 
-    /// Get the User Nonce PDA.
-    pub fn nonce_pda(&self, user: &Pubkey) -> Pubkey {
-        crate::program::pda::get_user_nonce_pda(user, &self.client.program_id).0
-    }
-
     // ── Envelope factories ────────────────────────────────────────────────
 
     /// Create a `LimitOrderEnvelope` pre-seeded with the client's deposit source.
@@ -301,12 +297,17 @@ impl<'a> Orders<'a> {
         self.client.http.post(&url, body, RetryPolicy::None).await
     }
 
+    /// Submit a signed trigger order.
+    ///
+    /// The current backend has no trigger orders and rejects this request.
     #[cfg(feature = "trigger_orders")]
     pub async fn submit_trigger(
         &self,
-        request: &SubmitOrderRequest,
+        request: &SubmitTriggerOrderRequest,
     ) -> Result<TriggerOrderResponse, SdkError> {
-        self.preflight_submit(request).await?;
+        let rules = self.preflight_submit(&request.order).await?;
+        validate_trigger_price(request.trigger_price.as_str(), rules.price_decimals)
+            .map_err(ProgramSdkError::from)?;
         let url = format!("{}/api/orders/submit", self.client.http.base_url());
         self.client
             .http
@@ -314,7 +315,11 @@ impl<'a> Orders<'a> {
             .await
     }
 
-    async fn preflight_submit(&self, request: &SubmitOrderRequest) -> Result<(), SdkError> {
+    /// Check the signed amounts against the orderbook's fetched admission rules.
+    async fn preflight_submit(
+        &self,
+        request: &SubmitOrderRequest,
+    ) -> Result<OrderbookRules, SdkError> {
         let rules = self
             .client
             .orderbooks()
@@ -327,18 +332,7 @@ impl<'a> Orders<'a> {
         };
         validate_raw_amounts(request.amount_in, request.amount_out, side, &rules)
             .map_err(ProgramSdkError::from)?;
-        validate_signed_fields(
-            request.amount_in,
-            request.amount_out,
-            request.salt,
-            request.nonce,
-        )
-        .map_err(ProgramSdkError::from)?;
-        if let Some(trigger_price) = &request.trigger_price {
-            validate_trigger_price(trigger_price.as_str(), rules.price_decimals)
-                .map_err(ProgramSdkError::from)?;
-        }
-        Ok(())
+        Ok(rules)
     }
 
     #[cfg(feature = "trigger_orders")]
@@ -647,22 +641,6 @@ impl<'a> Orders<'a> {
         Ok(V1Transaction::compile(&[ix], operator, context)?)
     }
 
-    /// Build IncrementNonce instruction.
-    pub fn increment_nonce_ix(&self, user: &Pubkey) -> Instruction {
-        let pid = &self.client.program_id;
-        instructions::build_increment_nonce_ix(user, pid)
-    }
-
-    /// Build IncrementNonce transaction.
-    pub fn increment_nonce_tx(
-        &self,
-        user: &Pubkey,
-        context: &V1TransactionContext,
-    ) -> Result<V1Transaction, SdkError> {
-        let ix = self.increment_nonce_ix(user);
-        Ok(V1Transaction::compile(&[ix], user, context)?)
-    }
-
     /// Build CloseOrderStatus instruction.
     pub fn close_order_status_ix(&self, params: &CloseOrderStatusParams) -> Instruction {
         let pid = &self.client.program_id;
@@ -749,25 +727,5 @@ impl<'a> Orders<'a> {
             )?)),
             Err(_) => Ok(None),
         }
-    }
-
-    /// Fetch a user's current nonce (returns 0 if not initialized).
-    pub async fn get_nonce(&self, user: &Pubkey) -> Result<u64, SdkError> {
-        let rpc = crate::rpc::resolve_solana_rpc(self.client).await?;
-        let pda = self.nonce_pda(user);
-        match rpc.get_account(&pda).await {
-            Ok(account) => {
-                let user_nonce = crate::program::accounts::UserNonce::deserialize(&account.data)?;
-                Ok(user_nonce.nonce)
-            }
-            Err(_) => Ok(0),
-        }
-    }
-
-    /// Get the current on-chain nonce for a user as u32.
-    pub async fn current_nonce(&self, user: &Pubkey) -> Result<u32, SdkError> {
-        let nonce = self.get_nonce(user).await?;
-        u32::try_from(nonce)
-            .map_err(|_| SdkError::Program(crate::program::error::SdkError::Overflow))
     }
 }

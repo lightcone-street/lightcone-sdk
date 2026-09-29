@@ -1,0 +1,2635 @@
+{
+  "cases": [
+    {
+      "configuration": {
+        "book": {
+          "address_hex": "7c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc649",
+          "data_hex": "2b221971c345480732c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a30034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679555555555555555555555555555555555555555555555555555555555555555544444444444444444444444444444444444444444444444444444444444444440001ff0000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_a": {
+          "address_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+          "data_hex": "25bea1e87b922a575555555555555555555555555555555555555555555555555555555555555555ff010001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_b": {
+          "address_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+          "data_hex": "25bea1e87b922a574444444444444444444444444444444444444444444444444444444444444444fe000001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "market": {
+          "address_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+          "data_hex": "dbbed53700e3c69a2a000000000000000201f800f6ff1e00ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        }
+      },
+      "expected": {
+        "accounts": [
+          {
+            "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "a55ef105072abeeed4a1eb039d0a3a2089460309ea867cc73feec1ffcdd83c23",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "7c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc649",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "dec3587441160a41044a6e78287565bd4d9e0362e9a3813b01f1e074cd2d7206",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "aaefd260a8fa813ab49be28dcd25bfb942761370f69a67e9e59d928795cc9561",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "f383b2c973710f2ab68cccf70082e0daea96c3e9a73042f3dee1a5f8caa9c8f6",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6cf7b486f764a2498b5690b6618a9f8713c8524e48e132c1fa6ac53fb2476c02",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "d6a2308b515490111bd6887dee7f4033092cef6ecd5d7ab253d3f33202143aff",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f859",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "ae4107f3404f0c899fc34a8fdc893eca44feaae184c294e8a593fbc065edc9a3",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "c0a281a105957ddeb674109fccfc8126ef82a9807081150a50701459d51816f4",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "data_hex": "0d6500000000000000003c0000000000000064000000000000000000000000000000effb25ca21f105727bcea50796574bfe639b91fac5002ef9d3a5c7506f72fe9f77ac6107af482c45ac241d86d94f719021bb4639b3a00ed77325c6ff0ead920e010000c8000000000000000164000000000000003c0000000000000000000000000000008532b5964c0c4d8461ab16e925d784c26ccad499042d81f16ada55c69fbdc4d6bf9bcfbd198e016bdd0d315cfb04e8d0d998fcf2f1c246ef2a1520a8ccb9eb0164000000000000003c00000000000000",
+        "program_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+      },
+      "fee_receiver_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+      "makers": [
+        {
+          "maker_fill": "100",
+          "participant": {
+            "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "expiration": "0",
+            "maker_amount": "100",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "61796ae2b386c563298c6e1f250e38b86b8e0f8700e882bd728df36294070ff7",
+            "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "salt": "200",
+            "side": "ask",
+            "signature_hex": "8532b5964c0c4d8461ab16e925d784c26ccad499042d81f16ada55c69fbdc4d6bf9bcfbd198e016bdd0d315cfb04e8d0d998fcf2f1c246ef2a1520a8ccb9eb01",
+            "source": "conditional",
+            "status": "tracked",
+            "taker_amount": "60"
+          },
+          "taker_fill": "60"
+        }
+      ],
+      "name": "direct_bid_base0",
+      "operator_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+      "program_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "taker": {
+        "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+        "expiration": "0",
+        "maker_amount": "60",
+        "maker_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+        "order_id_hex": "6bb90eac691139993419af148c25e7170cbfb90470fc759ba4eb785dcda792bf",
+        "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+        "salt": "101",
+        "side": "bid",
+        "signature_hex": "effb25ca21f105727bcea50796574bfe639b91fac5002ef9d3a5c7506f72fe9f77ac6107af482c45ac241d86d94f719021bb4639b3a00ed77325c6ff0ead920e",
+        "source": "conditional",
+        "status": "tracked",
+        "taker_amount": "100"
+      }
+    },
+    {
+      "configuration": {
+        "book": {
+          "address_hex": "7c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc649",
+          "data_hex": "2b221971c345480732c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a30034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679555555555555555555555555555555555555555555555555555555555555555544444444444444444444444444444444444444444444444444444444444444440101ff0000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_a": {
+          "address_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+          "data_hex": "25bea1e87b922a575555555555555555555555555555555555555555555555555555555555555555ff010001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_b": {
+          "address_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+          "data_hex": "25bea1e87b922a574444444444444444444444444444444444444444444444444444444444444444fe000001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "market": {
+          "address_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+          "data_hex": "dbbed53700e3c69a2a000000000000000601f800f6ff1e00ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        }
+      },
+      "expected": {
+        "accounts": [
+          {
+            "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "a55ef105072abeeed4a1eb039d0a3a2089460309ea867cc73feec1ffcdd83c23",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "7c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc649",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "aaefd260a8fa813ab49be28dcd25bfb942761370f69a67e9e59d928795cc9561",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6cf7b486f764a2498b5690b6618a9f8713c8524e48e132c1fa6ac53fb2476c02",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "f383b2c973710f2ab68cccf70082e0daea96c3e9a73042f3dee1a5f8caa9c8f6",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "3c5e098f4271714aa8deaf817dea5d967ace60417e9c53504b3388e2db9d19a2",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f859",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "7115cf19a1be7d7b94006ccf541e68f6ee4ff8ec94ebb8a347fee7b4387596eb",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "c0a281a105957ddeb674109fccfc8126ef82a9807081150a50701459d51816f4",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "data_hex": "0d650000000000000001c80000000000000078000000000000000000000000000000e73abfea01a52214b4cf21cbbb9b27d59bfdfa12827be0a0426901ce69404c1162134b7cf8c9e04a6e70c0d3d4cb228e14742df7f10630c5d7b057a47a37b20e020180c800000000000000003c0000000000000064000000000000000000000000000000d0dd6d558028128efe34a2192b53e90ce6491d4a9f4de40e75b94136315a15f42b344913f4d3bb5795fdab562b98dd6ed1d3a73ae9e51e289fe7980855ee5b063c000000000000006400000000000000c900000000000000003c00000000000000640000000000000000000000000000008a7df84b2bbc87e8d2b6ead9aba15e829eb9b765ae66e351b377d042fe9b9898f23e3d8c0353d94e904e32389db25142bb8a01e4582e196f553a03ac8aad71003c000000000000006400000000000000",
+        "program_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+      },
+      "fee_receiver_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+      "makers": [
+        {
+          "maker_fill": "60",
+          "participant": {
+            "base_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "expiration": "0",
+            "maker_amount": "60",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "f28974eb9c71a3b1fb1708f53b79c3f3f0efc1ab3faab26247bc828d5d7cc59b",
+            "quote_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "salt": "200",
+            "side": "bid",
+            "signature_hex": "d0dd6d558028128efe34a2192b53e90ce6491d4a9f4de40e75b94136315a15f42b344913f4d3bb5795fdab562b98dd6ed1d3a73ae9e51e289fe7980855ee5b06",
+            "source": "conditional",
+            "status": "omit",
+            "taker_amount": "100"
+          },
+          "taker_fill": "100"
+        },
+        {
+          "maker_fill": "60",
+          "participant": {
+            "base_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "expiration": "0",
+            "maker_amount": "60",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "e817928e97f0213ac25ee94bd607c97431b10875aa5b019179c0a92b76d893ec",
+            "quote_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "salt": "201",
+            "side": "bid",
+            "signature_hex": "8a7df84b2bbc87e8d2b6ead9aba15e829eb9b765ae66e351b377d042fe9b9898f23e3d8c0353d94e904e32389db25142bb8a01e4582e196f553a03ac8aad7100",
+            "source": "conditional",
+            "status": "tracked",
+            "taker_amount": "100"
+          },
+          "taker_fill": "100"
+        }
+      ],
+      "name": "direct_ask_base1_mixed_status",
+      "operator_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+      "program_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "taker": {
+        "base_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+        "expiration": "0",
+        "maker_amount": "200",
+        "maker_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+        "order_id_hex": "47838d91912491bf3d30cae6691fa8dbddb88a2583fdae44d1ea2532acdb86f3",
+        "quote_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+        "salt": "101",
+        "side": "ask",
+        "signature_hex": "e73abfea01a52214b4cf21cbbb9b27d59bfdfa12827be0a0426901ce69404c1162134b7cf8c9e04a6e70c0d3d4cb228e14742df7f10630c5d7b057a47a37b20e",
+        "source": "conditional",
+        "status": "omit",
+        "taker_amount": "120"
+      }
+    },
+    {
+      "configuration": {
+        "book": {
+          "address_hex": "7c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc649",
+          "data_hex": "2b221971c345480732c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a30034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679555555555555555555555555555555555555555555555555555555555555555544444444444444444444444444444444444444444444444444444444444444440101ff0000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_a": {
+          "address_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+          "data_hex": "25bea1e87b922a575555555555555555555555555555555555555555555555555555555555555555ff010001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_b": {
+          "address_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+          "data_hex": "25bea1e87b922a574444444444444444444444444444444444444444444444444444444444444444fe000001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "market": {
+          "address_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+          "data_hex": "dbbed53700e3c69a2a000000000000000201f800f6ff1e00ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        }
+      },
+      "expected": {
+        "accounts": [
+          {
+            "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "a55ef105072abeeed4a1eb039d0a3a2089460309ea867cc73feec1ffcdd83c23",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "7c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc649",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "5eb29db8b73f7515521f223899d844230b1105965cd4ed7c66df4167d4a71e93",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "3c5e098f4271714aa8deaf817dea5d967ace60417e9c53504b3388e2db9d19a2",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f859",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "4c24493038074fbaa9b9d5c8db6062db3c07cdbba7b0275cf72b9eb38592e60f",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "aaefd260a8fa813ab49be28dcd25bfb942761370f69a67e9e59d928795cc9561",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6cf7b486f764a2498b5690b6618a9f8713c8524e48e132c1fa6ac53fb2476c02",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "f383b2c973710f2ab68cccf70082e0daea96c3e9a73042f3dee1a5f8caa9c8f6",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "5555555555555555555555555555555555555555555555555555555555555555",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "7a00767f74c582bf87c059da487ee494a803ee926517cf80749d562625303257",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "7063205a2b8bcb16fb09041c27400bd11aa453eee82ba4cf59bd10acaf881321",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "19fab08fdf2404b09f994ae3ace441db1d3472ca8b07d532e3d00fde06bcc1a3",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "e0c5ad0929d7c072c8802f865b5a78db1eae192237410feede818261476fc229",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "f383b2c973710f2ab68cccf70082e0daea96c3e9a73042f3dee1a5f8caa9c8f6",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "fefb772ebf15ad342485180d0e60e7562b7f8d91e3a6a8b65ce52bd8057329d5",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "4444444444444444444444444444444444444444444444444444444444444444",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "9da0ef1eee0139306acdb0b612f91d2dc0fc9667448efaa2c9b2d739d659a791",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "87fed1559ae954fd2150f7fb0f727abbd30aa061e52b91faf9dc913e46fed8bf",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "4694bbaa926d66334bbf583b155da0ee2e3f875c9c683d38830023464140bcd2",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "1e7b219afd435880201b8fe01da1045070439ff7da555d3752f4fb44f3809920",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "c0a281a105957ddeb674109fccfc8126ef82a9807081150a50701459d51816f4",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "data_hex": "146500000000000000007800000000000000c80000000000000000000000000000009f6c2f45ba4aa9b4372235d6a029407e49943a476cadd06c52cb84612c7264f953aaf0f6847f03c9652611ce89562712e5d893f297f0f9fa1e7b62cb01a46c060202000280c8000000000000000164000000000000003c000000000000000000000000000000b54300a1b21eae84ab89b9ad69e4aa432fb83e0d229788937229a98d1df51b2dda8eafe19ccd8b0c6aa75c969ce7559d70d1e4a9f078a05babb41a17b8b6290164000000000000003c00000000000000c9000000000000000164000000000000003c00000000000000000000000000000053b4b3eea5a06e1197ef3b110321ad21b1649ea01d7adfb100a096ba8009d20844bf78558b3b784da4b3fd6b49a92bd996eb42363dfcc536d276dcfb9ebadd0864000000000000003c00000000000000",
+        "program_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+      },
+      "fee_receiver_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+      "makers": [
+        {
+          "maker_fill": "100",
+          "participant": {
+            "base_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "expiration": "0",
+            "maker_amount": "100",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "d5a3a674aa1384e9102333fd23eba9c5a7ed6710551006186c20bde92bcd9cd0",
+            "quote_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "salt": "200",
+            "side": "ask",
+            "signature_hex": "b54300a1b21eae84ab89b9ad69e4aa432fb83e0d229788937229a98d1df51b2dda8eafe19ccd8b0c6aa75c969ce7559d70d1e4a9f078a05babb41a17b8b62901",
+            "source": "conditional",
+            "status": "tracked",
+            "taker_amount": "60"
+          },
+          "taker_fill": "60"
+        },
+        {
+          "maker_fill": "100",
+          "participant": {
+            "base_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "expiration": "0",
+            "maker_amount": "100",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "a74f56651a1630f873dbb635575941dedf10e01236b6a0eab842345ddfb5fce8",
+            "quote_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "salt": "201",
+            "side": "ask",
+            "signature_hex": "53b4b3eea5a06e1197ef3b110321ad21b1649ea01d7adfb100a096ba8009d20844bf78558b3b784da4b3fd6b49a92bd996eb42363dfcc536d276dcfb9ebadd08",
+            "source": "global",
+            "status": "omit",
+            "taker_amount": "60"
+          },
+          "taker_fill": "60"
+        }
+      ],
+      "name": "deposit_bid_base1_mixed_source",
+      "operator_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+      "program_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "taker": {
+        "base_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+        "expiration": "0",
+        "maker_amount": "120",
+        "maker_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+        "order_id_hex": "1de90ec91353204988406ace5ce9328456ecf96ba20029931845e68392878990",
+        "quote_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+        "salt": "101",
+        "side": "bid",
+        "signature_hex": "9f6c2f45ba4aa9b4372235d6a029407e49943a476cadd06c52cb84612c7264f953aaf0f6847f03c9652611ce89562712e5d893f297f0f9fa1e7b62cb01a46c06",
+        "source": "global",
+        "status": "tracked",
+        "taker_amount": "200"
+      }
+    },
+    {
+      "configuration": {
+        "book": {
+          "address_hex": "7c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc649",
+          "data_hex": "2b221971c345480732c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a30034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679555555555555555555555555555555555555555555555555555555555555555544444444444444444444444444444444444444444444444444444444444444440001ff0000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_a": {
+          "address_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+          "data_hex": "25bea1e87b922a575555555555555555555555555555555555555555555555555555555555555555ff010001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_b": {
+          "address_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+          "data_hex": "25bea1e87b922a574444444444444444444444444444444444444444444444444444444444444444fe000001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "market": {
+          "address_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+          "data_hex": "dbbed53700e3c69a2a000000000000000601f800f6ff1e00ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        }
+      },
+      "expected": {
+        "accounts": [
+          {
+            "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "a55ef105072abeeed4a1eb039d0a3a2089460309ea867cc73feec1ffcdd83c23",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "7c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc649",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "5eb29db8b73f7515521f223899d844230b1105965cd4ed7c66df4167d4a71e93",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "d6a2308b515490111bd6887dee7f4033092cef6ecd5d7ab253d3f33202143aff",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f859",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "31fe134fb0a08626f8c76457508c6ccd2a5406a8b2c44d714061d5d3a88c27e8",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "aaefd260a8fa813ab49be28dcd25bfb942761370f69a67e9e59d928795cc9561",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6cf7b486f764a2498b5690b6618a9f8713c8524e48e132c1fa6ac53fb2476c02",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "f383b2c973710f2ab68cccf70082e0daea96c3e9a73042f3dee1a5f8caa9c8f6",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "5555555555555555555555555555555555555555555555555555555555555555",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "7a00767f74c582bf87c059da487ee494a803ee926517cf80749d562625303257",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "7063205a2b8bcb16fb09041c27400bd11aa453eee82ba4cf59bd10acaf881321",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "19fab08fdf2404b09f994ae3ace441db1d3472ca8b07d532e3d00fde06bcc1a3",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "e0c5ad0929d7c072c8802f865b5a78db1eae192237410feede818261476fc229",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "f383b2c973710f2ab68cccf70082e0daea96c3e9a73042f3dee1a5f8caa9c8f6",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "7be84f29347aef8ea0dc73ac3274e606297fb36a192a7dcb3431a3a8996b41c2",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "713e5e6f19b63eff3d3fbbeddd4119c47094c6c1f9bdee251ebee35c8484aebd",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "a307486b975e56d6c6dded427d6046a3907b4ff4c30ecc8429579b7be6c637cd",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "1d5112e73537ae8421c5412179e67776882c04991364b12f21f0b82e3d14d328",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6ff4ae8fba8a11850a12314331ff876ab1461e6caac48ff1a7b528536fe73284",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6d121ce60bc29f1ebc8ce3f514ba8d429fde45a3fe26d950fc68240a0a6d48e9",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "24ccc64e845a952fba7713b960857e334e5bc8232fd3b6932aa861c4d12d079a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "d43c7fd57b14acf13da2c5f286c299a298702c6818367c0a9e2730679f22d7b8",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "4444444444444444444444444444444444444444444444444444444444444444",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "9da0ef1eee0139306acdb0b612f91d2dc0fc9667448efaa2c9b2d739d659a791",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "87fed1559ae954fd2150f7fb0f727abbd30aa061e52b91faf9dc913e46fed8bf",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "4694bbaa926d66334bbf583b155da0ee2e3f875c9c683d38830023464140bcd2",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "1e7b219afd435880201b8fe01da1045070439ff7da555d3752f4fb44f3809920",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "0d8ec838587f8806672fd1e6ed6a2825b50271bffceccf7a9d5d611b239a543b",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "65f485144dac1f1125b1a1d8f904deb5faeeb8428aebdcf77c6b4917defe0891",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3194f16365f86500e896c8dd2fd6b49aa3e0fe79324549fecd7f47d2253bfb2d",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "e43972aa5d1818212713b885cf283a3dee3240fe869fc6e551208eb9554fa9d9",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "c28636e9e62bbf0ba375528fc02c26413477b1e700fcb1b59836e684f8e61c88",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "51244c8172b652e73ccd6b584081fd4f5d326d261479a1ea3fa2ba10eb306a13",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "8693f6c5542c75da38101b90ece8edd38494b07ba9313f98a1426b777a8a6065",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6e35a2db5fea0d5934fa3310c9b542857cb8de53c809117cb28801922759424f",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "be5b98afd638e13e5992a86d3f1eafd99b4e2214f62abd3676147c658c842be2",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "c0a281a105957ddeb674109fccfc8126ef82a9807081150a50701459d51816f4",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "data_hex": "14650000000000000001c800000000000000780000000000000000000000000000002cd8ea9db11d7e81be22fd741499b3927790f0651e9610ecf36fb6dfa3178b4223ee571d6847cd0f4d1aaa2261a34315e0dd2f525b49bd7bf1ef4bea6fe8cb010201000180c800000000000000003c0000000000000064000000000000000000000000000000642a1ae4b0435f24cb486d624997ddfc45f2ef5302c56910f5438a846b994ca838c290db8ecc5d0372ea88458e272f9f436b8da338dccfe17d602121c38332053c000000000000006400000000000000c900000000000000003c00000000000000640000000000000000000000000000001ea57d1fa1a231ae3790a702345119d9df782c1022239bb3b87c13b05a6acfeef488caa5e5eb7ef7d2ad0d27ba7dbe0a8f2c443d75317847b2751b7078ac0d0f3c000000000000006400000000000000",
+        "program_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+      },
+      "fee_receiver_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+      "makers": [
+        {
+          "maker_fill": "60",
+          "participant": {
+            "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "expiration": "0",
+            "maker_amount": "60",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "688af2a327269e3b001c147c178ce72bee8afc052d79403cb667d70105555ff4",
+            "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "salt": "200",
+            "side": "bid",
+            "signature_hex": "642a1ae4b0435f24cb486d624997ddfc45f2ef5302c56910f5438a846b994ca838c290db8ecc5d0372ea88458e272f9f436b8da338dccfe17d602121c3833205",
+            "source": "global",
+            "status": "omit",
+            "taker_amount": "100"
+          },
+          "taker_fill": "100"
+        },
+        {
+          "maker_fill": "60",
+          "participant": {
+            "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "expiration": "0",
+            "maker_amount": "60",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "86e73f22b1f7cda3da704317375093daf2d068fa384c73b011d7447191fc96ff",
+            "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "salt": "201",
+            "side": "bid",
+            "signature_hex": "1ea57d1fa1a231ae3790a702345119d9df782c1022239bb3b87c13b05a6acfeef488caa5e5eb7ef7d2ad0d27ba7dbe0a8f2c443d75317847b2751b7078ac0d0f",
+            "source": "conditional",
+            "status": "tracked",
+            "taker_amount": "100"
+          },
+          "taker_fill": "100"
+        }
+      ],
+      "name": "deposit_ask_base0_mixed_source",
+      "operator_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+      "program_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "taker": {
+        "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+        "expiration": "0",
+        "maker_amount": "200",
+        "maker_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+        "order_id_hex": "80bf3418d270df05b79c13abeb1812bff7214f16de253f9f8c4b64b570dc36cb",
+        "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+        "salt": "101",
+        "side": "ask",
+        "signature_hex": "2cd8ea9db11d7e81be22fd741499b3927790f0651e9610ecf36fb6dfa3178b4223ee571d6847cd0f4d1aaa2261a34315e0dd2f525b49bd7bf1ef4bea6fe8cb01",
+        "source": "global",
+        "status": "tracked",
+        "taker_amount": "120"
+      }
+    },
+    {
+      "configuration": {
+        "book": {
+          "address_hex": "7c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc649",
+          "data_hex": "2b221971c345480732c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a30034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679555555555555555555555555555555555555555555555555555555555555555544444444444444444444444444444444444444444444444444444444444444440001ff0000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_a": {
+          "address_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+          "data_hex": "25bea1e87b922a575555555555555555555555555555555555555555555555555555555555555555ff010001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_b": {
+          "address_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+          "data_hex": "25bea1e87b922a574444444444444444444444444444444444444444444444444444444444444444fe000001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "market": {
+          "address_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+          "data_hex": "dbbed53700e3c69a2a000000000000000201f800f6ff1e00ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        }
+      },
+      "expected": {
+        "accounts": [
+          {
+            "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "a55ef105072abeeed4a1eb039d0a3a2089460309ea867cc73feec1ffcdd83c23",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "7c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc649",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "2284c92b6584e196d49be91164462541f3f65083fe6a5211b414bf5150c525f1",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "aaefd260a8fa813ab49be28dcd25bfb942761370f69a67e9e59d928795cc9561",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "f383b2c973710f2ab68cccf70082e0daea96c3e9a73042f3dee1a5f8caa9c8f6",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6cf7b486f764a2498b5690b6618a9f8713c8524e48e132c1fa6ac53fb2476c02",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "d6a2308b515490111bd6887dee7f4033092cef6ecd5d7ab253d3f33202143aff",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f859",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "ae4107f3404f0c899fc34a8fdc893eca44feaae184c294e8a593fbc065edc9a3",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "b57bb6183dd37c840020377deedbf93266be9f00c6ee5ae27749639914fd40f3",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "83ac7c90a26c74931ca1965b515d80261f4c75728d45680a2ed7b88be615917b",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "1894c145e408078f8f8944ca648e2d41c4b4e6177424dc18fbb77ad19985d5e8",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "014464e44f44ceda3275980a49ff12e0870c00848a75118abece6db998f50927",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "fe8203c9a51cd5b02378c2f04b5af5038df47ebd3042eef917cd27b6f2d74ab6",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "9822395d60f3ea84b831a4a019627824ce992ce1dace462632aad9f396f4bba4",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3a50e714abd69c40617f6793366827cc07ed3b4f0c9282ccdd9892100329f354",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "8c34e35f0496d7828d9a81e6e34594706efc21946ec7c3ca8a3f41a7693d4fe9",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "8b7bf229b3d9c08666701dc3490b72e10d1e0de3a87b5f38f3975bdc1c241e60",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "82cb6a9b23e8472fdb622cab2766e9d938c3b82f3c00be1a22d880a8b064ca18",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "c0a281a105957ddeb674109fccfc8126ef82a9807081150a50701459d51816f4",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "data_hex": "0d65000000000000000094020000000000004c040000000000000000000000000000d3fa840848e8ab9d44b16a631b41ebdd3bdd9f054ab20e424e79fa62794b6e3907d66ecaaa0f6809ef030b721ac835c7243f4bf85fe64ecf93b5822f58ce270e0b0000c8000000000000000164000000000000003c0000000000000000000000000000008532b5964c0c4d8461ab16e925d784c26ccad499042d81f16ada55c69fbdc4d6bf9bcfbd198e016bdd0d315cfb04e8d0d998fcf2f1c246ef2a1520a8ccb9eb0164000000000000003c00000000000000c9000000000000000164000000000000003c000000000000000000000000000000458baace210ebc0b40dc655e0aacf471984d92b13410082bf5880eae02d55e6f02173e0285c2dd8efac5334f88d8b1aa8723e8cd6e4cd706a303672bc108500664000000000000003c00000000000000ca000000000000000164000000000000003c000000000000000000000000000000b317edd85cae64013ba31b501561ddf24b187e92af714d44a368e6ca3a1233b21b42b0a180ba421d68fe309889d9d02c1d055dc1502b93e6751c6a5cf5f72a0564000000000000003c00000000000000cb000000000000000164000000000000003c0000000000000000000000000000001a3fe8911b0a31c2ce337f8bb2fcab0221befffd0a23da7702a4e2c9cabc3d692126c4fc2ac2e56ad1608f9468ad9b29a7021feae55f8fa3d4af40067562840064000000000000003c00000000000000cc000000000000000164000000000000003c00000000000000000000000000000055cff164cbbcf035b058beb1cb87cdab702978541c1c678d34178736aa5646e88ae85d129431f5c457dd3d3142476f54fa4b245e7096ba90be9b46014edbb70064000000000000003c00000000000000cd000000000000000164000000000000003c0000000000000000000000000000009f1ee27a508ef32a500051f8c50f9d9b0d17efde05331143b2f97da6d35cce5c566ed9afeba7a418aa9892d043588800af9d1b1a72f59869a20927d850f9720664000000000000003c00000000000000ce000000000000000164000000000000003c0000000000000000000000000000003e467cdf30adfdd02c0686f43dac53ef49bcd03d97c2625f9a4746f272edce689cd9e229a686df80692428a661697121ecf5103a356124fb437e428c518d1d0364000000000000003c00000000000000cf000000000000000164000000000000003c000000000000000000000000000000c6a209f903298d83c500e82167b386466ad3ca58dad97ee59c4b1709c92aef1ac675a4d13ee2dd31dc2f61868447c597be6f31d73fea321cbf50837deceb660364000000000000003c00000000000000d0000000000000000164000000000000003c0000000000000000000000000000008f949e442963d7f767f8067eb4f6c7443b6ce837f0d4b0c8d9ebf9fb7fdd491d7837d8187ccc887650e6a9fa094e03f73449cd395a2666d3eaf9b60d2d14130764000000000000003c00000000000000d1000000000000000164000000000000003c000000000000000000000000000000acea2a5e67b6f32edb2a7b62502d6e524251b774f7ff53099ea4254ece3726cddb430b8e746d7bf02018684413deffb1c8d9f6ab2e9dfe82a57aaa04ba8c030e64000000000000003c00000000000000d2000000000000000164000000000000003c000000000000000000000000000000f43d8976d3f4a9287479c1f82ff85852a1c8d603af8e28a2c88321478aa947480d04a65f5e414cfa3d367014b77c2770345868c280d0df4b0339b7b6e647d50064000000000000003c00000000000000",
+        "program_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+      },
+      "fee_receiver_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+      "makers": [
+        {
+          "maker_fill": "100",
+          "participant": {
+            "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "expiration": "0",
+            "maker_amount": "100",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "61796ae2b386c563298c6e1f250e38b86b8e0f8700e882bd728df36294070ff7",
+            "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "salt": "200",
+            "side": "ask",
+            "signature_hex": "8532b5964c0c4d8461ab16e925d784c26ccad499042d81f16ada55c69fbdc4d6bf9bcfbd198e016bdd0d315cfb04e8d0d998fcf2f1c246ef2a1520a8ccb9eb01",
+            "source": "conditional",
+            "status": "tracked",
+            "taker_amount": "60"
+          },
+          "taker_fill": "60"
+        },
+        {
+          "maker_fill": "100",
+          "participant": {
+            "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "expiration": "0",
+            "maker_amount": "100",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "6e2748a55dc6b28bedda8821de30cf9aff9a5857492783a2d8461753fc45972d",
+            "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "salt": "201",
+            "side": "ask",
+            "signature_hex": "458baace210ebc0b40dc655e0aacf471984d92b13410082bf5880eae02d55e6f02173e0285c2dd8efac5334f88d8b1aa8723e8cd6e4cd706a303672bc1085006",
+            "source": "conditional",
+            "status": "tracked",
+            "taker_amount": "60"
+          },
+          "taker_fill": "60"
+        },
+        {
+          "maker_fill": "100",
+          "participant": {
+            "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "expiration": "0",
+            "maker_amount": "100",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "dd078e143c5e1388392f583bc901b5e74d53d4a506820342b23c003c5c7dc954",
+            "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "salt": "202",
+            "side": "ask",
+            "signature_hex": "b317edd85cae64013ba31b501561ddf24b187e92af714d44a368e6ca3a1233b21b42b0a180ba421d68fe309889d9d02c1d055dc1502b93e6751c6a5cf5f72a05",
+            "source": "conditional",
+            "status": "tracked",
+            "taker_amount": "60"
+          },
+          "taker_fill": "60"
+        },
+        {
+          "maker_fill": "100",
+          "participant": {
+            "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "expiration": "0",
+            "maker_amount": "100",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "74c9d1b264e8a0759f2a921467d9eb8bfd1aa16c5642f2a1612061980f2db036",
+            "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "salt": "203",
+            "side": "ask",
+            "signature_hex": "1a3fe8911b0a31c2ce337f8bb2fcab0221befffd0a23da7702a4e2c9cabc3d692126c4fc2ac2e56ad1608f9468ad9b29a7021feae55f8fa3d4af400675628400",
+            "source": "conditional",
+            "status": "tracked",
+            "taker_amount": "60"
+          },
+          "taker_fill": "60"
+        },
+        {
+          "maker_fill": "100",
+          "participant": {
+            "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "expiration": "0",
+            "maker_amount": "100",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "2812fe36e87d6fd0519861b8dd3402629ed05ae8f1407a44fc764f9063e5e5d7",
+            "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "salt": "204",
+            "side": "ask",
+            "signature_hex": "55cff164cbbcf035b058beb1cb87cdab702978541c1c678d34178736aa5646e88ae85d129431f5c457dd3d3142476f54fa4b245e7096ba90be9b46014edbb700",
+            "source": "conditional",
+            "status": "tracked",
+            "taker_amount": "60"
+          },
+          "taker_fill": "60"
+        },
+        {
+          "maker_fill": "100",
+          "participant": {
+            "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "expiration": "0",
+            "maker_amount": "100",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "7ab0b35eba0f7a1104774902acc92b1c26963a2a0bd73845896dd002def34f94",
+            "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "salt": "205",
+            "side": "ask",
+            "signature_hex": "9f1ee27a508ef32a500051f8c50f9d9b0d17efde05331143b2f97da6d35cce5c566ed9afeba7a418aa9892d043588800af9d1b1a72f59869a20927d850f97206",
+            "source": "conditional",
+            "status": "tracked",
+            "taker_amount": "60"
+          },
+          "taker_fill": "60"
+        },
+        {
+          "maker_fill": "100",
+          "participant": {
+            "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "expiration": "0",
+            "maker_amount": "100",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "77431fe0013d32b3fe54ed871cb9e986b0b3d178cfe21d6edb4e3cf78ca305fc",
+            "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "salt": "206",
+            "side": "ask",
+            "signature_hex": "3e467cdf30adfdd02c0686f43dac53ef49bcd03d97c2625f9a4746f272edce689cd9e229a686df80692428a661697121ecf5103a356124fb437e428c518d1d03",
+            "source": "conditional",
+            "status": "tracked",
+            "taker_amount": "60"
+          },
+          "taker_fill": "60"
+        },
+        {
+          "maker_fill": "100",
+          "participant": {
+            "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "expiration": "0",
+            "maker_amount": "100",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "c08a10d09f4c3ca69f53f3b94690748531f559f5371d6b5ae9a8ce4192ced71f",
+            "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "salt": "207",
+            "side": "ask",
+            "signature_hex": "c6a209f903298d83c500e82167b386466ad3ca58dad97ee59c4b1709c92aef1ac675a4d13ee2dd31dc2f61868447c597be6f31d73fea321cbf50837deceb6603",
+            "source": "conditional",
+            "status": "tracked",
+            "taker_amount": "60"
+          },
+          "taker_fill": "60"
+        },
+        {
+          "maker_fill": "100",
+          "participant": {
+            "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "expiration": "0",
+            "maker_amount": "100",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "9fa6ba1cab3f6680e7e2e836e23b1a11d4498349f32e84ab79f05d36b1792083",
+            "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "salt": "208",
+            "side": "ask",
+            "signature_hex": "8f949e442963d7f767f8067eb4f6c7443b6ce837f0d4b0c8d9ebf9fb7fdd491d7837d8187ccc887650e6a9fa094e03f73449cd395a2666d3eaf9b60d2d141307",
+            "source": "conditional",
+            "status": "tracked",
+            "taker_amount": "60"
+          },
+          "taker_fill": "60"
+        },
+        {
+          "maker_fill": "100",
+          "participant": {
+            "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "expiration": "0",
+            "maker_amount": "100",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "5361e2e385ce71022170754615d35565f21e5a1f09931debb3449d6cc303c544",
+            "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "salt": "209",
+            "side": "ask",
+            "signature_hex": "acea2a5e67b6f32edb2a7b62502d6e524251b774f7ff53099ea4254ece3726cddb430b8e746d7bf02018684413deffb1c8d9f6ab2e9dfe82a57aaa04ba8c030e",
+            "source": "conditional",
+            "status": "tracked",
+            "taker_amount": "60"
+          },
+          "taker_fill": "60"
+        },
+        {
+          "maker_fill": "100",
+          "participant": {
+            "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "expiration": "0",
+            "maker_amount": "100",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "1749afa8f9bfafca1734d5e9ff3468581b382abac562eeb3d10b897b7ac32a0f",
+            "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "salt": "210",
+            "side": "ask",
+            "signature_hex": "f43d8976d3f4a9287479c1f82ff85852a1c8d603af8e28a2c88321478aa947480d04a65f5e414cfa3d367014b77c2770345868c280d0df4b0339b7b6e647d500",
+            "source": "conditional",
+            "status": "tracked",
+            "taker_amount": "60"
+          },
+          "taker_fill": "60"
+        }
+      ],
+      "name": "direct_eleven_makers",
+      "operator_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+      "program_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "taker": {
+        "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+        "expiration": "0",
+        "maker_amount": "660",
+        "maker_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+        "order_id_hex": "12d697cb41ace14264ccf3e64379ec46bbe78f677beff9e1adf3f70a7694ac6b",
+        "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+        "salt": "101",
+        "side": "bid",
+        "signature_hex": "d3fa840848e8ab9d44b16a631b41ebdd3bdd9f054ab20e424e79fa62794b6e3907d66ecaaa0f6809ef030b721ac835c7243f4bf85fe64ecf93b5822f58ce270e",
+        "source": "conditional",
+        "status": "tracked",
+        "taker_amount": "1100"
+      }
+    },
+    {
+      "configuration": {
+        "book": {
+          "address_hex": "7c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc649",
+          "data_hex": "2b221971c345480732c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a30034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679555555555555555555555555555555555555555555555555555555555555555544444444444444444444444444444444444444444444444444444444444444440101ff0000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_a": {
+          "address_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+          "data_hex": "25bea1e87b922a575555555555555555555555555555555555555555555555555555555555555555ff010001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_b": {
+          "address_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+          "data_hex": "25bea1e87b922a574444444444444444444444444444444444444444444444444444444444444444fe000001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "market": {
+          "address_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+          "data_hex": "dbbed53700e3c69a2a000000000000000601f800f6ff1e00ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        }
+      },
+      "expected": {
+        "accounts": [
+          {
+            "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "a55ef105072abeeed4a1eb039d0a3a2089460309ea867cc73feec1ffcdd83c23",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "7c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc649",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "5eb29db8b73f7515521f223899d844230b1105965cd4ed7c66df4167d4a71e93",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "3c5e098f4271714aa8deaf817dea5d967ace60417e9c53504b3388e2db9d19a2",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f859",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "aaefd260a8fa813ab49be28dcd25bfb942761370f69a67e9e59d928795cc9561",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "f383b2c973710f2ab68cccf70082e0daea96c3e9a73042f3dee1a5f8caa9c8f6",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6cf7b486f764a2498b5690b6618a9f8713c8524e48e132c1fa6ac53fb2476c02",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "4444444444444444444444444444444444444444444444444444444444444444",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "9da0ef1eee0139306acdb0b612f91d2dc0fc9667448efaa2c9b2d739d659a791",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "f35e7b2b4c494a7fbd1fba5a4681095da0ade28bec08151674160faa2daf149e",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "4694bbaa926d66334bbf583b155da0ee2e3f875c9c683d38830023464140bcd2",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "09d0959acb3b9e59ac5d7d34e8d2c1a1871b49be4f4640b319235d9a48d8860b",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6cf7b486f764a2498b5690b6618a9f8713c8524e48e132c1fa6ac53fb2476c02",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "0d8ec838587f8806672fd1e6ed6a2825b50271bffceccf7a9d5d611b239a543b",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "d60eb687f4bc25c2396a6d6aae8923a96781665c95daff49bfea37a515549b30",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3194f16365f86500e896c8dd2fd6b49aa3e0fe79324549fecd7f47d2253bfb2d",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "9f12e38c4b370066c8c5c2cad369caaeb3d824118b1731bad1321743ac3878ea",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "c28636e9e62bbf0ba375528fc02c26413477b1e700fcb1b59836e684f8e61c88",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "dc4769af48116815cb63d36613b30382dabffb7fc5f8172e3ffdfa21b10e32c4",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "8693f6c5542c75da38101b90ece8edd38494b07ba9313f98a1426b777a8a6065",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "dfda14176d79619c2f350e87b87839cd2b18a3e1bd1bc626a6d4fdc32f7e7882",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "5555555555555555555555555555555555555555555555555555555555555555",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "7a00767f74c582bf87c059da487ee494a803ee926517cf80749d562625303257",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "7caeabe268a136af72f35d02a2d432822f241a96e310b5bbbd9aaf8827fd30a7",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "19fab08fdf2404b09f994ae3ace441db1d3472ca8b07d532e3d00fde06bcc1a3",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "c889f70658b11c48ed40555eacedbe9d84d31c933e0d509db0b75802f566e165",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "7be84f29347aef8ea0dc73ac3274e606297fb36a192a7dcb3431a3a8996b41c2",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "ab4a4a9e12368afc220d1205f9df1783f5ecea7c40f0f24aff3fc342dfe66af3",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "a307486b975e56d6c6dded427d6046a3907b4ff4c30ecc8429579b7be6c637cd",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "d1a19ce2dda646c21a391dbdc6170e60446da3d70b5be86aef90060cd545025f",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6ff4ae8fba8a11850a12314331ff876ab1461e6caac48ff1a7b528536fe73284",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "968004a96175a0c3a2478fb118c9e28b58c2859a3fb0a493d2ca4bd0e5c74068",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "24ccc64e845a952fba7713b960857e334e5bc8232fd3b6932aa861c4d12d079a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3544daf5c4df996f965efd862e64b07e74956085174cfc08c613ba84224fa054",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "c0a281a105957ddeb674109fccfc8126ef82a9807081150a50701459d51816f4",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "data_hex": "1465000000000000000164000000000000003c000000000000000000000000000000e738b88fd5546fca038c83b0a7570d6cef09bc918e93317b4e3d7acb18849781c45c45bf7e52874fed92f8c042c50da06ec406846bd6afff138a429ef73a9b080101800180c800000000000000003c0000000000000064000000000000000000000000000000d0dd6d558028128efe34a2192b53e90ce6491d4a9f4de40e75b94136315a15f42b344913f4d3bb5795fdab562b98dd6ed1d3a73ae9e51e289fe7980855ee5b063c000000000000006400000000000000",
+        "program_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+      },
+      "fee_receiver_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+      "makers": [
+        {
+          "maker_fill": "60",
+          "participant": {
+            "base_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "expiration": "0",
+            "maker_amount": "60",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "f28974eb9c71a3b1fb1708f53b79c3f3f0efc1ab3faab26247bc828d5d7cc59b",
+            "quote_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "salt": "200",
+            "side": "bid",
+            "signature_hex": "d0dd6d558028128efe34a2192b53e90ce6491d4a9f4de40e75b94136315a15f42b344913f4d3bb5795fdab562b98dd6ed1d3a73ae9e51e289fe7980855ee5b06",
+            "source": "global",
+            "status": "omit",
+            "taker_amount": "100"
+          },
+          "taker_fill": "100"
+        }
+      ],
+      "name": "deposit_ask_base1_full",
+      "operator_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+      "program_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "taker": {
+        "base_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+        "expiration": "0",
+        "maker_amount": "100",
+        "maker_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+        "order_id_hex": "246c1134b619b5ab4c84527025e47bb9b2280630731392a3d8434e5f41694d2d",
+        "quote_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+        "salt": "101",
+        "side": "ask",
+        "signature_hex": "e738b88fd5546fca038c83b0a7570d6cef09bc918e93317b4e3d7acb18849781c45c45bf7e52874fed92f8c042c50da06ec406846bd6afff138a429ef73a9b08",
+        "source": "global",
+        "status": "omit",
+        "taker_amount": "60"
+      }
+    },
+    {
+      "configuration": {
+        "book": {
+          "address_hex": "7c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc649",
+          "data_hex": "2b221971c345480732c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a30034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679555555555555555555555555555555555555555555555555555555555555555544444444444444444444444444444444444444444444444444444444444444440001ff0000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_a": {
+          "address_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+          "data_hex": "25bea1e87b922a575555555555555555555555555555555555555555555555555555555555555555ff010001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_b": {
+          "address_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+          "data_hex": "25bea1e87b922a574444444444444444444444444444444444444444444444444444444444444444fe000001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "market": {
+          "address_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+          "data_hex": "dbbed53700e3c69a2a000000000000000201f800f6ff1e00ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        }
+      },
+      "expected": {
+        "accounts": [
+          {
+            "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "a55ef105072abeeed4a1eb039d0a3a2089460309ea867cc73feec1ffcdd83c23",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "7c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc649",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "877c9ca4797c9d3b61da778dc890ce99e5df4d6786dd531f985ddafb5d810f7c",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "aaefd260a8fa813ab49be28dcd25bfb942761370f69a67e9e59d928795cc9561",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "f383b2c973710f2ab68cccf70082e0daea96c3e9a73042f3dee1a5f8caa9c8f6",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6cf7b486f764a2498b5690b6618a9f8713c8524e48e132c1fa6ac53fb2476c02",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "d6a2308b515490111bd6887dee7f4033092cef6ecd5d7ab253d3f33202143aff",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f859",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "3cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c32",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "c0a281a105957ddeb674109fccfc8126ef82a9807081150a50701459d51816f4",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "data_hex": "0d6500000000000000007800000000000000c8000000000000000000000000000000d8bf16a465e47fbd3e1cc6eb2536828932eb02fb5e0467023eafa649fe7abb342f762ff1c8a0d8efa309f4756af7ffe7a92108af28235401e80e5bb0ab33c80d010100c8000000000000000164000000000000003c0000000000000000000000000000008532b5964c0c4d8461ab16e925d784c26ccad499042d81f16ada55c69fbdc4d6bf9bcfbd198e016bdd0d315cfb04e8d0d998fcf2f1c246ef2a1520a8ccb9eb0164000000000000003c00000000000000",
+        "program_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+      },
+      "fee_receiver_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+      "makers": [
+        {
+          "maker_fill": "100",
+          "participant": {
+            "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "expiration": "0",
+            "maker_amount": "100",
+            "maker_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+            "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "order_id_hex": "61796ae2b386c563298c6e1f250e38b86b8e0f8700e882bd728df36294070ff7",
+            "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "salt": "200",
+            "side": "ask",
+            "signature_hex": "8532b5964c0c4d8461ab16e925d784c26ccad499042d81f16ada55c69fbdc4d6bf9bcfbd198e016bdd0d315cfb04e8d0d998fcf2f1c246ef2a1520a8ccb9eb01",
+            "source": "conditional",
+            "status": "omit",
+            "taker_amount": "60"
+          },
+          "taker_fill": "60"
+        }
+      ],
+      "name": "direct_partial_taker",
+      "operator_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+      "program_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "taker": {
+        "base_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+        "expiration": "0",
+        "maker_amount": "120",
+        "maker_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "market_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+        "order_id_hex": "d05d59b5b4c4d6edc081863a1933c911333752e0f7cc73f5a38cab5d4df9fbe6",
+        "quote_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+        "salt": "101",
+        "side": "bid",
+        "signature_hex": "d8bf16a465e47fbd3e1cc6eb2536828932eb02fb5e0467023eafa649fe7abb342f762ff1c8a0d8efa309f4756af7ffe7a92108af28235401e80e5bb0ab33c80d",
+        "source": "conditional",
+        "status": "tracked",
+        "taker_amount": "200"
+      }
+    }
+  ],
+  "cleanup": {
+    "cancel": {
+      "accounts": [
+        {
+          "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "pubkey_hex": "a55ef105072abeeed4a1eb039d0a3a2089460309ea867cc73feec1ffcdd83c23",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey_hex": "dec3587441160a41044a6e78287565bd4d9e0362e9a3813b01f1e074cd2d7206",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "pubkey_hex": "c0a281a105957ddeb674109fccfc8126ef82a9807081150a50701459d51816f4",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+          "signer": false,
+          "writable": false
+        }
+      ],
+      "data_hex": "056bb90eac691139993419af148c25e7170cbfb90470fc759ba4eb785dcda792bf65000000000000008a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a30034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679003c0000000000000064000000000000000000000000000000effb25ca21f105727bcea50796574bfe639b91fac5002ef9d3a5c7506f72fe9f77ac6107af482c45ac241d86d94f719021bb4639b3a00ed77325c6ff0ead920e",
+      "program_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+    },
+    "close": {
+      "accounts": [
+        {
+          "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "pubkey_hex": "a55ef105072abeeed4a1eb039d0a3a2089460309ea867cc73feec1ffcdd83c23",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey_hex": "dec3587441160a41044a6e78287565bd4d9e0362e9a3813b01f1e074cd2d7206",
+          "signer": false,
+          "writable": true
+        },
+        {
+          "pubkey_hex": "c0a281a105957ddeb674109fccfc8126ef82a9807081150a50701459d51816f4",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+          "signer": false,
+          "writable": false
+        }
+      ],
+      "data_hex": "186bb90eac691139993419af148c25e7170cbfb90470fc759ba4eb785dcda792bf",
+      "program_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+    }
+  },
+  "provenance": "Generated independently with pinned program e26c496 lightcone-client 0.4.0 pure instruction and V1 transaction builders; account snapshots manually encode its state.rs layouts. No backend encoder was used.",
+  "schema_version": "1",
+  "setup": [
+    {
+      "configuration": {
+        "book": {
+          "address_hex": "7c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc649",
+          "data_hex": "2b221971c345480732c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a30034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679555555555555555555555555555555555555555555555555555555555555555544444444444444444444444444444444444444444444444444444444444444440001ff0000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_a": {
+          "address_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+          "data_hex": "25bea1e87b922a575555555555555555555555555555555555555555555555555555555555555555ff010001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_b": {
+          "address_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+          "data_hex": "25bea1e87b922a574444444444444444444444444444444444444444444444444444444444444444fe000001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "market": {
+          "address_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+          "data_hex": "dbbed53700e3c69a2a000000000000000201f800f6ff1e00ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        }
+      },
+      "deposits": [
+        "4444444444444444444444444444444444444444444444444444444444444444"
+      ],
+      "expected": {
+        "accounts": [
+          {
+            "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "a55ef105072abeeed4a1eb039d0a3a2089460309ea867cc73feec1ffcdd83c23",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "aaefd260a8fa813ab49be28dcd25bfb942761370f69a67e9e59d928795cc9561",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "5eb29db8b73f7515521f223899d844230b1105965cd4ed7c66df4167d4a71e93",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f859",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "4444444444444444444444444444444444444444444444444444444444444444",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "9da0ef1eee0139306acdb0b612f91d2dc0fc9667448efaa2c9b2d739d659a791",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "4694bbaa926d66334bbf583b155da0ee2e3f875c9c683d38830023464140bcd2",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "09d0959acb3b9e59ac5d7d34e8d2c1a1871b49be4f4640b319235d9a48d8860b",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6cf7b486f764a2498b5690b6618a9f8713c8524e48e132c1fa6ac53fb2476c02",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "c0a281a105957ddeb674109fccfc8126ef82a9807081150a50701459d51816f4",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "data_hex": "1301",
+        "program_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+      },
+      "name": "setup_2_1",
+      "user_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c"
+    },
+    {
+      "configuration": {
+        "book": {
+          "address_hex": "7c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc649",
+          "data_hex": "2b221971c345480732c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a30034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679555555555555555555555555555555555555555555555555555555555555555544444444444444444444444444444444444444444444444444444444444444440001ff0000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_a": {
+          "address_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+          "data_hex": "25bea1e87b922a575555555555555555555555555555555555555555555555555555555555555555ff010001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "gdt_b": {
+          "address_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+          "data_hex": "25bea1e87b922a574444444444444444444444444444444444444444444444444444444444444444fe000001000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        },
+        "market": {
+          "address_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+          "data_hex": "dbbed53700e3c69a2a000000000000000601f800f6ff1e00ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "owner_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+        }
+      },
+      "deposits": [
+        "4444444444444444444444444444444444444444444444444444444444444444",
+        "5555555555555555555555555555555555555555555555555555555555555555"
+      ],
+      "expected": {
+        "accounts": [
+          {
+            "pubkey_hex": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+            "signer": true,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "a55ef105072abeeed4a1eb039d0a3a2089460309ea867cc73feec1ffcdd83c23",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "32c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a3",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "aaefd260a8fa813ab49be28dcd25bfb942761370f69a67e9e59d928795cc9561",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "5eb29db8b73f7515521f223899d844230b1105965cd4ed7c66df4167d4a71e93",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "06ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a9",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f859",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "4444444444444444444444444444444444444444444444444444444444444444",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "9da0ef1eee0139306acdb0b612f91d2dc0fc9667448efaa2c9b2d739d659a791",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "2058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e30595",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "4694bbaa926d66334bbf583b155da0ee2e3f875c9c683d38830023464140bcd2",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "09d0959acb3b9e59ac5d7d34e8d2c1a1871b49be4f4640b319235d9a48d8860b",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "0de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f333679",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6cf7b486f764a2498b5690b6618a9f8713c8524e48e132c1fa6ac53fb2476c02",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "0d8ec838587f8806672fd1e6ed6a2825b50271bffceccf7a9d5d611b239a543b",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "d60eb687f4bc25c2396a6d6aae8923a96781665c95daff49bfea37a515549b30",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "3194f16365f86500e896c8dd2fd6b49aa3e0fe79324549fecd7f47d2253bfb2d",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "9f12e38c4b370066c8c5c2cad369caaeb3d824118b1731bad1321743ac3878ea",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "c28636e9e62bbf0ba375528fc02c26413477b1e700fcb1b59836e684f8e61c88",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "dc4769af48116815cb63d36613b30382dabffb7fc5f8172e3ffdfa21b10e32c4",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "8693f6c5542c75da38101b90ece8edd38494b07ba9313f98a1426b777a8a6065",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "dfda14176d79619c2f350e87b87839cd2b18a3e1bd1bc626a6d4fdc32f7e7882",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "5555555555555555555555555555555555555555555555555555555555555555",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "7a00767f74c582bf87c059da487ee494a803ee926517cf80749d562625303257",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "81ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "19fab08fdf2404b09f994ae3ace441db1d3472ca8b07d532e3d00fde06bcc1a3",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "e0c5ad0929d7c072c8802f865b5a78db1eae192237410feede818261476fc229",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "0034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "f383b2c973710f2ab68cccf70082e0daea96c3e9a73042f3dee1a5f8caa9c8f6",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "7be84f29347aef8ea0dc73ac3274e606297fb36a192a7dcb3431a3a8996b41c2",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "713e5e6f19b63eff3d3fbbeddd4119c47094c6c1f9bdee251ebee35c8484aebd",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "a307486b975e56d6c6dded427d6046a3907b4ff4c30ecc8429579b7be6c637cd",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "1d5112e73537ae8421c5412179e67776882c04991364b12f21f0b82e3d14d328",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "6ff4ae8fba8a11850a12314331ff876ab1461e6caac48ff1a7b528536fe73284",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "6d121ce60bc29f1ebc8ce3f514ba8d429fde45a3fe26d950fc68240a0a6d48e9",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "24ccc64e845a952fba7713b960857e334e5bc8232fd3b6932aa861c4d12d079a",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "d43c7fd57b14acf13da2c5f286c299a298702c6818367c0a9e2730679f22d7b8",
+            "signer": false,
+            "writable": true
+          },
+          {
+            "pubkey_hex": "c0a281a105957ddeb674109fccfc8126ef82a9807081150a50701459d51816f4",
+            "signer": false,
+            "writable": false
+          },
+          {
+            "pubkey_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+            "signer": false,
+            "writable": false
+          }
+        ],
+        "data_hex": "1302",
+        "program_hex": "0101010101010101010101010101010101010101010101010101010101010101"
+      },
+      "name": "setup_6_2",
+      "user_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c"
+    }
+  ],
+  "v1": {
+    "blockhash_hex": "0909090909090909090909090909090909090909090909090909090909090909",
+    "case": "direct_bid_base0",
+    "compute_units": "450000",
+    "loaded_bytes": "8388608",
+    "message_hex": "8101000e0f00000009090909090909090909090909090909090909090909090909090909090909090116ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d16723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a6cf7b486f764a2498b5690b6618a9f8713c8524e48e132c1fa6ac53fb2476c02751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269ae4107f3404f0c899fc34a8fdc893eca44feaae184c294e8a593fbc065edc9a3d6a2308b515490111bd6887dee7f4033092cef6ecd5d7ab253d3f33202143affdec3587441160a41044a6e78287565bd4d9e0362e9a3813b01f1e074cd2d7206f383b2c973710f2ab68cccf70082e0daea96c3e9a73042f3dee1a5f8caa9c8f600000000000000000000000000000000000000000000000000000000000000000034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d010101010101010101010101010101010101010101010101010101010101010106ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a90de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f3336792058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e3059532c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a33cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c327c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc64981ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f859a55ef105072abeeed4a1eb039d0a3a2089460309ea867cc73feec1ffcdd83c23aaefd260a8fa813ab49be28dcd25bfb942761370f69a67e9e59d928795cc9561c0a281a105957ddeb674109fccfc8126ef82a9807081150a50701459d51816f41027000000000000d0dd0600000080000a17d60000130e10110d0614090c07020b08050012040f0103150a0d6500000000000000003c0000000000000064000000000000000000000000000000effb25ca21f105727bcea50796574bfe639b91fac5002ef9d3a5c7506f72fe9f77ac6107af482c45ac241d86d94f719021bb4639b3a00ed77325c6ff0ead920e010000c8000000000000000164000000000000003c0000000000000000000000000000008532b5964c0c4d8461ab16e925d784c26ccad499042d81f16ada55c69fbdc4d6bf9bcfbd198e016bdd0d315cfb04e8d0d998fcf2f1c246ef2a1520a8ccb9eb0164000000000000003c00000000000000",
+    "operator_seed_hex": "0303030303030303030303030303030303030303030303030303030303030303",
+    "priority_lamports": "10000",
+    "signed_hex": "8101000e0f00000009090909090909090909090909090909090909090909090909090909090909090116ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d16723c180fb517f0ce5f4cece00ac396e85c5774072eacb0de057fa20985ff73a6cf7b486f764a2498b5690b6618a9f8713c8524e48e132c1fa6ac53fb2476c02751315e182392b39c79155d657c14a1e63b2a64fe8c54cf382bdad14f5c41269ae4107f3404f0c899fc34a8fdc893eca44feaae184c294e8a593fbc065edc9a3d6a2308b515490111bd6887dee7f4033092cef6ecd5d7ab253d3f33202143affdec3587441160a41044a6e78287565bd4d9e0362e9a3813b01f1e074cd2d7206f383b2c973710f2ab68cccf70082e0daea96c3e9a73042f3dee1a5f8caa9c8f600000000000000000000000000000000000000000000000000000000000000000034b697463fe6fc41f98b8885d188a65661bfad7c139c1f35b7bf06ccdc2c1d010101010101010101010101010101010101010101010101010101010101010106ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a90de2b7ecf5cdab20341d444f59a9a83c891532d128808f46162c9f4d4f3336792058301725c04c4fd7a16a586d5351a15db4ab2b711162cada6f901320e3059532c5a4c13f1e2fea3e33ccff16a674006bdd4768e6d126c82449e4660a28a0a33cf2e29bf5b2a9781ebc72a60f76abc00d62f6464c6f533fcaefe7d8bd620c327c709d0288484b508c16124d06303456bf9c543e0188f03d6c36e7a2bc3dc64981ef90fc985bf2ffc053010e6eed47022947d9f947f4f9b21e6c6740f17fddfb8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f859a55ef105072abeeed4a1eb039d0a3a2089460309ea867cc73feec1ffcdd83c23aaefd260a8fa813ab49be28dcd25bfb942761370f69a67e9e59d928795cc9561c0a281a105957ddeb674109fccfc8126ef82a9807081150a50701459d51816f41027000000000000d0dd0600000080000a17d60000130e10110d0614090c07020b08050012040f0103150a0d6500000000000000003c0000000000000064000000000000000000000000000000effb25ca21f105727bcea50796574bfe639b91fac5002ef9d3a5c7506f72fe9f77ac6107af482c45ac241d86d94f719021bb4639b3a00ed77325c6ff0ead920e010000c8000000000000000164000000000000003c0000000000000000000000000000008532b5964c0c4d8461ab16e925d784c26ccad499042d81f16ada55c69fbdc4d6bf9bcfbd198e016bdd0d315cfb04e8d0d998fcf2f1c246ef2a1520a8ccb9eb0164000000000000003c000000000000007aab1e08ce4f931d2c39a610a9030bcf840f0bc4da1283a4fb1ff51182370b98ccd5ab88e8202fd54f8d27506fd8250dbcf1d2a09ce983c80b683677a56bb404"
+  }
+}
