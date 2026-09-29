@@ -2,31 +2,33 @@
 
 pub mod client;
 mod convert;
+#[cfg(test)]
+mod response_tests;
 pub mod state;
 pub mod wire;
 
-use crate::shared::{OrderBookId, PubkeyStr, Side};
+use crate::domain::position::wire::FundingSource;
 #[cfg(feature = "trigger_orders")]
-use crate::shared::{TimeInForce, TriggerType};
+use crate::shared::TriggerType;
+use crate::shared::{OrderBookId, PubkeyStr, Side, TimeInForce};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 pub use client::{
-    CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, FillInfo, SubmitOrderResponse,
-    SubmitOrderStatus, UserOrdersResponse,
+    CancelAllBody, CancelAllSuccess, CancelBody, CancelQuantities, CancelStatus, CancelSuccess,
+    ClosureAck, FillInfo, SubmitOrderResponse, SubmitOrderStatus, UserOrdersResponse,
 };
 #[cfg(feature = "trigger_orders")]
 pub use client::{CancelTriggerBody, CancelTriggerSuccess, TriggerOrderResponse};
 pub use convert::convert_snapshot_orders;
-pub use state::UserOpenLimitOrders;
 #[cfg(feature = "trigger_orders")]
 pub use state::UserTriggerOrders;
+pub use state::{ApplyOutcome, UserOpenLimitOrders};
 pub use wire::{
-    ConditionalBalance, FillStatus, GlobalDepositBalance, GlobalDepositUpdate, NonceUpdate,
-    NotificationUpdate, OrderEvent, OrderFillEvent, Role, TriggerOrderUpdate, UserBalanceUpdate,
-    UserDepositAssetBalance, UserMarketBalance, UserOrderFill, UserOrderFillsResponse,
-    UserOutcomeBalance, UserSnapshotOrder, UserSnapshotOrderCommon, UserUpdate,
+    ClosureScope, ClosureUpdate, CommitInfo, InitialCohort, InitialCohortState, NotificationUpdate,
+    OrderFillEvent, OrderState, OrderUpdate, RecordedOrderState, RecoveryCompleted, Role,
+    UserOrder, UserOrderFill, UserOrderFillsResponse, UserSnapshot, UserSnapshotOrder, UserUpdate,
 };
 
 // ─── Order (trait) ──────────────────────────────────────────────────────────
@@ -109,35 +111,89 @@ impl std::str::FromStr for OrderType {
 
 // ─── OrderStatus ─────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "UPPERCASE")]
+/// Committed lifecycle status of an order.
+///
+/// Serialized lowercase, as in `GET /api/users/order-fills`. Derived with the
+/// backend's precedence: a closure reason wins, then a complete confirmed
+/// fill, then pending (unconfirmed) fills, otherwise open.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
 pub enum OrderStatus {
+    /// Resting, or awaiting its first match.
     #[default]
     Open,
-    Matching,
-    Cancelled,
-    Filled,
+    /// Some matched base awaits on-chain confirmation.
     Pending,
+    /// The whole original base is confirmed filled.
+    Filled,
+    /// Stopped resting (cancelled, expired, closure cutoff, or remainder of
+    /// an IOC/FOK order); see the closed reason.
+    Closed,
+}
+
+impl OrderStatus {
+    /// Apply the backend's status precedence to committed quantities.
+    pub fn derive(
+        closed_reason: Option<&str>,
+        original_base: Decimal,
+        confirmed_base: Decimal,
+        pending_base: Decimal,
+    ) -> Self {
+        if closed_reason.is_some() {
+            Self::Closed
+        } else if confirmed_base == original_base {
+            Self::Filled
+        } else if pending_base > Decimal::ZERO {
+            Self::Pending
+        } else {
+            Self::Open
+        }
+    }
 }
 
 // ─── LimitOrder ─────────────────────────────────────────────────────────────
 
+/// A limit order's committed state. Size fields are in base-token units and
+/// satisfy `size = filled_size + pending_size + remaining_size + cancelled_size`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LimitOrder {
     pub market_pubkey: PubkeyStr,
     pub orderbook_id: OrderBookId,
-    pub tx_signature: Option<String>,
     pub base_mint: PubkeyStr,
     pub quote_mint: PubkeyStr,
     pub order_hash: String,
     pub side: Side,
-    pub size: Decimal,
+    /// Limit price, quote units per base unit.
     pub price: Decimal,
+    /// Original order size.
+    pub size: Decimal,
+    /// Base filled by confirmed (on-chain authenticated) executions.
     pub filled_size: Decimal,
+    /// Base matched but awaiting on-chain confirmation.
+    pub pending_size: Decimal,
+    /// Base still resting on the book.
     pub remaining_size: Decimal,
-    pub created_at: DateTime<Utc>,
+    /// Base cancelled (explicitly, by expiry, IOC/FOK remainder, or closure).
+    pub cancelled_size: Decimal,
+    pub time_in_force: TimeInForce,
+    pub funding_source: FundingSource,
+    pub closed_reason: Option<String>,
     pub status: OrderStatus,
-    pub outcome_index: i16,
+    /// Engine acceptance sequence; closures cut off by it.
+    pub accepted_seq: u64,
+    /// Committed revision of this state; newer revisions supersede older ones.
+    pub committed_revision: u64,
+    pub created_at: DateTime<Utc>,
+    /// Unix seconds; `0` means no expiration.
+    pub expiration: i64,
+}
+
+impl LimitOrder {
+    /// True while the order rests on the book or has fills awaiting
+    /// confirmation (which may still return to the book if they fail).
+    pub fn is_live(&self) -> bool {
+        self.remaining_size > Decimal::ZERO || self.pending_size > Decimal::ZERO
+    }
 }
 
 impl Order for LimitOrder {
@@ -154,7 +210,7 @@ impl Order for LimitOrder {
         &self.orderbook_id
     }
     fn side(&self) -> Side {
-        self.side.clone()
+        self.side
     }
     fn created_at(&self) -> DateTime<Utc> {
         self.created_at

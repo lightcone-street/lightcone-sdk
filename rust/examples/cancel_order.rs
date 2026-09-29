@@ -17,12 +17,11 @@ async fn main() -> ExampleResult {
 
     let snapshot = client.orders().get_user_orders(Some(50), None).await?;
 
-    let Some((order_hash, orderbook_id)) = snapshot.orders.iter().find_map(|order| match order {
-        UserSnapshotOrder::Limit { common, .. } => {
-            Some((common.order_hash.clone(), common.orderbook_id.clone()))
-        }
-        UserSnapshotOrder::Trigger { .. } => None,
-    }) else {
+    let Some((order_hash, orderbook_id)) = snapshot
+        .orders
+        .first()
+        .map(|order| (order.order_hash.clone(), order.orderbook_id.clone()))
+    else {
         println!("No open limit orders to cancel.");
         return Ok(());
     };
@@ -41,12 +40,14 @@ async fn main() -> ExampleResult {
     let cleared = client.orders().cancel_all(&cancel_all).await?;
 
     println!(
-        "cancelled: {} remaining={}",
-        cancelled.order_hash, cancelled.remaining
+        "cancel {}: {:?} quantities={:?}",
+        cancelled.order_hash, cancelled.status, cancelled.quantities
     );
     println!(
-        "cancel-all removed {} order(s) in {}",
-        cleared.count, cleared.orderbook_id
+        "cancel-all in {:?}: {} (closure {:?})",
+        cleared.orderbook_id.as_str(),
+        cleared.message,
+        cleared.closure
     );
 
     // Cleanup: cancelling the order released its locked collateral back into

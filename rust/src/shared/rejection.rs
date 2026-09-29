@@ -1,45 +1,58 @@
-//! Machine-readable rejection codes from the backend API.
+//! Machine-readable rejection and error codes from the backend API.
+//!
+//! Two independent code families ride the error envelope
+//! (`{"status":"error","error_details":{...}}`):
+//!
+//! - [`RejectionCode`] (`rejection_code`): a business outcome of a trading
+//!   mutation that the engine evaluated, delivered with HTTP 200.
+//! - [`ErrorCode`] (`error_code`): a transport, validation, authorization, or
+//!   availability failure, delivered with a 4xx/5xx status.
+//!
+//! Both fall back to an `Unknown(String)` variant, so an unrecognized code never
+//! fails deserialization of the surrounding error.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
-/// Machine-readable rejection code from the backend.
+/// Business rejection code for a trading mutation (HTTP 200 error envelope).
 ///
 /// Deserializes from any case format (snake_case, SCREAMING_SNAKE_CASE).
 /// Unrecognized codes fall back to `Unknown(String)` for forward compatibility.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RejectionCode {
-    InsufficientBalance,
-    Expired,
-    NonceMismatch,
-    SelfTrade,
-    MarketInactive,
-    BelowMinOrderSize,
-    InvalidNonce,
-    BroadcastFailure,
-    OrderNotFound,
-    NotOrderMaker,
-    OrderAlreadyFilled,
-    OrderAlreadyCancelled,
+    /// This signed order identity was already accepted.
     DuplicateOrder,
-    PostOnlyWouldCross,
-    FokNoFill,
-    IocNoFill,
-    WouldCrossUnavailableLiquidity,
-    WouldCrossBook,
-    MarketNotFound,
-    OrderbookNotFound,
-    TokenPairMismatch,
-    InsufficientMarketFeeBuffer,
-    SignatureExpired,
-    TradingRulesUnavailable,
-    OrderFieldOutOfRange,
-    PriceNotExactlyRepresentable,
-    PriceOutOfRange,
-    InvalidPriceDecimals,
-    InvalidPriceSignificantFigures,
-    InvalidSizeDecimals,
-    TriggerPriceOutOfRange,
+    /// Requested funding cannot cover the complete order.
+    InsufficientBalance,
+    /// A fill-or-kill order's full base target is not executable.
+    FokInsufficientLiquidity,
+    /// The order would cross the same wallet's executable liquidity.
+    SelfTrade,
+    /// The order violates current trading rules (price/size precision, tick,
+    /// or the minimum order size).
+    InvalidOrder,
+    /// The request exceeds supported limits.
+    InvalidRequest,
+    /// The signed order had already expired.
+    OrderExpired,
+    /// Trading is paused for this market, exchange, or deposit token.
+    TradingPaused,
+    /// The canonical mutation signature did not verify.
+    InvalidSignature,
+    /// A cancel-all salt was already consumed.
+    CancelAllReplay,
+    /// Trading state changed while processing; the request may be retried.
+    StaleState,
+    /// The request expired before acceptance; the request may be retried.
+    RequestExpired,
+    /// Trading capacity is unavailable, including the per-wallet open-order cap.
+    TradingCapacityUnavailable,
+    /// Committed trading state is not ready for this request yet.
+    TradingNotReady,
+    /// Committed order state could not be read.
+    InternalError,
+    /// The cancelled order hash was never accepted.
+    OrderNotFound,
     Unknown(String),
 }
 
@@ -49,112 +62,80 @@ impl RejectionCode {
     /// `InsufficientBalance` → `"Insufficient Balance"`
     pub fn label(&self) -> String {
         match self {
-            Self::InsufficientBalance => "Insufficient Balance".to_string(),
-            Self::Expired => "Expired".to_string(),
-            Self::NonceMismatch => "Nonce Mismatch".to_string(),
-            Self::SelfTrade => "Self Trade".to_string(),
-            Self::MarketInactive => "Market Inactive".to_string(),
-            Self::BelowMinOrderSize => "Below Min Order Size".to_string(),
-            Self::InvalidNonce => "Invalid Nonce".to_string(),
-            Self::BroadcastFailure => "Broadcast Failure".to_string(),
-            Self::OrderNotFound => "Order Not Found".to_string(),
-            Self::NotOrderMaker => "Not Order Maker".to_string(),
-            Self::OrderAlreadyFilled => "Order Already Filled".to_string(),
-            Self::OrderAlreadyCancelled => "Order Already Cancelled".to_string(),
             Self::DuplicateOrder => "Duplicate Order".to_string(),
-            Self::PostOnlyWouldCross => "Post Only Would Cross".to_string(),
-            Self::FokNoFill => "FOK No Fill".to_string(),
-            Self::IocNoFill => "IOC No Fill".to_string(),
-            Self::WouldCrossUnavailableLiquidity => "Would Cross Unavailable Liquidity".to_string(),
-            Self::WouldCrossBook => "Would Cross Book".to_string(),
-            Self::MarketNotFound => "Market Not Found".to_string(),
-            Self::OrderbookNotFound => "Orderbook Not Found".to_string(),
-            Self::TokenPairMismatch => "Token Pair Mismatch".to_string(),
-            Self::InsufficientMarketFeeBuffer => "Insufficient Market Fee Buffer".to_string(),
-            Self::SignatureExpired => "Signature Expired".to_string(),
-            Self::TradingRulesUnavailable => "Trading Rules Unavailable".to_string(),
-            Self::OrderFieldOutOfRange => "Order Field Out of Range".to_string(),
-            Self::PriceNotExactlyRepresentable => "Price Not Exactly Representable".to_string(),
-            Self::PriceOutOfRange => "Price Out of Range".to_string(),
-            Self::InvalidPriceDecimals => "Invalid Price Decimals".to_string(),
-            Self::InvalidPriceSignificantFigures => "Invalid Price Significant Figures".to_string(),
-            Self::InvalidSizeDecimals => "Invalid Size Decimals".to_string(),
-            Self::TriggerPriceOutOfRange => "Trigger Price Out of Range".to_string(),
+            Self::InsufficientBalance => "Insufficient Balance".to_string(),
+            Self::FokInsufficientLiquidity => "FOK Insufficient Liquidity".to_string(),
+            Self::SelfTrade => "Self Trade".to_string(),
+            Self::InvalidOrder => "Invalid Order".to_string(),
+            Self::InvalidRequest => "Invalid Request".to_string(),
+            Self::OrderExpired => "Order Expired".to_string(),
+            Self::TradingPaused => "Trading Paused".to_string(),
+            Self::InvalidSignature => "Invalid Signature".to_string(),
+            Self::CancelAllReplay => "Cancel-All Replay".to_string(),
+            Self::StaleState => "Stale State".to_string(),
+            Self::RequestExpired => "Request Expired".to_string(),
+            Self::TradingCapacityUnavailable => "Trading Capacity Unavailable".to_string(),
+            Self::TradingNotReady => "Trading Not Ready".to_string(),
+            Self::InternalError => "Internal Error".to_string(),
+            Self::OrderNotFound => "Order Not Found".to_string(),
             Self::Unknown(code) => code.clone(),
         }
+    }
+
+    /// True for rejections where the order was not accepted because of a
+    /// transient engine condition, so the same signed order may be submitted
+    /// again (while it has not expired).
+    pub fn is_transient(&self) -> bool {
+        matches!(
+            self,
+            Self::StaleState
+                | Self::RequestExpired
+                | Self::TradingCapacityUnavailable
+                | Self::TradingNotReady
+        )
     }
 
     /// Wire format (SCREAMING_SNAKE_CASE).
     fn wire_name(&self) -> String {
         match self {
-            Self::InsufficientBalance => "INSUFFICIENT_BALANCE".to_string(),
-            Self::Expired => "EXPIRED".to_string(),
-            Self::NonceMismatch => "NONCE_MISMATCH".to_string(),
-            Self::SelfTrade => "SELF_TRADE".to_string(),
-            Self::MarketInactive => "MARKET_INACTIVE".to_string(),
-            Self::BelowMinOrderSize => "BELOW_MIN_ORDER_SIZE".to_string(),
-            Self::InvalidNonce => "INVALID_NONCE".to_string(),
-            Self::BroadcastFailure => "BROADCAST_FAILURE".to_string(),
-            Self::OrderNotFound => "ORDER_NOT_FOUND".to_string(),
-            Self::NotOrderMaker => "NOT_ORDER_MAKER".to_string(),
-            Self::OrderAlreadyFilled => "ORDER_ALREADY_FILLED".to_string(),
-            Self::OrderAlreadyCancelled => "ORDER_ALREADY_CANCELLED".to_string(),
             Self::DuplicateOrder => "DUPLICATE_ORDER".to_string(),
-            Self::PostOnlyWouldCross => "POST_ONLY_WOULD_CROSS".to_string(),
-            Self::FokNoFill => "FOK_NO_FILL".to_string(),
-            Self::IocNoFill => "IOC_NO_FILL".to_string(),
-            Self::WouldCrossUnavailableLiquidity => "WOULD_CROSS_UNAVAILABLE_LIQUIDITY".to_string(),
-            Self::WouldCrossBook => "WOULD_CROSS_BOOK".to_string(),
-            Self::MarketNotFound => "MARKET_NOT_FOUND".to_string(),
-            Self::OrderbookNotFound => "ORDERBOOK_NOT_FOUND".to_string(),
-            Self::TokenPairMismatch => "TOKEN_PAIR_MISMATCH".to_string(),
-            Self::InsufficientMarketFeeBuffer => "INSUFFICIENT_MARKET_FEE_BUFFER".to_string(),
-            Self::SignatureExpired => "SIGNATURE_EXPIRED".to_string(),
-            Self::TradingRulesUnavailable => "TRADING_RULES_UNAVAILABLE".to_string(),
-            Self::OrderFieldOutOfRange => "ORDER_FIELD_OUT_OF_RANGE".to_string(),
-            Self::PriceNotExactlyRepresentable => "PRICE_NOT_EXACTLY_REPRESENTABLE".to_string(),
-            Self::PriceOutOfRange => "PRICE_OUT_OF_RANGE".to_string(),
-            Self::InvalidPriceDecimals => "INVALID_PRICE_DECIMALS".to_string(),
-            Self::InvalidPriceSignificantFigures => "INVALID_PRICE_SIGNIFICANT_FIGURES".to_string(),
-            Self::InvalidSizeDecimals => "INVALID_SIZE_DECIMALS".to_string(),
-            Self::TriggerPriceOutOfRange => "TRIGGER_PRICE_OUT_OF_RANGE".to_string(),
+            Self::InsufficientBalance => "INSUFFICIENT_BALANCE".to_string(),
+            Self::FokInsufficientLiquidity => "FOK_INSUFFICIENT_LIQUIDITY".to_string(),
+            Self::SelfTrade => "SELF_TRADE".to_string(),
+            Self::InvalidOrder => "INVALID_ORDER".to_string(),
+            Self::InvalidRequest => "INVALID_REQUEST".to_string(),
+            Self::OrderExpired => "ORDER_EXPIRED".to_string(),
+            Self::TradingPaused => "TRADING_PAUSED".to_string(),
+            Self::InvalidSignature => "INVALID_SIGNATURE".to_string(),
+            Self::CancelAllReplay => "CANCEL_ALL_REPLAY".to_string(),
+            Self::StaleState => "STALE_STATE".to_string(),
+            Self::RequestExpired => "REQUEST_EXPIRED".to_string(),
+            Self::TradingCapacityUnavailable => "TRADING_CAPACITY_UNAVAILABLE".to_string(),
+            Self::TradingNotReady => "TRADING_NOT_READY".to_string(),
+            Self::InternalError => "INTERNAL_ERROR".to_string(),
+            Self::OrderNotFound => "ORDER_NOT_FOUND".to_string(),
             Self::Unknown(code) => code.clone(),
         }
     }
 
     fn from_str(raw: &str) -> Self {
         match raw.to_uppercase().as_str() {
-            "INSUFFICIENT_BALANCE" => Self::InsufficientBalance,
-            "EXPIRED" => Self::Expired,
-            "NONCE_MISMATCH" => Self::NonceMismatch,
-            "SELF_TRADE" => Self::SelfTrade,
-            "MARKET_INACTIVE" => Self::MarketInactive,
-            "BELOW_MIN_ORDER_SIZE" => Self::BelowMinOrderSize,
-            "INVALID_NONCE" => Self::InvalidNonce,
-            "BROADCAST_FAILURE" => Self::BroadcastFailure,
-            "ORDER_NOT_FOUND" => Self::OrderNotFound,
-            "NOT_ORDER_MAKER" => Self::NotOrderMaker,
-            "ORDER_ALREADY_FILLED" => Self::OrderAlreadyFilled,
-            "ORDER_ALREADY_CANCELLED" => Self::OrderAlreadyCancelled,
             "DUPLICATE_ORDER" => Self::DuplicateOrder,
-            "POST_ONLY_WOULD_CROSS" => Self::PostOnlyWouldCross,
-            "FOK_NO_FILL" => Self::FokNoFill,
-            "IOC_NO_FILL" => Self::IocNoFill,
-            "WOULD_CROSS_UNAVAILABLE_LIQUIDITY" => Self::WouldCrossUnavailableLiquidity,
-            "WOULD_CROSS_BOOK" => Self::WouldCrossBook,
-            "MARKET_NOT_FOUND" => Self::MarketNotFound,
-            "ORDERBOOK_NOT_FOUND" => Self::OrderbookNotFound,
-            "TOKEN_PAIR_MISMATCH" => Self::TokenPairMismatch,
-            "INSUFFICIENT_MARKET_FEE_BUFFER" => Self::InsufficientMarketFeeBuffer,
-            "SIGNATURE_EXPIRED" => Self::SignatureExpired,
-            "TRADING_RULES_UNAVAILABLE" => Self::TradingRulesUnavailable,
-            "ORDER_FIELD_OUT_OF_RANGE" => Self::OrderFieldOutOfRange,
-            "PRICE_NOT_EXACTLY_REPRESENTABLE" => Self::PriceNotExactlyRepresentable,
-            "PRICE_OUT_OF_RANGE" => Self::PriceOutOfRange,
-            "INVALID_PRICE_DECIMALS" => Self::InvalidPriceDecimals,
-            "INVALID_PRICE_SIGNIFICANT_FIGURES" => Self::InvalidPriceSignificantFigures,
-            "INVALID_SIZE_DECIMALS" => Self::InvalidSizeDecimals,
-            "TRIGGER_PRICE_OUT_OF_RANGE" => Self::TriggerPriceOutOfRange,
+            "INSUFFICIENT_BALANCE" => Self::InsufficientBalance,
+            "FOK_INSUFFICIENT_LIQUIDITY" => Self::FokInsufficientLiquidity,
+            "SELF_TRADE" => Self::SelfTrade,
+            "INVALID_ORDER" => Self::InvalidOrder,
+            "INVALID_REQUEST" => Self::InvalidRequest,
+            "ORDER_EXPIRED" => Self::OrderExpired,
+            "TRADING_PAUSED" => Self::TradingPaused,
+            "INVALID_SIGNATURE" => Self::InvalidSignature,
+            "CANCEL_ALL_REPLAY" => Self::CancelAllReplay,
+            "STALE_STATE" => Self::StaleState,
+            "REQUEST_EXPIRED" => Self::RequestExpired,
+            "TRADING_CAPACITY_UNAVAILABLE" => Self::TradingCapacityUnavailable,
+            "TRADING_NOT_READY" => Self::TradingNotReady,
+            "INTERNAL_ERROR" => Self::InternalError,
+            "ORDER_NOT_FOUND" => Self::OrderNotFound,
             _ => Self::Unknown(raw.to_string()),
         }
     }
@@ -176,6 +157,151 @@ impl<'de> Deserialize<'de> for RejectionCode {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let raw = String::deserialize(deserializer)?;
         Ok(Self::from_str(&raw))
+    }
+}
+
+/// Transport-level `error_code` carried by 4xx/5xx error envelopes.
+///
+/// Engine gRPC failures map to fixed HTTP statuses; the status is listed on
+/// each variant. Read it from a rejection with
+/// [`ApiRejectedDetails::error_code_kind`](crate::shared::ApiRejectedDetails::error_code_kind).
+/// Unrecognized codes fall back to `Unknown(String)`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ErrorCode {
+    /// 400: malformed request field, bad side, zero amount, non-canonical key,
+    /// bad cancel-all salt, or stale cancel-all timestamp.
+    InvalidArgument,
+    /// 400: engine precondition failed outside the business-rejection path.
+    FailedPrecondition,
+    /// 404.
+    NotFound,
+    /// 403: mutation signature rejected or stale cancel-all timestamp.
+    Forbidden,
+    /// 409: duplicate order identity or reused cancel-all salt.
+    AlreadyExists,
+    /// 409: trading state changed; retry the request.
+    Aborted,
+    /// 429: engine admission queue or capacity exhausted; retry later.
+    ResourceExhausted,
+    /// 503: engine unavailable or deadline exceeded. For order submission the
+    /// outcome is unknown: reconcile by order hash before resubmitting.
+    EngineUnavailable,
+    /// 500: engine failure without a public reason.
+    EngineInternalError,
+    /// 503: committed trading state (or orderbook metadata) is temporarily
+    /// unavailable; also returned for an unknown orderbook on submission.
+    TradingUnavailable,
+    /// 401: an order mutation had no authenticated session.
+    AuthRequired,
+    /// 403: the session wallet does not match the order maker or
+    /// cancellation wallet.
+    AuthWalletMismatch,
+    /// 400: unsupported time-in-force (only GTC, IOC and FOK are accepted).
+    InvalidTif,
+    /// 400: unsupported deposit source.
+    InvalidDepositSource,
+    /// 400: signature is not 64 bytes of hex.
+    InvalidSignature,
+    /// 400: a path or query public key is not canonical base58.
+    InvalidPubkey,
+    /// 400: a pagination cursor is malformed or combined incorrectly.
+    InvalidCursor,
+    /// 400: order hash is not 64 lowercase hex characters.
+    InvalidOrderHash,
+    /// 400: the route does not accept a query string.
+    UnexpectedQuery,
+    /// 429: request rate limit exceeded.
+    RateLimited,
+    Unknown(String),
+}
+
+impl ErrorCode {
+    /// Wire format (SCREAMING_SNAKE_CASE).
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::InvalidArgument => "INVALID_ARGUMENT",
+            Self::FailedPrecondition => "FAILED_PRECONDITION",
+            Self::NotFound => "NOT_FOUND",
+            Self::Forbidden => "FORBIDDEN",
+            Self::AlreadyExists => "ALREADY_EXISTS",
+            Self::Aborted => "ABORTED",
+            Self::ResourceExhausted => "RESOURCE_EXHAUSTED",
+            Self::EngineUnavailable => "ENGINE_UNAVAILABLE",
+            Self::EngineInternalError => "ENGINE_INTERNAL_ERROR",
+            Self::TradingUnavailable => "TRADING_UNAVAILABLE",
+            Self::AuthRequired => "AUTH_REQUIRED",
+            Self::AuthWalletMismatch => "AUTH_WALLET_MISMATCH",
+            Self::InvalidTif => "INVALID_TIF",
+            Self::InvalidDepositSource => "INVALID_DEPOSIT_SOURCE",
+            Self::InvalidSignature => "INVALID_SIGNATURE",
+            Self::InvalidPubkey => "INVALID_PUBKEY",
+            Self::InvalidCursor => "INVALID_CURSOR",
+            Self::InvalidOrderHash => "INVALID_ORDER_HASH",
+            Self::UnexpectedQuery => "UNEXPECTED_QUERY",
+            Self::RateLimited => "RATE_LIMITED",
+            Self::Unknown(code) => code,
+        }
+    }
+
+    /// Parse a wire code; unrecognized codes become `Unknown`.
+    pub fn from_wire(raw: &str) -> Self {
+        match raw {
+            "INVALID_ARGUMENT" => Self::InvalidArgument,
+            "FAILED_PRECONDITION" => Self::FailedPrecondition,
+            "NOT_FOUND" => Self::NotFound,
+            "FORBIDDEN" => Self::Forbidden,
+            "ALREADY_EXISTS" => Self::AlreadyExists,
+            "ABORTED" => Self::Aborted,
+            "RESOURCE_EXHAUSTED" => Self::ResourceExhausted,
+            "ENGINE_UNAVAILABLE" => Self::EngineUnavailable,
+            "ENGINE_INTERNAL_ERROR" => Self::EngineInternalError,
+            "TRADING_UNAVAILABLE" => Self::TradingUnavailable,
+            "AUTH_REQUIRED" => Self::AuthRequired,
+            "AUTH_WALLET_MISMATCH" => Self::AuthWalletMismatch,
+            "INVALID_TIF" => Self::InvalidTif,
+            "INVALID_DEPOSIT_SOURCE" => Self::InvalidDepositSource,
+            "INVALID_SIGNATURE" => Self::InvalidSignature,
+            "INVALID_PUBKEY" => Self::InvalidPubkey,
+            "INVALID_CURSOR" => Self::InvalidCursor,
+            "INVALID_ORDER_HASH" => Self::InvalidOrderHash,
+            "UNEXPECTED_QUERY" => Self::UnexpectedQuery,
+            "RATE_LIMITED" => Self::RateLimited,
+            other => Self::Unknown(other.to_string()),
+        }
+    }
+
+    /// True for conditions that may clear on their own, where retrying the
+    /// same request later is reasonable. For order submission,
+    /// [`Self::EngineUnavailable`] additionally means the outcome is unknown:
+    /// query the order hash before submitting again.
+    pub fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            Self::Aborted
+                | Self::ResourceExhausted
+                | Self::EngineUnavailable
+                | Self::TradingUnavailable
+                | Self::RateLimited
+        )
+    }
+}
+
+impl fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl Serialize for ErrorCode {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ErrorCode {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Ok(Self::from_wire(&raw))
     }
 }
 
@@ -202,6 +328,19 @@ mod tests {
     }
 
     #[test]
+    fn removed_codes_decode_as_unknown() {
+        for removed in [
+            "NONCE_MISMATCH",
+            "FOK_NO_FILL",
+            "BELOW_MIN_ORDER_SIZE",
+            "EXPIRED",
+        ] {
+            let code: RejectionCode = serde_json::from_value(serde_json::json!(removed)).unwrap();
+            assert_eq!(code, RejectionCode::Unknown(removed.to_string()));
+        }
+    }
+
+    #[test]
     fn test_label_known_code() {
         assert_eq!(
             RejectionCode::InsufficientBalance.label(),
@@ -209,8 +348,8 @@ mod tests {
         );
         assert_eq!(RejectionCode::SelfTrade.label(), "Self Trade");
         assert_eq!(
-            RejectionCode::BelowMinOrderSize.label(),
-            "Below Min Order Size"
+            RejectionCode::FokInsufficientLiquidity.label(),
+            "FOK Insufficient Liquidity"
         );
     }
 
@@ -246,42 +385,73 @@ mod tests {
     #[test]
     fn test_roundtrip_all_known_codes() {
         let codes = vec![
-            RejectionCode::InsufficientBalance,
-            RejectionCode::Expired,
-            RejectionCode::NonceMismatch,
-            RejectionCode::SelfTrade,
-            RejectionCode::MarketInactive,
-            RejectionCode::BelowMinOrderSize,
-            RejectionCode::InvalidNonce,
-            RejectionCode::BroadcastFailure,
-            RejectionCode::OrderNotFound,
-            RejectionCode::NotOrderMaker,
-            RejectionCode::OrderAlreadyFilled,
-            RejectionCode::OrderAlreadyCancelled,
             RejectionCode::DuplicateOrder,
-            RejectionCode::PostOnlyWouldCross,
-            RejectionCode::FokNoFill,
-            RejectionCode::IocNoFill,
-            RejectionCode::WouldCrossUnavailableLiquidity,
-            RejectionCode::WouldCrossBook,
-            RejectionCode::MarketNotFound,
-            RejectionCode::OrderbookNotFound,
-            RejectionCode::TokenPairMismatch,
-            RejectionCode::InsufficientMarketFeeBuffer,
-            RejectionCode::SignatureExpired,
-            RejectionCode::TradingRulesUnavailable,
-            RejectionCode::OrderFieldOutOfRange,
-            RejectionCode::PriceNotExactlyRepresentable,
-            RejectionCode::PriceOutOfRange,
-            RejectionCode::InvalidPriceDecimals,
-            RejectionCode::InvalidPriceSignificantFigures,
-            RejectionCode::InvalidSizeDecimals,
-            RejectionCode::TriggerPriceOutOfRange,
+            RejectionCode::InsufficientBalance,
+            RejectionCode::FokInsufficientLiquidity,
+            RejectionCode::SelfTrade,
+            RejectionCode::InvalidOrder,
+            RejectionCode::InvalidRequest,
+            RejectionCode::OrderExpired,
+            RejectionCode::TradingPaused,
+            RejectionCode::InvalidSignature,
+            RejectionCode::CancelAllReplay,
+            RejectionCode::StaleState,
+            RejectionCode::RequestExpired,
+            RejectionCode::TradingCapacityUnavailable,
+            RejectionCode::TradingNotReady,
+            RejectionCode::InternalError,
+            RejectionCode::OrderNotFound,
         ];
         for code in codes {
             let json = serde_json::to_string(&code).unwrap();
             let back: RejectionCode = serde_json::from_str(&json).unwrap();
             assert_eq!(code, back);
+            assert!(!matches!(back, RejectionCode::Unknown(_)), "{json}");
         }
+    }
+
+    #[test]
+    fn transient_rejections_are_the_retryable_admission_failures() {
+        assert!(RejectionCode::StaleState.is_transient());
+        assert!(RejectionCode::TradingNotReady.is_transient());
+        assert!(!RejectionCode::DuplicateOrder.is_transient());
+        assert!(!RejectionCode::InsufficientBalance.is_transient());
+    }
+
+    #[test]
+    fn error_codes_round_trip_and_tolerate_unknown_values() {
+        let codes = [
+            ErrorCode::InvalidArgument,
+            ErrorCode::FailedPrecondition,
+            ErrorCode::NotFound,
+            ErrorCode::Forbidden,
+            ErrorCode::AlreadyExists,
+            ErrorCode::Aborted,
+            ErrorCode::ResourceExhausted,
+            ErrorCode::EngineUnavailable,
+            ErrorCode::EngineInternalError,
+            ErrorCode::TradingUnavailable,
+            ErrorCode::AuthRequired,
+            ErrorCode::AuthWalletMismatch,
+            ErrorCode::InvalidTif,
+            ErrorCode::InvalidDepositSource,
+            ErrorCode::InvalidSignature,
+            ErrorCode::InvalidPubkey,
+            ErrorCode::InvalidCursor,
+            ErrorCode::InvalidOrderHash,
+            ErrorCode::UnexpectedQuery,
+            ErrorCode::RateLimited,
+        ];
+        for code in codes {
+            let json = serde_json::to_string(&code).unwrap();
+            assert_eq!(serde_json::from_str::<ErrorCode>(&json).unwrap(), code);
+        }
+        let unknown: ErrorCode = serde_json::from_str("\"WALLET_NOT_AUTHORIZED\"").unwrap();
+        assert_eq!(
+            unknown,
+            ErrorCode::Unknown("WALLET_NOT_AUTHORIZED".to_string())
+        );
+        assert!(ErrorCode::EngineUnavailable.is_retryable());
+        assert!(!ErrorCode::AuthWalletMismatch.is_retryable());
     }
 }

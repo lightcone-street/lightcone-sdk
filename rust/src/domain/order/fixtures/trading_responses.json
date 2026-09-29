@@ -1,0 +1,12 @@
+{
+  "cancelled_with_claim": {
+    "original_base": "100", "confirmed_base": "0", "pending_base": "40",
+    "open_base": "0", "executable_base": "0", "cancelled_base": "60",
+    "ready": false, "closed_reason": null, "committed_revision": "0", "accepted_seq": "0"
+  },
+  "initial_complete_rematch_pending": {
+    "state": "complete", "selected_base": "100", "known_confirmed_base": "70",
+    "known_failed_unfilled_base": "30", "unresolved_base": "0"
+  },
+  "maximum_aggregate_six_decimals": "340282366920938463463374607431768.211455"
+}

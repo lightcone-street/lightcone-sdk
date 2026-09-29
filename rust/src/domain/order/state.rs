@@ -2,14 +2,38 @@
 
 use crate::shared::{OrderBookId, PubkeyStr};
 
-use super::wire;
-use super::LimitOrder;
+use super::wire::{self, ClosureScope};
 #[cfg(feature = "trigger_orders")]
 use super::TriggerOrder;
+use super::{LimitOrder, OrderStatus};
+use rust_decimal::Decimal;
 use std::collections::HashMap;
 
 // ─── UserOpenLimitOrders ────────────────────────────────────────────────────
 
+/// Result of applying committed order state to [`UserOpenLimitOrders`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApplyOutcome {
+    /// A live order that was not tracked yet.
+    Inserted,
+    /// A tracked order replaced by newer (or equal) committed state.
+    Updated,
+    /// A tracked order that is no longer live was removed.
+    Removed,
+    /// Older than the tracked state (e.g. a live fact racing a snapshot).
+    Stale,
+    /// Neither live nor tracked; nothing changed.
+    Ignored,
+}
+
+/// A wallet's live limit orders (resting, or with fills awaiting on-chain
+/// confirmation), grouped by market and orderbook.
+///
+/// Seed it from the WS `user` snapshot ([`convert_snapshot_orders`](super::convert_snapshot_orders))
+/// or REST pages, then [`apply`](Self::apply) every live `order` fact. Each
+/// fact carries the order's complete state, so application is a
+/// revision-guarded replace.
+#[derive(Debug, Clone)]
 pub struct UserOpenLimitOrders {
     pub orders: HashMap<PubkeyStr, HashMap<OrderBookId, Vec<LimitOrder>>>,
 }
@@ -32,24 +56,124 @@ impl UserOpenLimitOrders {
         self.orders.get(market)
     }
 
-    pub fn upsert(&mut self, update: &wire::OrderUpdate) {
-        let orderbook_orders = self
-            .orders
-            .entry(update.market_pubkey.clone())
-            .or_default()
-            .entry(update.orderbook_id.clone())
-            .or_default();
+    /// Find a tracked order by hash.
+    pub fn get_by_hash(&self, order_hash: &str) -> Option<&LimitOrder> {
+        self.all().find(|order| order.order_hash == order_hash)
+    }
 
-        orderbook_orders.retain(|order| order.order_hash != update.order.order_hash);
-        orderbook_orders.push(update.clone().into());
+    /// Iterate over every tracked order.
+    pub fn all(&self) -> impl Iterator<Item = &LimitOrder> {
+        self.orders
+            .values()
+            .flat_map(|by_orderbook| by_orderbook.values())
+            .flat_map(|orders| orders.iter())
+    }
+
+    /// Apply a live WS `order` fact.
+    pub fn apply(&mut self, update: &wire::OrderUpdate) -> ApplyOutcome {
+        self.apply_order(LimitOrder::from(update.clone()))
+    }
+
+    /// Same as [`Self::apply`]; kept for callers of the previous API.
+    pub fn upsert(&mut self, update: &wire::OrderUpdate) {
+        self.apply(update);
+    }
+
+    /// Apply converted committed order state (live fact, snapshot, or REST).
+    ///
+    /// State older than the tracked `committed_revision` is ignored. A live
+    /// order replaces the tracked copy; one that is no longer live is removed.
+    pub fn apply_order(&mut self, order: LimitOrder) -> ApplyOutcome {
+        if let Some(existing) = self.get_by_hash(&order.order_hash) {
+            if order.committed_revision < existing.committed_revision {
+                return ApplyOutcome::Stale;
+            }
+        }
+        let was_tracked = self.take(&order.order_hash).is_some();
+        if !order.is_live() {
+            return if was_tracked {
+                ApplyOutcome::Removed
+            } else {
+                ApplyOutcome::Ignored
+            };
+        }
+        self.orders
+            .entry(order.market_pubkey.clone())
+            .or_default()
+            .entry(order.orderbook_id.clone())
+            .or_default()
+            .push(order);
+        if was_tracked {
+            ApplyOutcome::Updated
+        } else {
+            ApplyOutcome::Inserted
+        }
+    }
+
+    /// Apply a committed closure cutoff locally: orders in scope with
+    /// `accepted_seq <= closure.accepted_seq` stop resting (their open base
+    /// becomes cancelled) and are removed unless fills still await
+    /// confirmation. The container is assumed to hold one wallet's orders.
+    ///
+    /// Returns the number of orders closed, or `None` when the scope cannot be
+    /// evaluated from order data (deposit-token, account, settlement-profile,
+    /// or unknown scopes): refetch the orders in that case. Later per-order
+    /// facts remain authoritative.
+    pub fn apply_closure(&mut self, closure: &wire::ClosureUpdate) -> Option<usize> {
+        let scope = closure.scope()?;
+        if matches!(
+            scope,
+            ClosureScope::DepositToken | ClosureScope::Account | ClosureScope::SettlementProfile
+        ) {
+            return None;
+        }
+        let key = closure.scope_key.as_str();
+        let in_scope = |order: &LimitOrder| match scope {
+            ClosureScope::Market => order.market_pubkey.as_str() == key,
+            ClosureScope::Book => order.orderbook_id.as_str() == key,
+            ClosureScope::WalletBook => key
+                .split_once(':')
+                .is_some_and(|(_, book)| order.orderbook_id.as_str() == book),
+            _ => true,
+        };
+        let cutoff = closure.accepted_seq;
+        let mut closed = 0;
+        for by_orderbook in self.orders.values_mut() {
+            for orders in by_orderbook.values_mut() {
+                for order in orders.iter_mut() {
+                    let covered = i64::try_from(order.accepted_seq).is_ok_and(|seq| seq <= cutoff);
+                    if covered && in_scope(order) && order.remaining_size > Decimal::ZERO {
+                        order.cancelled_size += order.remaining_size;
+                        order.remaining_size = Decimal::ZERO;
+                        order
+                            .closed_reason
+                            .get_or_insert_with(|| closure.reason.clone());
+                        order.status = OrderStatus::Closed;
+                        closed += 1;
+                    }
+                }
+                orders.retain(LimitOrder::is_live);
+            }
+        }
+        Some(closed)
     }
 
     pub fn remove(&mut self, order_hash: &str) {
+        self.take(order_hash);
+    }
+
+    fn take(&mut self, order_hash: &str) -> Option<LimitOrder> {
         for by_orderbook in self.orders.values_mut() {
             for orders in by_orderbook.values_mut() {
-                orders.retain(|order| order.order_hash != order_hash);
+                if let Some(index) = orders
+                    .iter()
+                    .position(|order| order.order_hash == order_hash)
+                {
+                    return Some(orders.remove(index));
+                }
             }
         }
+        None
     }
 
     pub fn clear(&mut self) {
@@ -167,109 +291,143 @@ impl Default for UserTriggerOrders {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::order::OrderStatus;
-    use crate::shared::{OrderBookId, OrderUpdateType, Side};
-    use chrono::Utc;
-    use rust_decimal::Decimal;
+    use crate::domain::order::wire::tests::live_order;
+    use crate::shared::{OrderBookId, Side};
 
-    fn order_update(
-        market: &str,
-        order_hash: &str,
-        orderbook_id: &str,
-        remaining: Decimal,
-    ) -> wire::OrderUpdate {
-        wire::OrderUpdate {
-            market_pubkey: PubkeyStr::from(market),
-            orderbook_id: OrderBookId::from(orderbook_id),
-            timestamp: Utc::now(),
-            tx_signature: None,
-            update_type: OrderUpdateType::Update,
-            order: wire::WsOrder {
-                order_hash: order_hash.to_string(),
-                price: Decimal::new(50, 1),
-                is_maker: true,
-                remaining,
-                filled: Decimal::ZERO,
-                fill_amount: Decimal::ZERO,
-                side: Side::Bid,
-                created_at: Utc::now(),
-                base_mint: PubkeyStr::from("base"),
-                quote_mint: PubkeyStr::from("quote"),
-                outcome_index: 0,
-                status: OrderStatus::Open,
-                balance: Some(wire::UserOrderUpdateBalance { outcomes: vec![] }),
-            },
-        }
+    const MARKET: &str = "A9Bxkkc4nah517EjgjwSafwspGnmU9s1Ei5PTo5ZkJd9";
+    const BOOK: &str = "j749bQAbDsBAiyDs2Tj868heQj1b5KVp98ZrjiZd56a";
+
+    fn tracked(container: &UserOpenLimitOrders) -> Vec<&LimitOrder> {
+        container
+            .get(&PubkeyStr::from(MARKET), &OrderBookId::from(BOOK))
+            .map(|orders| orders.iter().collect())
+            .unwrap_or_default()
+    }
+
+    fn closure(scope_kind: i16, scope_key: &str, accepted_seq: i64) -> wire::ClosureUpdate {
+        serde_json::from_value(serde_json::json!({
+            "effect_id": "900:0",
+            "committed_revision": 900,
+            "projection_generation": 1,
+            "actionable": true,
+            "scope_kind": scope_kind,
+            "scope_key": scope_key,
+            "accepted_seq": accepted_seq,
+            "reason": "cancel_all"
+        }))
+        .unwrap()
     }
 
     #[test]
-    fn test_upsert_adds_order() {
+    fn apply_inserts_updates_and_removes_by_liveness() {
         let mut container = UserOpenLimitOrders::new();
-        let update = order_update("mkt1", "hash1", "ob1", Decimal::new(10, 0));
-        container.upsert(&update);
+        assert_eq!(
+            container.apply(&live_order(10, "8.00000000", "0.00000000", None)),
+            ApplyOutcome::Inserted
+        );
+        assert_eq!(
+            container.apply(&live_order(11, "5.00000000", "3.00000000", None)),
+            ApplyOutcome::Updated
+        );
+        let orders = tracked(&container);
+        assert_eq!(orders.len(), 1);
+        assert_eq!(orders[0].remaining_size, Decimal::from(5));
+        assert_eq!(orders[0].pending_size, Decimal::from(3));
+        assert_eq!(orders[0].side, Side::Bid);
+
+        // Pending fills keep a fully matched order live until confirmation.
+        assert_eq!(
+            container.apply(&live_order(12, "0.00000000", "3.00000000", None)),
+            ApplyOutcome::Updated
+        );
+        assert_eq!(
+            container.apply(&live_order(13, "0.00000000", "0.00000000", None)),
+            ApplyOutcome::Removed
+        );
+        assert!(container.is_empty());
+        assert_eq!(
+            container.apply(&live_order(14, "0.00000000", "0.00000000", None)),
+            ApplyOutcome::Ignored
+        );
+    }
+
+    #[test]
+    fn apply_ignores_older_revisions() {
+        let mut container = UserOpenLimitOrders::new();
+        container.apply(&live_order(20, "5.00000000", "0.00000000", None));
+        assert_eq!(
+            container.apply(&live_order(19, "8.00000000", "0.00000000", None)),
+            ApplyOutcome::Stale
+        );
+        assert_eq!(tracked(&container)[0].remaining_size, Decimal::from(5));
+    }
+
+    #[test]
+    fn upsert_remains_an_alias_for_apply() {
+        let mut container = UserOpenLimitOrders::new();
+        container.upsert(&live_order(1, "5.00000000", "0.00000000", None));
         assert!(!container.is_empty());
-        let orders = container
-            .get(&PubkeyStr::from("mkt1"), &OrderBookId::from("ob1"))
-            .unwrap();
-        assert_eq!(orders.len(), 1);
-        assert_eq!(orders[0].order_hash, "hash1");
+        container.upsert(&live_order(
+            2,
+            "0.00000000",
+            "0.00000000",
+            Some("cancelled"),
+        ));
+        assert!(container.is_empty());
     }
 
     #[test]
-    fn test_upsert_replaces_same_hash() {
+    fn closure_closes_orders_in_scope_up_to_the_cutoff() {
         let mut container = UserOpenLimitOrders::new();
-        container.upsert(&order_update("mkt1", "hash1", "ob1", Decimal::new(10, 0)));
-        container.upsert(&order_update("mkt1", "hash1", "ob1", Decimal::new(5, 0)));
-        let orders = container
-            .get(&PubkeyStr::from("mkt1"), &OrderBookId::from("ob1"))
-            .unwrap();
-        assert_eq!(orders.len(), 1);
-        assert_eq!(orders[0].remaining_size, Decimal::new(5, 0));
-    }
-
-    #[test]
-    fn test_remove_by_hash() {
-        let mut container = UserOpenLimitOrders::new();
-        container.upsert(&order_update("mkt1", "hash1", "ob1", Decimal::new(10, 0)));
-        container.upsert(&order_update("mkt1", "hash2", "ob1", Decimal::new(5, 0)));
-        container.remove("hash1");
-        let orders = container
-            .get(&PubkeyStr::from("mkt1"), &OrderBookId::from("ob1"))
-            .unwrap();
-        assert_eq!(orders.len(), 1);
-        assert_eq!(orders[0].order_hash, "hash2");
-    }
-
-    #[test]
-    fn test_get_by_market() {
-        let mut container = UserOpenLimitOrders::new();
-        container.upsert(&order_update("mkt1", "hash1", "ob1", Decimal::new(10, 0)));
-        container.upsert(&order_update("mkt1", "hash2", "ob2", Decimal::new(5, 0)));
-        container.upsert(&order_update("mkt2", "hash3", "ob3", Decimal::new(1, 0)));
-        let by_orderbook = container.get_by_market(&PubkeyStr::from("mkt1")).unwrap();
-        assert_eq!(by_orderbook.len(), 2);
+        container.apply(&live_order(10, "8.00000000", "0.00000000", None));
+        // Cutoff below the order's accepted_seq (44) leaves it resting.
+        assert_eq!(container.apply_closure(&closure(2, BOOK, 43)), Some(0));
+        assert_eq!(tracked(&container).len(), 1);
+        // Other books are out of scope.
         assert_eq!(
-            by_orderbook.get(&OrderBookId::from("ob1")).unwrap().len(),
-            1
+            container.apply_closure(&closure(2, "OtherBook", 44)),
+            Some(0)
         );
         assert_eq!(
-            by_orderbook.get(&OrderBookId::from("ob2")).unwrap().len(),
-            1
+            container.apply_closure(&closure(5, &format!("wallet:{BOOK}"), 44)),
+            Some(1)
         );
+        assert!(container.is_empty());
+    }
+
+    #[test]
+    fn closure_keeps_pending_claims_visible() {
+        let mut container = UserOpenLimitOrders::new();
+        container.apply(&live_order(10, "5.00000000", "3.00000000", None));
+        assert_eq!(container.apply_closure(&closure(4, "wallet", 50)), Some(1));
+        let order = tracked(&container)[0];
+        assert_eq!(order.remaining_size, Decimal::ZERO);
+        assert_eq!(order.cancelled_size, Decimal::from(5));
+        assert_eq!(order.status, OrderStatus::Closed);
+        assert_eq!(order.closed_reason.as_deref(), Some("cancel_all"));
+    }
+
+    #[test]
+    fn closure_scopes_without_order_data_request_a_refresh() {
+        let mut container = UserOpenLimitOrders::new();
+        container.apply(&live_order(10, "5.00000000", "0.00000000", None));
+        assert_eq!(container.apply_closure(&closure(3, "mint", 50)), None);
+        assert_eq!(container.apply_closure(&closure(99, "x", 50)), None);
+        assert_eq!(tracked(&container).len(), 1);
+    }
+
+    #[test]
+    fn remove_and_clear() {
+        let mut container = UserOpenLimitOrders::new();
+        container.apply(&live_order(10, "5.00000000", "0.00000000", None));
         assert!(container
-            .get_by_market(&PubkeyStr::from("mkt_nonexistent"))
-            .is_none());
-    }
-
-    #[test]
-    fn test_clear() {
-        let mut container = UserOpenLimitOrders::new();
-        container.upsert(&order_update("mkt1", "hash1", "ob1", Decimal::new(10, 0)));
+            .get_by_hash(crate::domain::order::wire::tests::HASH)
+            .is_some());
+        container.remove(crate::domain::order::wire::tests::HASH);
+        assert!(container.is_empty());
+        container.apply(&live_order(11, "5.00000000", "0.00000000", None));
         container.clear();
         assert!(container.is_empty());
-        assert!(container
-            .get(&PubkeyStr::from("mkt1"), &OrderBookId::from("ob1"))
-            .is_none());
     }
 
     // ── UserTriggerOrders tests ─────────────────────────────────────────────

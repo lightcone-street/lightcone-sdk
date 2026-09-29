@@ -14,6 +14,10 @@ use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::shared::{OrderBookId, PubkeyStr};
 
+/// Upper bound on pages followed by [`Metrics::orderbook_tickers`] (8 tickers
+/// per page), so a misbehaving cursor can never loop forever.
+const MAX_TICKER_PAGES: usize = 1_000;
+
 fn append_query(url: &mut String, qs: &str) {
     if !qs.is_empty() {
         url.push(if url.contains('?') { '&' } else { '?' });
@@ -67,15 +71,50 @@ impl<'a> Metrics<'a> {
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
-    /// Batch BBO + midpoint per active orderbook (same shape as the WS
-    /// `Ticker` stream, delivered in one REST call). Optionally filter to
-    /// orderbooks whose base conditional-token is backed by `deposit_asset`.
-    /// Prices per orderbook are scaled using that orderbook's own decimals.
+    /// Batch BBO + midpoint for every ready orderbook (same shape as the WS
+    /// `Ticker` stream). Optionally filter to orderbooks whose base
+    /// conditional-token is backed by `deposit_asset`. Prices per orderbook are
+    /// scaled using that orderbook's own decimals.
     ///
-    /// `GET /api/metrics/orderbooks/tickers[?deposit_asset=<mint>]`
+    /// The endpoint pages at most 8 tickers per request; this follows every
+    /// page and returns them merged (`has_more` false). Use
+    /// [`Self::orderbook_tickers_page`] to page manually.
+    ///
+    /// `GET /api/metrics/orderbooks/tickers[?deposit_asset=<mint>&cursor=<orderbook>]`
     pub async fn orderbook_tickers(
         &self,
         deposit_asset: Option<&str>,
+    ) -> Result<OrderbookTickersResponse, SdkError> {
+        let mut tickers = Vec::new();
+        let mut cursor: Option<String> = None;
+        for _ in 0..MAX_TICKER_PAGES {
+            let page = self
+                .orderbook_tickers_page(deposit_asset, cursor.as_deref(), None)
+                .await?;
+            tickers.extend(page.tickers);
+            match page.next_cursor {
+                // Stop on a non-advancing cursor instead of looping forever.
+                Some(next) if page.has_more && cursor.as_deref() != Some(next.as_str()) => {
+                    cursor = Some(next);
+                }
+                _ => break,
+            }
+        }
+        Ok(OrderbookTickersResponse {
+            tickers,
+            next_cursor: None,
+            has_more: false,
+        })
+    }
+
+    /// One page of [`Self::orderbook_tickers`]. `cursor` is a previous page's
+    /// `next_cursor` (an orderbook pubkey); `limit` defaults to and is capped
+    /// at 8 server-side.
+    pub async fn orderbook_tickers_page(
+        &self,
+        deposit_asset: Option<&str>,
+        cursor: Option<&str>,
+        limit: Option<u32>,
     ) -> Result<OrderbookTickersResponse, SdkError> {
         let url = format!(
             "{}/api/metrics/orderbooks/tickers",
@@ -84,6 +123,12 @@ impl<'a> Metrics<'a> {
         let mut query = Vec::new();
         if let Some(mint) = deposit_asset.map(str::trim).filter(|s| !s.is_empty()) {
             query.push(("deposit_asset", mint.to_string()));
+        }
+        if let Some(cursor) = cursor {
+            query.push(("cursor", cursor.to_string()));
+        }
+        if let Some(limit) = limit {
+            query.push(("limit", limit.to_string()));
         }
         self.client
             .http

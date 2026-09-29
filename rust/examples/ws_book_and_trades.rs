@@ -83,8 +83,11 @@ async fn main() -> ExampleResult {
                 }
                 WsEvent::Message(Kind::Trade(trade)) => {
                     println!(
-                        "trade: {} {} @ {} seq={}",
-                        trade.size, trade.side, trade.price, trade.sequence
+                        "trade: {} {} @ {} revision={}",
+                        trade.base_amount,
+                        trade.taker_side,
+                        trade.price().unwrap_or_default(),
+                        trade.commit.committed_revision
                     );
                     trades.push(trade.into());
                     hits += 1;

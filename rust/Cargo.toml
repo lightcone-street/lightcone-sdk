@@ -182,7 +182,7 @@ required-features = ["native"]
 
 [[example]]
 name = "user_orders"
-required-features = ["native", "trigger_orders"]
+required-features = ["native"]
 
 [[example]]
 name = "with_cookies"
