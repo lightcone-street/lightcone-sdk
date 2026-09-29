@@ -79,12 +79,13 @@ pub mod prelude {
 
     // Domain types — order
     pub use crate::domain::order::{
-        AnyOrder, ApplyOutcome, CancelAllBody, CancelAllSuccess, CancelBody, CancelQuantities,
-        CancelStatus, CancelSuccess, ClosureAck, ClosureScope, ClosureUpdate, CommitInfo, FillInfo,
-        InitialCohort, InitialCohortState, LimitOrder, Order, OrderFillEvent, OrderState,
-        OrderStatus, OrderType, OrderUpdate, RecordedOrderState, RecoveryCompleted, Role,
-        SubmitOrderResponse, SubmitOrderStatus, UserOpenLimitOrders, UserOrder, UserOrderFill,
-        UserOrderFillsResponse, UserOrdersResponse, UserSnapshot, UserSnapshotOrder, UserUpdate,
+        convert_snapshot_orders, AnyOrder, ApplyOutcome, CancelAllBody, CancelAllSuccess,
+        CancelBody, CancelQuantities, CancelStatus, CancelSuccess, ClosureAck, ClosureScope,
+        ClosureUpdate, CommitInfo, FillInfo, InitialCohort, InitialCohortState, LimitOrder, Order,
+        OrderFillEvent, OrderState, OrderStatus, OrderType, OrderUpdate, RecordedOrderState,
+        RecoveryCompleted, Role, SubmitOrderResponse, SubmitOrderStatus, UserOpenLimitOrders,
+        UserOrder, UserOrderFill, UserOrderFillsResponse, UserOrdersResponse, UserSnapshot,
+        UserSnapshotOrder, UserUpdate,
     };
     #[cfg(feature = "trigger_orders")]
     pub use crate::domain::order::{

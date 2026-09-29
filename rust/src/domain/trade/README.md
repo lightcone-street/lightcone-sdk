@@ -21,13 +21,12 @@ A single trade execution record.
 | Field | Type | Description |
 |-------|------|-------------|
 | `orderbook_id` | `OrderBookId` | Which orderbook the trade occurred on |
-| `trade_id` | `String` | Canonical trade identifier shared by REST and WS |
+| `trade_id` | `String` | `"<execution_id>:<leg_index>:<projection_generation>"`, shared by REST and WS (WS derives it via `WsTrade::trade_id()`) |
 | `cursor_id` | `Option<i64>` | Numeric REST row id used for pagination (`None` on WS trades) |
 | `timestamp` | `DateTime<Utc>` | Execution timestamp |
-| `price` | `Decimal` | Trade price |
-| `size` | `Decimal` | Trade size |
+| `price` | `Decimal` | Quote units per base unit: REST reports the maker price truncated to price decimals; WS derives `quote_amount / base_amount` |
+| `size` | `Decimal` | Size in base-token units |
 | `side` | `Side` | Taker side (`Bid` or `Ask`) |
-| `sequence` | `u64` | Monotonic sequence number per orderbook (0 for REST trades) |
 
 ### `TradesPage`
 
@@ -94,7 +93,7 @@ let mut history = TradeHistory::new(OrderBookId::from("7BgBvyjr_EPjFWdd5"), 100)
 | Method | Description |
 |--------|-------------|
 | `new(orderbook_id, max_size)` | Create a buffer with the given capacity |
-| `push(trade)` | Insert a trade in sequence order (evicts oldest if at capacity) |
+| `push(trade)` | Insert newest-first by execution time, deduplicating by `trade_id` (evicts oldest if at capacity) |
 | `replace(trades)` | Replace all trades (e.g., from an initial REST fetch) |
 | `trades()` | Get all trades as a `VecDeque<Trade>` |
 | `latest()` | Get the most recent trade |
@@ -157,7 +156,7 @@ async fn live_trades(client: &LightconeClient, orderbook_id: OrderBookId) {
 
 ## Wire Types
 
-Raw types in `lightcone::domain::trade::wire` include `TradeResponse`, `WsTrade`, `TradesResponse`, and `MarketTradesResponse`.
+Raw types in `lightcone::domain::trade::wire` include `TradeResponse` (signed `taker_fee_estimate`/`maker_fee_estimate`, `i64` `id` cursor), `TradesResponse`, `MarketTradesResponse`, and `WsTrade`. `WsTrade` is the committed fill fact on the `trades` channel (and the `user` channel `fill` event): `fill_id` (relay dedup id, not the REST `trade_id`), `execution_id`, `base_amount`, `quote_amount`, maker/taker order hashes and wallets, `taker_side`, signed fee estimates in `fee_mint` units, fee bps, `executed_at`, plus the flattened `CommitInfo`. It carries no price, side, trade id, or sequence: use `price()` and `trade_id()`.
 
 ---
 

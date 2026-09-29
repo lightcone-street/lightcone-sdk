@@ -20,12 +20,12 @@ Real-time data feeds for orderbooks, trades, user events, price history, ticker,
 | Channel | Subscribe with | Events | Description |
 |---------|---------------|--------|-------------|
 | Books | `SubscribeParams::Books { orderbook_ids, n_sig_figs, mantissa }` | `Kind::BookUpdate` | Top-20 orderbook snapshots (full replacement per frame, optional aggregation) |
-| Trades | `SubscribeParams::Trades { orderbook_ids }` | `Kind::Trade` | Individual trade executions |
-| User | `SubscribeParams::User { wallet_address }` | `Kind::User` | Order updates, balance changes, snapshots |
+| Trades | `SubscribeParams::Trades { orderbook_ids }` | `Kind::Trade` | Committed fill facts |
+| User | `SubscribeParams::User { wallet_address }` | `Kind::User` | Snapshot, then committed order, funding, fill, and closure facts |
 | Wallet Deposit Balances | `SubscribeParams::WalletDepositBalances { wallet_address }` | `Kind::WalletDepositBalances` | Authenticated wallet-scoped SPL/native SOL replacement snapshots and absolute updates |
 | Price History | `SubscribeParams::PriceHistory { orderbook_id, resolution }` | `Kind::PriceHistory` | OHLCV snapshots + updates |
-| Ticker | `SubscribeParams::Ticker { orderbook_ids }` | `Kind::Ticker` | Best bid/ask/mid prices |
-| Market | `SubscribeParams::Market { market_pubkey }` | `Kind::Market` | Settlement, activation, pausing |
+| Ticker | `SubscribeParams::Ticker { orderbook_ids }` | `Kind::Ticker` | Best bid/ask/mid prices (the committed backend only sends the initial snapshot) |
+| Market | `SubscribeParams::Market { market_pubkey }` | `Kind::Market` | Settlement, activation, pausing (no producer on the committed backend) |
 
 ## Outbound Messages
 
@@ -74,8 +74,11 @@ quote notional remains on the decoded `OrderBook` levels.
 The stream is **snapshot-only**: every accepted frame replaces the full top-20
 view. `seq` is the real engine revision. Within one subscription generation,
 discard equal/lower revisions and accept non-contiguous forward jumps. Reset the
-gate on reconnect or resubscribe. A `resync: true` frame means unsubscribe and
-re-subscribe that exact `(orderbook, aggregation)` and begin a fresh generation.
+gate on reconnect or resubscribe. A `resync: true` frame (which carries no
+`seq`) means unsubscribe and re-subscribe that exact `(orderbook, aggregation)`
+and begin a fresh generation. Each frame's `ready` flag reports whether the
+engine's committed book is live for matching; `OrderbookState::ready` tracks
+the last accepted frame.
 
 ## Inbound Messages
 
@@ -90,8 +93,8 @@ Discriminated union of all inbound message types:
 | Variant | Payload | Channel |
 |---------|---------|---------|
 | `Kind::BookUpdate(OrderBook)` | Orderbook snapshot (top-20, replaces wholesale; tagged with its aggregation) | `book_update` |
-| `Kind::Trade(WsTrade)` | Single trade execution | `trades` |
-| `Kind::User(UserUpdate)` | User snapshot, order update, or balance update | `user` |
+| `Kind::Trade(WsTrade)` | Committed fill fact (`base_amount`, `quote_amount`, `taker_side`, fee estimates; `price()` and `trade_id()` helpers) | `trades` |
+| `Kind::User(UserUpdate)` | User snapshot or committed fact | `user` |
 | `Kind::PriceHistory(PriceHistory)` | Price candle snapshot or update | `price_history` |
 | `Kind::Ticker(WsTickerData)` | Best bid/ask/mid | `ticker` |
 | `Kind::Market(MarketEvent)` | Market lifecycle events | `market` |
@@ -102,20 +105,18 @@ Discriminated union of all inbound message types:
 
 ### `UserUpdate`
 
-The `User` channel delivers three event types:
+The `user` channel sends one snapshot, then committed facts tagged by `event_type`. Live facts flatten a `CommitInfo` (`effect_id`, `committed_revision`, `projection_generation`, `actionable`). Integer revisions are strings in the snapshot and numbers in live facts, and `side` is text in the snapshot but numeric in live facts; the SDK accepts both.
 
 | Variant | Description |
 |---------|-------------|
-| `UserUpdate::Snapshot(UserSnapshot)` | Full snapshot of orders, balances, and global deposits |
-| `UserUpdate::Order(OrderEvent)` | Limit or trigger order update |
-| `UserUpdate::BalanceUpdate(UserBalanceUpdate)` | Token balance change |
-
-`OrderEvent` is further discriminated:
-
-| Variant | Description |
-|---------|-------------|
-| `OrderEvent::Limit(OrderUpdate)` | Limit order placement, update, or cancellation |
-| `OrderEvent::Trigger(TriggerOrderUpdate)` | Trigger order status change |
+| `UserUpdate::Snapshot(UserSnapshot)` | First page of open/pending orders and funding accounts, cursors, committed revision, notifications |
+| `UserUpdate::Order(OrderUpdate)` | Complete committed state of one order; apply with `UserOpenLimitOrders::apply` |
+| `UserUpdate::Funding(FundingUpdate)` | Funding account balances, reservations, and live `available`/`ready` |
+| `UserUpdate::Fill(WsTrade)` | A fill where the wallet is maker or taker (same payload as `trades`) |
+| `UserUpdate::Closure(ClosureUpdate)` | Accepted-order cutoff for a scope; apply with `UserOpenLimitOrders::apply_closure` |
+| `UserUpdate::RecoveryCompleted(RecoveryCompleted)` | Committed state was rebuilt; refetch or resubscribe |
+| `UserUpdate::Notification(NotificationUpdate)` | Notification push |
+| `UserUpdate::Unknown` | Unrecognized `event_type` (safe to ignore) |
 
 ### `WalletDepositBalancesEvent`
 
@@ -268,10 +269,11 @@ async fn run_market_maker(
             }
             WsEvent::Message(Kind::User(UserUpdate::Snapshot(snapshot))) => {
                 println!("User snapshot: {} orders", snapshot.orders.len());
+                open_orders = convert_snapshot_orders(snapshot.orders);
             }
-            WsEvent::Message(Kind::User(UserUpdate::Order(OrderEvent::Limit(update)))) => {
-                open_orders.upsert(&update);
-                println!("Order {}: {:?}", update.order.order_hash, update.order.status);
+            WsEvent::Message(Kind::User(UserUpdate::Order(update))) => {
+                let outcome = open_orders.apply(&update);
+                println!("Order {}: open={} ({outcome:?})", update.order_hash, update.open_base);
             }
             WsEvent::Disconnected { code, reason } => {
                 println!("Disconnected: {:?} {}", code, reason);
