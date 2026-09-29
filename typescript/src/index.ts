@@ -70,7 +70,6 @@ export type {
   FavoriteMarkets,
   FavoriteMarketUpdate,
   GlobalDepositAssetsResult,
-  JurisdictionClient,
   MarketsClient,
   MarketsResult,
   MetricsClient,

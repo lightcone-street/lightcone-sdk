@@ -3,7 +3,6 @@
 Each domain module provides wire types, domain types, conversions, and a sub-client.
 """
 
-from .jurisdiction.client import Jurisdiction
 from .market.client import Markets
 from .metrics.client import Metrics
 from .order.client import Orders
@@ -15,7 +14,6 @@ from .trade.client import Trades
 
 __all__ = [
     "Markets",
-    "Jurisdiction",
     "Metrics",
     "Orders",
     "Orderbooks",

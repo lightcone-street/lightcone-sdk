@@ -888,10 +888,14 @@ async def test_api_key_rides_only_to_the_api_origin() -> None:
     try:
         http = LightconeHttp(base_url, api_key="lc_local_key")
         assert http.has_api_key
-        await http.get(f"{base_url}/api/markets", RetryPolicy.NONE)
+        for route in ("submit", "cancel", "cancel-all"):
+            await http.post(f"{base_url}/api/orders/{route}", {}, RetryPolicy.NONE)
         foreign = LightconeHttp("http://127.0.0.1:1", api_key="lc_local_key")
-        await foreign.get(f"{base_url}/api/markets", RetryPolicy.NONE)
-        assert seen == ["lc_local_key", None]
+        await foreign.post(f"{base_url}/api/orders/submit", {}, RetryPolicy.NONE)
+        await http.get(f"{base_url}/api/markets", RetryPolicy.NONE)
+        await http.get(f"{base_url}/api/orders/submit", RetryPolicy.NONE)
+        await http.post(f"{base_url}/api/auth/login", {}, RetryPolicy.NONE)
+        assert seen == ["lc_local_key"] * 3 + [None] * 4
         await http.close()
         await foreign.close()
     finally:

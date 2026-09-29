@@ -16,7 +16,6 @@ from solders.pubkey import Pubkey
 from .auth import AuthCredentials
 from .auth.client import Auth
 from .domain.faucet import FaucetRequest, FaucetResponse
-from .domain.jurisdiction.client import Jurisdiction
 from .domain.market.client import Markets
 from .domain.metrics.client import Metrics
 from .domain.notification.client import Notifications
@@ -114,7 +113,6 @@ class LightconeClient:
         self._referrals = Referrals(self)
         self._notifications = Notifications(self)
         self._metrics = Metrics(self)
-        self._jurisdiction = Jurisdiction(self)
         self._rpc = Rpc(self)
 
     # ── Properties ───────────────────────────────────────────────────────
@@ -495,10 +493,6 @@ class LightconeClient:
         deposit-token volume metrics, market leaderboard, and time-series history."""
         return self._metrics
 
-    def jurisdiction(self) -> Jurisdiction:
-        """Jurisdiction classification for this direct API caller."""
-        return self._jurisdiction
-
     async def claim(self, wallet_address: str) -> FaucetResponse:
         """Request testnet SOL + whitelisted deposit tokens for a wallet.
 
@@ -608,7 +602,7 @@ class LightconeClientBuilder:
         return self
 
     def api_key(self, key: str) -> LightconeClientBuilder:
-        """Set the API key sent as ``x-lightcone-api-key`` on every REST request
+        """Set the API key sent as ``x-lightcone-api-key`` on submit, cancel, and cancel-all POST requests
         to the API origin. Keep it server-side: it identifies an API Consumer,
         never a user, and the SDK never logs it.
         """

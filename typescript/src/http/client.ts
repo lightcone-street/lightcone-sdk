@@ -446,8 +446,10 @@ export class LightconeHttp {
       headers["Content-Type"] = "application/json";
     }
     headers["x-request-id"] = requestId;
-    // The API key rides only to the configured API origin, like cookies.
-    if (this.apiKey !== undefined && this.isApiOrigin(url)) {
+    // Keys accompany only trading mutations at the configured API origin.
+    // Public reads, authentication, and arbitrary external calls stay key-free.
+    if (this.apiKey !== undefined && this.isApiOrigin(url) && method === "POST"
+      && ["/api/orders/submit", "/api/orders/cancel", "/api/orders/cancel-all"].includes(new URL(url).pathname)) {
       headers[API_KEY_HEADER] = this.apiKey;
     }
 

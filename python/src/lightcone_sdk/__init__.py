@@ -52,7 +52,6 @@ from .auth.client import Auth, sign_login_message
 # Layer 5: Client
 # ============================================================================
 from .client import ConfirmedTransaction, LightconeClient, LightconeClientBuilder
-from .domain.jurisdiction import JurisdictionCapabilities, JurisdictionResponse
 from .domain.market import (
     MarketResolutionKind,
     MarketResolutionPayout,
@@ -433,8 +432,6 @@ __all__ = [
     "MarketResolutionKind",
     "MarketResolutionPayout",
     "MarketResolutionResponse",
-    "JurisdictionCapabilities",
-    "JurisdictionResponse",
     # Shared types
     "OrderBookId",
     "PubkeyStr",

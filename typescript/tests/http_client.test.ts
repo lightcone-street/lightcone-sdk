@@ -810,10 +810,15 @@ describe("API key transport", () => {
     await withHeaderCapture(async (baseUrl, headersSeen) => {
       const http = new LightconeHttp(baseUrl, { apiKey: "lc_local_key" });
       assert.equal(http.hasApiKey(), true);
-      await http.get(`${baseUrl}/api/markets`, RetryPolicy.None);
+      for (const route of ["submit", "cancel", "cancel-all"]) {
+        await http.post(`${baseUrl}/api/orders/${route}`, {}, RetryPolicy.None);
+      }
       const foreign = new LightconeHttp("http://127.0.0.1:1", { apiKey: "lc_local_key" });
-      await foreign.get(`${baseUrl}/api/markets`, RetryPolicy.None);
-      assert.deepEqual(headersSeen(), ["lc_local_key", undefined]);
+      await foreign.post(`${baseUrl}/api/orders/submit`, {}, RetryPolicy.None);
+      await http.get(`${baseUrl}/api/markets`, RetryPolicy.None);
+      await http.get(`${baseUrl}/api/orders/submit`, RetryPolicy.None);
+      await http.post(`${baseUrl}/api/auth/login`, {}, RetryPolicy.None);
+      assert.deepEqual(headersSeen(), ["lc_local_key", "lc_local_key", "lc_local_key", undefined, undefined, undefined, undefined]);
     });
   });
 

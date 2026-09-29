@@ -623,8 +623,17 @@ class LightconeHttp:
         session = await self._ensure_session()
         headers = dict(kwargs.pop("headers", {}))
         headers["x-request-id"] = request_id
-        # The API key rides only to the configured API origin, like cookies.
-        if self._api_key is not None and self._is_api_origin(path):
+        # Keys accompany only trading mutations at the configured API origin.
+        # Public reads, authentication, and arbitrary external calls stay key-free.
+        from urllib.parse import urlparse
+
+        if (
+            self._api_key is not None
+            and self._is_api_origin(path)
+            and method == "POST"
+            and urlparse(self._resolve_url(path)).path
+            in {"/api/orders/submit", "/api/orders/cancel", "/api/orders/cancel-all"}
+        ):
             headers[API_KEY_HEADER] = self._api_key
         # Cookie injection is origin-gated: session credentials only ride to
         # the configured API origin, never to an arbitrary absolute URL a

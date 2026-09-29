@@ -143,10 +143,6 @@ impl LightconeClient {
         PriceHistoryClient { client: self }
     }
 
-    pub fn jurisdiction(&self) -> crate::domain::jurisdiction::Jurisdiction<'_> {
-        crate::domain::jurisdiction::Jurisdiction { client: self }
-    }
-
     pub fn auth(&self) -> Auth<'_> {
         Auth { client: self }
     }
@@ -1521,10 +1517,10 @@ impl LightconeClientBuilder {
         self
     }
 
-    /// Set the API key sent as `x-lightcone-api-key` on every REST request to
-    /// the API origin. The backend requires a key on every REST endpoint;
-    /// WebSocket connections need none. Keep the key server-side: it identifies
-    /// an API Consumer, never a user, and it is never logged by the SDK.
+    /// Set the API key sent on submit, cancel, and cancel-all POST requests to
+    /// the API origin. Public reads, authentication, and WebSockets need no key.
+    /// Keep it server-side. It identifies an API Consumer and does not replace
+    /// user authentication or signed-operation authorization.
     pub fn api_key(mut self, api_key: &str) -> Self {
         self.api_key = Some(api_key.to_string());
         self

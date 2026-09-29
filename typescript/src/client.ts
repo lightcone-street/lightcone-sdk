@@ -15,7 +15,6 @@ import {
 } from "./context";
 import type { ConfirmedTransaction } from "./context";
 import type { FaucetRequest, FaucetResponse } from "./domain/faucet";
-import { Jurisdiction } from "./domain/jurisdiction";
 import { Markets } from "./domain/market";
 import { Metrics } from "./domain/metrics";
 import { Notifications } from "./domain/notification";
@@ -332,10 +331,6 @@ export class LightconeClient implements ClientContext {
     return new Referrals(this);
   }
 
-  jurisdiction(): Jurisdiction {
-    return new Jurisdiction(this);
-  }
-
   rpc(): Rpc {
     return new Rpc(this);
   }
@@ -415,7 +410,7 @@ export class LightconeClientBuilder {
   }
 
   /**
-   * Set the API key sent as `x-lightcone-api-key` on every REST request to
+   * Set the API key sent as `x-lightcone-api-key` on submit, cancel, and cancel-all POST requests to
    * the API origin. Keep it server-side: it identifies an API Consumer, never
    * a user, and the SDK never logs it.
    */
