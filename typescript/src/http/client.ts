@@ -58,10 +58,11 @@ export const API_KEY_HEADER = "x-lightcone-api-key";
 
 export interface LightconeHttpOptions {
   /**
-   * API key sent as `x-lightcone-api-key` on every request to the API
-   * origin. The backend requires a key on every REST endpoint; WebSocket
-   * connections need none. Keep it server-side: it identifies an API
-   * Consumer, never a user, and the SDK never logs it.
+   * API key sent as `x-lightcone-api-key` only on order submission,
+   * cancellation, and cancel-all POSTs at the configured API origin.
+   * Public reads, authentication, and WebSockets do not receive it.
+   * Keep it outside browser bundles. It identifies an API Consumer,
+   * never a user, and does not replace user or signed-order authorization.
    */
   apiKey?: string;
 }

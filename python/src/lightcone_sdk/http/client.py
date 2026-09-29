@@ -63,8 +63,9 @@ class LightconeHttp:
         api_key: str | None = None,
     ):
         self._base_url = base_url.rstrip("/")
-        # API key sent as ``x-lightcone-api-key`` on every request to the API
-        # origin. It identifies an API Consumer, never a user; never logged.
+        # Send the API key only on submit, cancel, and cancel-all POSTs at the
+        # configured API origin. Reads, authentication, and WebSockets stay
+        # key-free. It identifies an API Consumer, not a user; never logged.
         self._api_key = api_key.strip() if api_key and api_key.strip() else None
         if self._api_key is not None and not self._is_secure_api_key_origin():
             raise ValueError("API keys require HTTPS or a loopback HTTP origin")
