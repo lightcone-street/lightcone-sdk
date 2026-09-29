@@ -5,6 +5,7 @@
 //! without conversion overhead.
 
 pub mod api_response;
+pub mod decimal_text;
 pub mod exact_decimal;
 pub mod fmt;
 pub mod price;
@@ -14,9 +15,10 @@ pub mod serde_util;
 pub mod signing;
 
 pub use api_response::{ApiRejectedDetails, ApiResponse, LinkedIdentityType};
+pub use decimal_text::DecimalText;
 pub use exact_decimal::ExactDecimal;
 pub use price::{format_decimal, parse_decimal};
-pub use rejection::RejectionCode;
+pub use rejection::{ErrorCode, RejectionCode};
 pub use scaling::{
     exact_scaled_integer, scale_price_size, validate_raw_amounts, validate_signed_fields,
     validate_trigger_price, OrderbookRules, ScaledAmounts, ScalingError, TradingRules, I64_MAX_U64,

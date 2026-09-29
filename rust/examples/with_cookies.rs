@@ -39,7 +39,7 @@ async fn main() -> ExampleResult {
         .positions()
         .positions_with_cookies(&cookie_header)
         .await?;
-    println!("markets with positions: {}", positions.total_markets);
+    println!("funding accounts: {}", positions.funding_accounts.len());
 
     let balances = client
         .positions()

@@ -32,7 +32,7 @@ Also implemented on `AnyOrder` (delegates to the inner variant).
 
 ### `LimitOrder`
 
-A validated, domain-level limit order.
+A limit order's committed state, built from the WS `user` snapshot, live `order` facts, or REST pages. Size fields are in base-token units and satisfy `size = filled_size + pending_size + remaining_size + cancelled_size`.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -40,16 +40,23 @@ A validated, domain-level limit order.
 | `market_pubkey` | `PubkeyStr` | Parent market |
 | `orderbook_id` | `OrderBookId` | Which orderbook |
 | `side` | `Side` | `Bid` (buy) or `Ask` (sell) |
-| `price` | `Decimal` | Order price |
-| `size` | `Decimal` | Total size |
-| `filled_size` | `Decimal` | Amount filled so far |
-| `remaining_size` | `Decimal` | Amount remaining |
-| `status` | `OrderStatus` | Current status |
-| `base_mint` | `PubkeyStr` | Base token mint |
-| `quote_mint` | `PubkeyStr` | Quote token mint |
-| `outcome_index` | `i16` | Which outcome |
-| `tx_signature` | `Option<String>` | On-chain transaction signature |
-| `created_at` | `DateTime<Utc>` | Creation timestamp |
+| `price` | `Decimal` | Limit price, quote units per base unit |
+| `size` | `Decimal` | Original order size |
+| `filled_size` | `Decimal` | Base filled by confirmed (on-chain authenticated) executions |
+| `pending_size` | `Decimal` | Base matched but awaiting on-chain confirmation |
+| `remaining_size` | `Decimal` | Base still resting on the book |
+| `cancelled_size` | `Decimal` | Base cancelled (explicitly, by expiry, IOC/FOK remainder, or closure) |
+| `time_in_force` | `TimeInForce` | `Gtc`, `Ioc`, or `Fok` |
+| `funding_source` | `FundingSource` | `Global` or `Conditional` custody account |
+| `closed_reason` | `Option<String>` | Why the order stopped resting |
+| `status` | `OrderStatus` | Derived committed status |
+| `accepted_seq` | `u64` | Engine acceptance sequence (closure cutoffs compare against it) |
+| `committed_revision` | `u64` | Revision of this state; newer revisions supersede older ones |
+| `base_mint` / `quote_mint` | `PubkeyStr` | Token mints |
+| `created_at` | `DateTime<Utc>` | Acceptance time |
+| `expiration` | `i64` | Unix seconds; `0` = none |
+
+`is_live()` is true while the order rests or has fills awaiting confirmation.
 
 ### `TriggerOrder`
 
@@ -71,13 +78,14 @@ A take-profit or stop-loss trigger order. Held server-side until the trigger pri
 
 ### `OrderStatus`
 
+Serialized lowercase, as in `GET /api/users/order-fills`. `OrderStatus::derive` applies the backend's precedence: a closure reason wins, then a complete confirmed fill, then pending fills, otherwise open.
+
 | Variant | Description |
 |---------|-------------|
-| `Open` | Resting on the book |
-| `Matching` | Currently being matched |
-| `Filled` | Fully filled |
-| `Cancelled` | Cancelled by user or system |
-| `Pending` | Awaiting processing |
+| `Open` | Resting, or awaiting its first match |
+| `Pending` | Some matched base awaits on-chain confirmation |
+| `Filled` | The whole original base is confirmed filled |
+| `Closed` | Stopped resting (cancelled, expired, closure cutoff, IOC/FOK remainder) |
 
 ### `OrderType`
 
@@ -109,72 +117,74 @@ The backend has no post-only policy and rejects `"ALO"`.
 
 ### `UserOrderFill`
 
-An order the user participated in (as maker or taker), with nested fill events.
+An order the wallet participated in (as maker or taker) with its oldest-first page of at most 16 fills. Quantities are base-token units.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `order_hash` | `String` | Unique order identifier |
-| `market_pubkey` | `PubkeyStr` | Parent market |
-| `orderbook_id` | `OrderBookId` | Which orderbook |
-| `side` | `Side` | User's side: `Bid` or `Ask` |
-| `role` | `Role` | `Maker` or `Taker` |
-| `price` | `Decimal` | Order price |
-| `size` | `Decimal` | Total order size |
-| `filled_size` | `Decimal` | Amount filled |
-| `remaining_size` | `Decimal` | Amount remaining |
-| `base_mint` | `PubkeyStr` | Base token mint |
-| `quote_mint` | `PubkeyStr` | Quote token mint |
-| `outcome_index` | `i16` | Which outcome |
-| `status` | `OrderStatus` | `Filled`, `Cancelled`, or partially filled |
-| `created_at` | `DateTime<Utc>` | Order creation timestamp |
-| `fills` | `Vec<OrderFillEvent>` | Individual fill events |
+| `market_pubkey` / `orderbook_id` | | Order location |
+| `side` | `Side` | The wallet's order side |
+| `original_base` / `confirmed_base` / `pending_base` / `open_base` / `cancelled_base` | `Decimal` | Committed quantities |
+| `confirmed_quote` | `Decimal` | Quote exchanged by confirmed fills (quote-token units) |
+| `status` | `OrderStatus` | `closed`, `filled`, `pending`, or `open` |
+| `closed_reason` | `Option<String>` | Why the order closed |
+| `created_at` | `DateTime<Utc>` | Acceptance time |
+| `fills` | `Vec<OrderFillEvent>` | First fill page |
+| `fills_has_more` / `fills_next_cursor` | | Continue with `get_order_fill_page(order_hash, fill_cursor)` |
 
 ### `OrderFillEvent`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `fill_amount` | `Decimal` | Amount filled in this event |
-| `tx_signature` | `String` | On-chain transaction signature |
-| `filled_at` | `DateTime<Utc>` | When the fill occurred |
-
-### `Role`
-
-| Variant | Description |
-|---------|-------------|
-| `Maker` | User placed the order |
-| `Taker` | User filled against the order |
+| `fill_id` | `String` | `"<execution_id>:<leg_index>:<projection_generation>"` (same as REST `trade_id`) |
+| `counterparty` / `counterparty_order_hash` | | Other side of the fill |
+| `role` | `Role` | This order's role: `Maker` or `Taker` |
+| `base_amount` / `quote_amount` | `Decimal` | Filled size (base units) and notional (quote units); `price()` = quote / base |
+| `fee_estimate_atoms` | `i128` | Signed fee estimate in raw `fee_mint` atoms (negative = rebate) |
+| `fee_mint` | `PubkeyStr` | Fee token |
+| `maker_fee_bps` / `taker_fee_bps` | `i16` | Captured fee rates |
+| `tx_signature` | `String` | Settlement transaction |
+| `filled_at` | `DateTime<Utc>` | Fill time |
 
 ### `SubmitOrderStatus`
 
-Status of a successfully submitted order.
-
 | Variant | Serializes as | Description |
 |---------|---------------|-------------|
-| `Accepted` | `"accepted"` | Order resting on the book, no immediate fills |
-| `PartialFill` | `"partial_fill"` | Order partially filled, remainder resting |
-| `Filled` | `"filled"` | Order fully filled immediately |
+| `Accepted` | `"accepted"` | Accepted, no fill awaiting confirmation (IOC with no fill: `cancelled_base == original_base`) |
+| `AcceptedPending` | `"accepted_pending"` | Matched base awaits confirmation, or the committed view is not yet readable (`state`/`initial_cohort` are `None`) |
+| `Filled` | `"filled"` | The whole original base is confirmed filled |
 
 ### `SubmitOrderResponse`
-
-Response from a successful order submission.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `order_hash` | `String` | Unique order identifier |
 | `status` | `SubmitOrderStatus` | Outcome of the submission |
-| `remaining` | `Decimal` | Remaining size after any immediate fills |
-| `filled` | `Decimal` | Size filled immediately |
-| `fills` | `Vec<FillInfo>` | Details of each immediate fill |
+| `state` | `Option<OrderState>` | Committed cumulative state (`original/confirmed/pending/open/executable/cancelled_base`, `ready`, `closed_reason`, `committed_revision`, `accepted_seq`) |
+| `initial_cohort` | `Option<InitialCohort>` | Executions selected at acceptance (`state`, `selected_base`, `known_confirmed_base`, `known_failed_unfilled_base`, `unresolved_base`) |
+| `fills` | `Vec<FillInfo>` | Up to 16 authenticated fills |
+| `fills_complete` | `bool` | False when more fills exist or a newer revision prevented capture |
+| `fills_next_cursor` | `Option<String>` | Continue with `get_order_fill_page` |
+
+`filled_base()` and `open_base()` read the corresponding `state` quantities. Business rejections arrive as `SdkError::ApiRejected` with a `RejectionCode`; an `ENGINE_UNAVAILABLE` error means the outcome is unknown, so reconcile by order hash before resubmitting.
 
 ### `FillInfo`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `counterparty` | `PubkeyStr` | Counterparty maker pubkey |
-| `counterparty_order_hash` | `String` | Hash of the matched order |
-| `fill_amount` | `Decimal` | Amount filled |
-| `price` | `Decimal` | Effective fill price |
-| `is_maker` | `bool` | Whether this order was the maker |
+| `fill_id` / `execution_id` | `String` | Fill identity |
+| `counterparty` / `counterparty_order_hash` | | Other side of the fill |
+| `base_amount` / `quote_amount` | `Decimal` | Base-unit size and quote-unit notional; `price()` = quote / base |
+| `is_maker` | `bool` | Whether the submitted order was the maker |
+| `fee_estimate_atoms` | `i128` | Signed fee estimate in raw `fee_mint` atoms |
+| `fee_bps` | `i32` | Captured fee rate |
+| `fee_mint` | `PubkeyStr` | Fee token |
+
+### `CancelSuccess` / `CancelAllSuccess`
+
+`CancelSuccess` has `status` (`Cancelled`, `AlreadyClosed`, `AlreadyFilled`), `order_hash`, `quantities: Option<CancelQuantities>` (raw base atoms: `newly_cancelled_base`, `confirmed_base`, `pending_base`, `remaining_open_base`), `quantity_unit` (`"base_atoms"`), `revision`, and `closed_reason`. An unknown hash is rejected with `RejectionCode::OrderNotFound`.
+
+`CancelAllSuccess` has `status`, `user_pubkey`, `orderbook_id`, `message`, and `closure: Option<ClosureAck>` (`operation_id`, `committed_revision`, `scope` — `"Wallet:<w>"` or `"WalletBook:<w>:<book>"` — `accepted_seq_cutoff`, `cleanup_pending`). It commits an accepted-order cutoff; per-order facts follow on the WS `user` channel.
 
 ## Client Methods
 
@@ -250,7 +260,7 @@ async fn get_user_orders(
 ) -> Result<UserOrdersResponse, SdkError>
 ```
 
-Fetch the **authenticated** user's open orders (both limit and trigger) with cursor-based pagination. Wallet is resolved from the `auth_token` cookie. See `get_user_orders_with_cookies` for the SSR variant.
+Fetch the **authenticated** user's open and pending orders (`UserOrder`, with nested `RecordedOrderState`) plus a first page of `FundingAccount`s, with cursor-based pagination (`limit` defaults to 200, clamped to 1..=256; a page can be empty while `has_more` is true). Convert entries with `UserOrder::into_limit_order()`. Continue funding pages with `positions().positions_page(None, next_funding_cursor, ..)`. See `get_user_orders_with_cookies` for the SSR variant.
 
 ### `get_user_order_fills`
 
@@ -263,7 +273,19 @@ async fn get_user_order_fills(
 ) -> Result<UserOrderFillsResponse, SdkError>
 ```
 
-Fetch the **authenticated** user's filled orders (with nested fill events). See `get_user_order_fills_with_cookies` for the SSR variant and `get_user_order_fills_by_wallet` for the public path-based variant.
+Fetch the **authenticated** user's filled orders (with nested fill events; `limit` clamped to 1..=100). See `get_user_order_fills_with_cookies` for the SSR variant and `get_user_order_fills_by_wallet` for the public path-based variant.
+
+### `get_order_fill_page`
+
+```rust
+async fn get_order_fill_page(
+    &self,
+    order_hash: &str,
+    fill_cursor: Option<&str>,
+) -> Result<UserOrderFillsResponse, SdkError>
+```
+
+Fetch one order with the next page of its fills (continue a submission's or an order's `fills_next_cursor`). `order_hash` must be 64 lowercase hex characters. Variants: `get_order_fill_page_with_cookies` and the public `get_order_fill_page_by_wallet`.
 
 ### `get_user_orders_with_cookies` / `get_user_order_fills_with_cookies`
 
@@ -480,15 +502,19 @@ pub enum AnyOrder {
 
 ### `UserOpenLimitOrders`
 
-Tracks a user's open limit orders grouped by market pubkey and orderbook ID. Updated from WebSocket user events.
+Tracks a wallet's live limit orders (resting, or with fills awaiting confirmation) grouped by market pubkey and orderbook ID. Seed it with `convert_snapshot_orders(snapshot.orders)`, then apply every live `order` fact: each fact carries the complete order state, so application is a revision-guarded replace.
 
 | Method | Description |
 |--------|-------------|
 | `new()` | Create empty tracker |
 | `get(&market_pubkey, &orderbook_id)` | Get orders for a specific orderbook |
 | `get_by_market(&market_pubkey)` | Get orders for a market, grouped by orderbook |
-| `upsert(&order_update)` | Insert or update an order from a WS event |
-| `remove(order_hash)` | Remove a cancelled/filled order |
+| `get_by_hash(order_hash)` / `all()` | Lookup and iteration |
+| `apply(&order_update) -> ApplyOutcome` | Apply a live WS `order` fact (`Inserted`, `Updated`, `Removed`, `Stale`, `Ignored`) |
+| `apply_order(limit_order)` | Same for converted snapshot or REST orders |
+| `apply_closure(&closure_update)` | Close orders in scope up to the cutoff; `None` when the scope needs a refetch |
+| `upsert(&order_update)` | Alias of `apply` |
+| `remove(order_hash)` | Remove an order |
 | `clear()` | Remove all tracked orders |
 
 ### `UserTriggerOrders`
@@ -555,9 +581,12 @@ async fn market_make(client: &LightconeClient, keypair: &Keypair) -> Result<(), 
 
     while let Some(event) = stream.next().await {
         match event {
-            WsEvent::Message(Kind::User(UserUpdate::Order(OrderEvent::Limit(update)))) => {
-                open_orders.upsert(&update);
-                println!("Order update: {} -> {:?}", update.order.order_hash, update.order.status);
+            WsEvent::Message(Kind::User(UserUpdate::Snapshot(snapshot))) => {
+                open_orders = convert_snapshot_orders(snapshot.orders);
+            }
+            WsEvent::Message(Kind::User(UserUpdate::Order(update))) => {
+                let outcome = open_orders.apply(&update);
+                println!("Order {}: open={} ({outcome:?})", update.order_hash, update.open_base);
             }
             _ => {}
         }
@@ -623,11 +652,11 @@ async fn show_fill_history(
     ).await?;
 
     for order in &response.orders {
-        println!("{} {} ({:?}) @ {} — {}/{} filled",
-            order.side, order.role, order.status,
-            order.price, order.filled_size, order.size);
+        println!("{} ({:?}) — {}/{} confirmed",
+            order.side, order.status, order.confirmed_base, order.original_base);
         for fill in &order.fills {
-            println!("  fill: {} at {}", fill.fill_amount, fill.filled_at);
+            println!("  {:?} fill: {} @ {:?} at {}",
+                fill.role, fill.base_amount, fill.price(), fill.filled_at);
         }
     }
 
@@ -646,7 +675,7 @@ async fn show_fill_history(
 
 ## Wire Types
 
-Raw types in `lightcone::domain::order::wire` include `OrderUpdate`, `UserUpdate`, `UserSnapshot`, `UserSnapshotOrder`, `TriggerOrderUpdate`, `OrderEvent`, `ConditionalBalance`, `GlobalDepositBalance`, `AuthUpdate`, `UserOrderFillsResponse`, `UserOrderFill`, `OrderFillEvent`, and `Role`. These are the WebSocket and REST wire formats before domain conversion.
+Raw types in `lightcone::domain::order::wire` include `OrderState`, `RecordedOrderState`, `InitialCohort`, `UserOrder`, `UserOrderFillsResponse`, `UserOrderFill`, `OrderFillEvent`, `Role`, and the WS `user` channel types `UserUpdate`, `UserSnapshot`, `UserSnapshotOrder`, `OrderUpdate`, `ClosureUpdate`, `RecoveryCompleted`, `NotificationUpdate`, `CommitInfo`, and `AuthUpdate`. Funding types (`FundingAccount`, `FundingUpdate`, `FundingSource`) live in `lightcone::domain::position::wire`. Integer revisions and sequences accept both the string (REST/snapshot) and number (live fact) encodings.
 
 ---
 

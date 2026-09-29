@@ -77,12 +77,15 @@ async fn main() -> ExampleResult {
         .salt(lightcone::program::orders::generate_salt())
         .submit(&client, &orderbook)
         .await?;
+    let quantity = |value: Option<rust_decimal::Decimal>| {
+        value.map_or_else(|| "pending".to_string(), |value| value.to_string())
+    };
     println!(
-        "submitted: {} status={:?} filled={} remaining={} fills={}",
+        "submitted: {} status={:?} filled={} open={} fills={}",
         response.order_hash,
         response.status,
-        response.filled,
-        response.remaining,
+        quantity(response.filled_base()),
+        quantity(response.open_base()),
         response.fills.len()
     );
 

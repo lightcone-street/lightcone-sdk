@@ -42,6 +42,9 @@ pub struct OrderbookState {
     /// Last accepted engine depth revision. Forward gaps are valid.
     pub seq: u64,
     last_seq: Option<u64>,
+    /// `ready` flag of the last accepted frame: whether the engine's
+    /// committed book is live for matching.
+    pub ready: bool,
     pub bids_truncated: bool,
     pub asks_truncated: bool,
     bids: BTreeMap<Decimal, Decimal>,
@@ -59,6 +62,7 @@ impl OrderbookState {
             aggregation: aggregation.normalized(),
             seq: 0,
             last_seq: None,
+            ready: false,
             bids_truncated: false,
             asks_truncated: false,
             bids: BTreeMap::new(),
@@ -97,6 +101,7 @@ impl OrderbookState {
         }
         self.seq = book.seq;
         self.last_seq = Some(book.seq);
+        self.ready = book.ready;
         self.bids_truncated = book.bids_truncated;
         self.asks_truncated = book.asks_truncated;
 
@@ -154,6 +159,7 @@ impl OrderbookState {
         self.asks.clear();
         self.seq = 0;
         self.last_seq = None;
+        self.ready = false;
         self.bids_truncated = false;
         self.asks_truncated = false;
     }
@@ -182,6 +188,7 @@ mod tests {
             id: OrderBookId::from("ob1"),
             is_snapshot: snapshot,
             seq,
+            ready: true,
             resync: false,
             bids: bids
                 .into_iter()
@@ -287,6 +294,27 @@ mod tests {
         assert_eq!(snap.seq, 7);
         assert_eq!(snap.best_bid(), Some(Decimal::try_from(48.0).unwrap()));
         assert_eq!(snap.best_ask(), Some(Decimal::try_from(52.0).unwrap()));
+    }
+
+    #[test]
+    fn test_ready_flag_follows_accepted_frames() {
+        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
+        assert!(!snap.ready);
+        assert_eq!(
+            snap.apply(&order_book(true, 1, vec![], vec![])),
+            ApplyResult::Applied
+        );
+        assert!(snap.ready);
+        let mut not_ready = order_book(true, 2, vec![], vec![]);
+        not_ready.ready = false;
+        assert_eq!(snap.apply(&not_ready), ApplyResult::Applied);
+        assert!(!snap.ready);
+        // A stale frame does not change readiness.
+        assert_eq!(
+            snap.apply(&order_book(true, 2, vec![], vec![])),
+            ApplyResult::DiscardedStale
+        );
+        assert!(!snap.ready);
     }
 
     #[test]

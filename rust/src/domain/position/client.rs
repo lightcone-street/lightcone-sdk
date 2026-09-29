@@ -41,6 +41,18 @@ use crate::shared::signing::SigningStrategy;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 
+/// Query for the authenticated positions routes (which reject unknown keys).
+fn positions_query(cursor: Option<&str>, limit: Option<u32>) -> Vec<(&'static str, String)> {
+    let mut query = Vec::new();
+    if let Some(cursor) = cursor {
+        query.push(("cursor", cursor.to_string()));
+    }
+    if let Some(limit) = limit {
+        query.push(("limit", limit.to_string()));
+    }
+    query
+}
+
 fn deposit_token_balances_query(min_context_slot: Option<u64>) -> Vec<(&'static str, String)> {
     min_context_slot
         .map(|slot| vec![("min_context_slot", slot.to_string())])
@@ -138,7 +150,10 @@ impl<'a> Positions<'a> {
 
     // ── HTTP methods ─────────────────────────────────────────────────────
 
-    /// Get all positions for a user across all markets.
+    /// Get a wallet's committed funding accounts (global deposit accounts and
+    /// conditional-token accounts) across all markets. Public route; it
+    /// returns the first page only because it rejects query strings. Page
+    /// further with [`Self::positions_page`] as the authenticated owner.
     pub async fn get(&self, user_pubkey: &str) -> Result<PositionsResponse, SdkError> {
         let url = format!(
             "{}/api/users/{}/positions",
@@ -148,7 +163,8 @@ impl<'a> Positions<'a> {
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
-    /// Get positions for a user in a specific market.
+    /// Get a wallet's global accounts and its conditional accounts in one
+    /// market (first page; public route).
     pub async fn get_for_market(
         &self,
         user_pubkey: &str,
@@ -163,13 +179,11 @@ impl<'a> Positions<'a> {
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
-    /// Get all conditional-token positions for the authenticated user across
-    /// every market. The wallet is resolved server-side from the auth cookie,
-    /// so no parameter is required. Same response shape as
-    /// [`Positions::get`]; empty `positions` array when the user has none.
+    /// Get the authenticated user's funding accounts across every market
+    /// (first page, default limit). The wallet is resolved server-side from
+    /// the auth cookie. Same response shape as [`Positions::get`].
     pub async fn positions(&self) -> Result<PositionsResponse, SdkError> {
-        let url = format!("{}/api/users/positions", self.client.http.base_url());
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        self.positions_page(None, None, None).await
     }
 
     /// Same as [`Self::positions`], but forwards the supplied raw `Cookie` header (`privy-token` and/or `lightcone-token`) for
@@ -183,25 +197,18 @@ impl<'a> Positions<'a> {
         &self,
         cookie_header: &str,
     ) -> Result<PositionsResponse, SdkError> {
-        let url = format!("{}/api/users/positions", self.client.http.base_url());
-        self.client
-            .http
-            .get_with_cookies(&url, RetryPolicy::Idempotent, cookie_header)
+        self.positions_page_with_cookies(None, None, None, cookie_header)
             .await
     }
 
-    /// Get the authenticated user's positions in a specific market. The
-    /// wallet is resolved server-side from the auth cookie.
+    /// Get the authenticated user's global accounts and conditional accounts
+    /// in a specific market (first page). The wallet is resolved server-side
+    /// from the auth cookie.
     pub async fn positions_for_market(
         &self,
         market_pubkey: &str,
     ) -> Result<MarketPositionsResponse, SdkError> {
-        let url = format!(
-            "{}/api/users/markets/{}/positions",
-            self.client.http.base_url(),
-            market_pubkey
-        );
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        self.positions_page(Some(market_pubkey), None, None).await
     }
 
     /// Same as [`Self::positions_for_market`], but forwards the supplied raw
@@ -213,15 +220,55 @@ impl<'a> Positions<'a> {
         market_pubkey: &str,
         cookie_header: &str,
     ) -> Result<MarketPositionsResponse, SdkError> {
-        let url = format!(
-            "{}/api/users/markets/{}/positions",
-            self.client.http.base_url(),
-            market_pubkey
-        );
+        self.positions_page_with_cookies(Some(market_pubkey), None, None, cookie_header)
+            .await
+    }
+
+    /// One page of the authenticated user's funding accounts, optionally
+    /// scoped to a market. `cursor` is a previous `next_cursor` (also the
+    /// `next_funding_cursor` of user orders); `limit` defaults to 200 and is
+    /// clamped to 1..=256 server-side. Pages are filtered after a bounded scan,
+    /// so a page can be empty while `has_more` is true.
+    pub async fn positions_page(
+        &self,
+        market_pubkey: Option<&str>,
+        cursor: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<PositionsResponse, SdkError> {
+        let url = self.positions_url(market_pubkey);
+        let query = positions_query(cursor, limit);
         self.client
             .http
-            .get_with_cookies(&url, RetryPolicy::Idempotent, cookie_header)
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
             .await
+    }
+
+    /// Same as [`Self::positions_page`], forwarding the supplied raw `Cookie`
+    /// header for server-side cookie forwarding.
+    pub async fn positions_page_with_cookies(
+        &self,
+        market_pubkey: Option<&str>,
+        cursor: Option<&str>,
+        limit: Option<u32>,
+        cookie_header: &str,
+    ) -> Result<PositionsResponse, SdkError> {
+        let url = self.positions_url(market_pubkey);
+        let query = positions_query(cursor, limit);
+        self.client
+            .http
+            .get_with_cookies_and_query(&url, &query, RetryPolicy::Idempotent, cookie_header)
+            .await
+    }
+
+    fn positions_url(&self, market_pubkey: Option<&str>) -> String {
+        match market_pubkey {
+            Some(market_pubkey) => format!(
+                "{}/api/users/markets/{}/positions",
+                self.client.http.base_url(),
+                market_pubkey
+            ),
+            None => format!("{}/api/users/positions", self.client.http.base_url()),
+        }
     }
 
     /// Fetch a complete authenticated SPL and native-SOL balance snapshot.

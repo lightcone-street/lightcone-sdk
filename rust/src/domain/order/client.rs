@@ -1,8 +1,8 @@
 //! Orders sub-client — submit, cancel, query, and on-chain order operations.
 
-use super::wire::{UserMarketBalance, UserSnapshotOrder};
+use super::wire::{InitialCohort, OrderState, UserOrder, UserOrderFillsResponse};
 use crate::client::LightconeClient;
-use crate::domain::order::UserOrderFillsResponse;
+use crate::domain::position::wire::FundingAccount;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 #[cfg(feature = "trigger_orders")]
@@ -168,44 +168,170 @@ impl CancelTriggerBody {
 
 // ─── Response types ──────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Outcome of an accepted order submission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SubmitOrderStatus {
+    /// Accepted; no fill awaits confirmation. The order may rest, or (IOC)
+    /// its unfilled remainder is already cancelled.
     Accepted,
-    PartialFill,
+    /// Accepted with matched base awaiting on-chain confirmation, or the
+    /// acceptance is durable but its committed view was not yet readable
+    /// (then `state` and `initial_cohort` are `None`).
+    AcceptedPending,
+    /// The whole original base is confirmed filled.
     Filled,
 }
 
+/// An authenticated fill captured with a submission response.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FillInfo {
+    /// `"<execution_id>:<leg_index>:<projection_generation>"`, the same id as
+    /// REST `trade_id`.
+    pub fill_id: String,
+    pub execution_id: String,
     pub counterparty: PubkeyStr,
     pub counterparty_order_hash: String,
-    pub fill_amount: Decimal,
-    pub price: Decimal,
+    /// Filled size in base-token units.
+    pub base_amount: Decimal,
+    /// Filled notional in quote-token units.
+    pub quote_amount: Decimal,
+    /// Whether the submitted order was the maker of this fill.
     pub is_maker: bool,
+    /// Signed fee estimate in raw atoms of `fee_mint` (negative = rebate).
+    #[serde(with = "crate::shared::serde_util::i128_text")]
+    pub fee_estimate_atoms: i128,
+    /// Captured fee rate in basis points.
+    pub fee_bps: i32,
+    pub fee_mint: PubkeyStr,
 }
 
+impl FillInfo {
+    /// Fill price in quote units per base unit (`quote_amount / base_amount`).
+    pub fn price(&self) -> Option<Decimal> {
+        super::wire::quote_per_base(self.quote_amount, self.base_amount)
+    }
+}
+
+/// Response of `POST /api/orders/submit` for an accepted order.
+///
+/// Business rejections arrive as [`SdkError::ApiRejected`] with a
+/// [`RejectionCode`](crate::shared::RejectionCode). An
+/// `ENGINE_UNAVAILABLE` error means the outcome is unknown: reconcile by
+/// order hash before submitting again.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SubmitOrderResponse {
     pub order_hash: String,
     pub status: SubmitOrderStatus,
-    pub remaining: Decimal,
-    pub filled: Decimal,
+    /// Committed cumulative state; `None` when the view is not yet readable.
+    #[serde(default)]
+    pub state: Option<OrderState>,
+    /// Executions selected at acceptance; `None` alongside `state`.
+    #[serde(default)]
+    pub initial_cohort: Option<InitialCohort>,
+    /// Up to 16 authenticated fills, oldest first.
+    #[serde(default)]
     pub fills: Vec<FillInfo>,
+    /// False when more fills exist or a newer revision prevented capture.
+    #[serde(default)]
+    pub fills_complete: bool,
+    /// Continue with `Orders::get_order_fill_page` (order hash + this cursor).
+    #[serde(default)]
+    pub fills_next_cursor: Option<String>,
 }
 
+impl SubmitOrderResponse {
+    /// Base filled by confirmed fills, when the committed view is available.
+    pub fn filled_base(&self) -> Option<Decimal> {
+        self.state.as_ref().map(|state| state.confirmed_base)
+    }
+
+    /// Base still resting on the book, when the committed view is available.
+    pub fn open_base(&self) -> Option<Decimal> {
+        self.state.as_ref().map(|state| state.open_base)
+    }
+}
+
+/// Disposition of a single-order cancellation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CancelStatus {
+    /// The open remainder was cancelled by this request.
+    Cancelled,
+    /// The order was already closed (cancelled, expired, or cut off).
+    AlreadyClosed,
+    /// The order was already completely filled.
+    AlreadyFilled,
+}
+
+/// Cancellation quantities in raw base-token atoms (`quantity_unit` is
+/// `"base_atoms"`), sent as integer strings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CancelQuantities {
+    /// Base atoms cancelled by this request.
+    #[serde(with = "crate::shared::serde_util::u64_text")]
+    pub newly_cancelled_base: u64,
+    /// Base atoms confirmed filled.
+    #[serde(with = "crate::shared::serde_util::u64_text")]
+    pub confirmed_base: u64,
+    /// Base atoms matched and awaiting on-chain confirmation.
+    #[serde(with = "crate::shared::serde_util::u64_text")]
+    pub pending_base: u64,
+    /// Base atoms still open after the request.
+    #[serde(with = "crate::shared::serde_util::u64_text")]
+    pub remaining_open_base: u64,
+}
+
+/// Response of `POST /api/orders/cancel`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelSuccess {
+    pub status: CancelStatus,
     pub order_hash: String,
-    pub remaining: Decimal,
+    /// `None` while the engine is rebuilding (never invented zeroes).
+    #[serde(default)]
+    pub quantities: Option<CancelQuantities>,
+    /// Unit of `quantities`: always `"base_atoms"`.
+    pub quantity_unit: String,
+    /// Committed revision of the cancellation.
+    #[serde(with = "crate::shared::serde_util::u64_text")]
+    pub revision: u64,
+    /// Why the order is closed; empty on the wire when none.
+    #[serde(
+        default,
+        deserialize_with = "crate::shared::serde_util::deserialize_nonempty_string"
+    )]
+    pub closed_reason: Option<String>,
 }
 
+/// Committed accepted-order cutoff returned by cancel-all.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClosureAck {
+    /// Closure operation id (UUID).
+    pub operation_id: String,
+    #[serde(with = "crate::shared::serde_util::u64_text")]
+    pub committed_revision: u64,
+    /// `"Wallet:<wallet>"` or `"WalletBook:<wallet>:<orderbook>"`.
+    pub scope: String,
+    /// Orders with `accepted_seq` at or below this are closed; `None` when
+    /// the scope had no accepted orders.
+    #[serde(default, with = "crate::shared::serde_util::opt_u64_text")]
+    pub accepted_seq_cutoff: Option<u64>,
+    /// True while bounded per-order cleanup is still running; individual
+    /// order facts follow on the `user` channel.
+    pub cleanup_pending: bool,
+}
+
+/// Response of `POST /api/orders/cancel-all`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelAllSuccess {
-    pub cancelled_order_hashes: Vec<String>,
-    pub count: u64,
+    /// Always `"success"`.
+    pub status: String,
     pub user_pubkey: PubkeyStr,
+    /// Empty for a wallet-wide cancel-all.
+    #[serde(default)]
     pub orderbook_id: OrderBookId,
+    #[serde(default)]
+    pub closure: Option<ClosureAck>,
     pub message: String,
 }
 
@@ -222,15 +348,58 @@ pub struct CancelTriggerSuccess {
     pub trigger_order_id: String,
 }
 
+/// Response of `GET /api/users/orders`: one page of the wallet's open and
+/// pending orders plus one page of its funding accounts.
+///
+/// A page can be empty while `has_more` is true. Funding pages continue via
+/// `positions().positions_page(None, next_funding_cursor, ..)`, which reads the
+/// same committed funding view.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UserOrdersResponse {
     pub user_pubkey: PubkeyStr,
-    /// All orders (both limit and trigger) in a single array.
-    /// Discriminated by `order_type` field on each order.
-    pub orders: Vec<UserSnapshotOrder>,
-    pub market_balances: Vec<UserMarketBalance>,
+    pub orders: Vec<UserOrder>,
+    #[serde(default)]
+    pub funding_accounts: Vec<FundingAccount>,
+    /// Opaque order cursor (`"<accepted_seq>:<hash>"`).
     pub next_cursor: Option<String>,
     pub has_more: bool,
+    #[serde(default)]
+    pub next_funding_cursor: Option<String>,
+    #[serde(default)]
+    pub funding_has_more: bool,
+    /// Database revision of this page; later pages may be newer.
+    #[serde(with = "crate::shared::serde_util::u64_text")]
+    pub committed_revision: u64,
+    #[serde(with = "crate::shared::serde_util::u64_text")]
+    pub projection_generation: u64,
+}
+
+/// Query for `GET /api/users[/{wallet}]/order-fills`. The backend rejects
+/// unknown parameters and combining `cursor` with `order_hash`.
+fn order_fills_query(
+    market_pubkey: Option<&str>,
+    limit: Option<u32>,
+    cursor: Option<&str>,
+    order_hash: Option<&str>,
+    fill_cursor: Option<&str>,
+) -> Vec<(&'static str, String)> {
+    let mut query = Vec::new();
+    if let Some(market_pubkey) = market_pubkey {
+        query.push(("market_pubkey", market_pubkey.to_string()));
+    }
+    if let Some(limit) = limit {
+        query.push(("limit", limit.to_string()));
+    }
+    if let Some(cursor) = cursor {
+        query.push(("cursor", cursor.to_string()));
+    }
+    if let Some(order_hash) = order_hash {
+        query.push(("order_hash", order_hash.to_string()));
+    }
+    if let Some(fill_cursor) = fill_cursor {
+        query.push(("fill_cursor", fill_cursor.to_string()));
+    }
+    query
 }
 
 // ─── Sub-client ──────────────────────────────────────────────────────────────
@@ -344,8 +513,10 @@ impl<'a> Orders<'a> {
         self.client.http.post(&url, body, RetryPolicy::None).await
     }
 
-    /// Fetch the authenticated user's open orders. Wallet is resolved
-    /// server-side from the auth cookie, so no parameter is required.
+    /// Fetch the authenticated user's open and pending orders, with a first
+    /// page of funding accounts. Wallet is resolved server-side from the auth
+    /// cookie, so no parameter is required. `limit` defaults to 200 and is
+    /// clamped to 1..=256 server-side; `cursor` is a previous `next_cursor`.
     pub async fn get_user_orders(
         &self,
         limit: Option<u32>,
@@ -392,8 +563,10 @@ impl<'a> Orders<'a> {
     /// Fetch the authenticated user's filled orders with nested fill events.
     /// Wallet is resolved server-side from the auth cookie.
     ///
-    /// Includes orders where the user was either maker or taker.
-    /// Optionally filter by market. Returns orders sorted by most recent fill first.
+    /// Includes orders where the user was either maker or taker. Optionally
+    /// filter by market. Orders are sorted by most recent fill first; each
+    /// carries its oldest-first page of at most 16 fills. `limit` is clamped
+    /// to 1..=100 server-side.
     pub async fn get_user_order_fills(
         &self,
         market_pubkey: Option<&str>,
@@ -401,16 +574,7 @@ impl<'a> Orders<'a> {
         cursor: Option<&str>,
     ) -> Result<UserOrderFillsResponse, SdkError> {
         let url = format!("{}/api/users/order-fills", self.client.http.base_url());
-        let mut query = Vec::new();
-        if let Some(market_pubkey) = market_pubkey {
-            query.push(("market_pubkey", market_pubkey.to_string()));
-        }
-        if let Some(limit) = limit {
-            query.push(("limit", limit.to_string()));
-        }
-        if let Some(cursor) = cursor {
-            query.push(("cursor", cursor.to_string()));
-        }
+        let query = order_fills_query(market_pubkey, limit, cursor, None, None);
         self.client
             .http
             .get_with_query(&url, &query, RetryPolicy::Idempotent)
@@ -429,16 +593,7 @@ impl<'a> Orders<'a> {
         cookie_header: &str,
     ) -> Result<UserOrderFillsResponse, SdkError> {
         let url = format!("{}/api/users/order-fills", self.client.http.base_url());
-        let mut query = Vec::new();
-        if let Some(market_pubkey) = market_pubkey {
-            query.push(("market_pubkey", market_pubkey.to_string()));
-        }
-        if let Some(limit) = limit {
-            query.push(("limit", limit.to_string()));
-        }
-        if let Some(cursor) = cursor {
-            query.push(("cursor", cursor.to_string()));
-        }
+        let query = order_fills_query(market_pubkey, limit, cursor, None, None);
         self.client
             .http
             .get_with_cookies_and_query(&url, &query, RetryPolicy::Idempotent, cookie_header)
@@ -460,16 +615,59 @@ impl<'a> Orders<'a> {
             self.client.http.base_url(),
             wallet_address
         );
-        let mut query = Vec::new();
-        if let Some(market_pubkey) = market_pubkey {
-            query.push(("market_pubkey", market_pubkey.to_string()));
-        }
-        if let Some(limit) = limit {
-            query.push(("limit", limit.to_string()));
-        }
-        if let Some(cursor) = cursor {
-            query.push(("cursor", cursor.to_string()));
-        }
+        let query = order_fills_query(market_pubkey, limit, cursor, None, None);
+        self.client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await
+    }
+
+    /// Fetch one order of the authenticated user with the next page of its
+    /// fills. Pass the order's `fills_next_cursor` (or a submission's
+    /// `fills_next_cursor`) as `fill_cursor`; `None` starts at the first fill.
+    /// `order_hash` must be 64 lowercase hex characters.
+    pub async fn get_order_fill_page(
+        &self,
+        order_hash: &str,
+        fill_cursor: Option<&str>,
+    ) -> Result<UserOrderFillsResponse, SdkError> {
+        let url = format!("{}/api/users/order-fills", self.client.http.base_url());
+        let query = order_fills_query(None, None, None, Some(order_hash), fill_cursor);
+        self.client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await
+    }
+
+    /// Same as [`Self::get_order_fill_page`], forwarding the supplied raw
+    /// `Cookie` header for server-side cookie forwarding.
+    pub async fn get_order_fill_page_with_cookies(
+        &self,
+        order_hash: &str,
+        fill_cursor: Option<&str>,
+        cookie_header: &str,
+    ) -> Result<UserOrderFillsResponse, SdkError> {
+        let url = format!("{}/api/users/order-fills", self.client.http.base_url());
+        let query = order_fills_query(None, None, None, Some(order_hash), fill_cursor);
+        self.client
+            .http
+            .get_with_cookies_and_query(&url, &query, RetryPolicy::Idempotent, cookie_header)
+            .await
+    }
+
+    /// Public variant of [`Self::get_order_fill_page`] for any wallet.
+    pub async fn get_order_fill_page_by_wallet(
+        &self,
+        wallet_address: &str,
+        order_hash: &str,
+        fill_cursor: Option<&str>,
+    ) -> Result<UserOrderFillsResponse, SdkError> {
+        let url = format!(
+            "{}/api/users/{}/order-fills",
+            self.client.http.base_url(),
+            wallet_address
+        );
+        let query = order_fills_query(None, None, None, Some(order_hash), fill_cursor);
         self.client
             .http
             .get_with_query(&url, &query, RetryPolicy::Idempotent)

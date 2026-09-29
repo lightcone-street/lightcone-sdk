@@ -64,6 +64,10 @@ pub struct OrderbookDepthResponse {
     /// Required display decimals for prices and sizes. `size` is the base
     /// token's on-chain decimal count, not the admission size precision.
     pub decimals: OrderbookDepthDecimals,
+    /// Whether the engine's committed book is ready (matching live). A book
+    /// that is not ready may show stale or empty depth.
+    #[serde(default)]
+    pub ready: bool,
 }
 
 /// Price/size display decimals for an orderbook, as returned by the depth
@@ -94,14 +98,21 @@ pub type DecimalsResponse = OrderbookRules;
 ///
 /// The stream is snapshot-only: every data frame carries the full top-20
 /// levels per side and replaces the previous book wholesale. `seq` is the
-/// engine depth revision and is monotonic only within a subscription generation.
+/// engine depth revision and is monotonic only within a subscription
+/// generation: drop frames with `seq <= ` the last applied one. Resync frames
+/// (`resync: true`) carry no `seq` and read as `0`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OrderBook {
     #[serde(rename = "orderbook_id")]
     pub id: OrderBookId,
     #[serde(default)]
     pub is_snapshot: bool,
+    #[serde(default)]
     pub seq: u64,
+    /// Whether the engine's committed book is ready (matching live).
+    /// Absent (`false`) on resync frames.
+    #[serde(default)]
+    pub ready: bool,
     #[serde(default)]
     pub resync: bool,
     #[serde(default = "Vec::new")]
@@ -201,6 +212,42 @@ mod tests {
         assert!(!depth.asks_truncated);
         assert_eq!(depth.revision, 1842);
         assert_eq!(depth.captured_at_ms, 1_785_776_400_123);
+    }
+
+    #[test]
+    fn depth_and_ws_frames_expose_ready() {
+        // Live `GET /api/orderbook/{id}` body from the committed backend.
+        let json = format!(
+            r#"{{
+            "market_pubkey":"A9Bxkkc4nah517EjgjwSafwspGnmU9s1Ei5PTo5ZkJd9",
+            "orderbook_id":"j749bQAbDsBAiyDs2Tj868heQj1b5KVp98ZrjiZd56a",
+            "bids":[],"asks":[],"tick_size":"0.1000","price_quantum":"0.1000",
+            "trading_rules":{RULES},"revision":275,"captured_at_ms":1790685521784,
+            "decimals":{{"price":4,"size":8}},"ready":true
+        }}"#
+        );
+        let depth: OrderbookDepthResponse = serde_json::from_str(&json).unwrap();
+        assert!(depth.ready);
+        assert_eq!(depth.best_bid, None);
+
+        let frame: OrderBook = serde_json::from_str(
+            r#"{"orderbook_id":"ob","timestamp":"2026-09-29T12:00:00+00:00","seq":276,"ready":true,"bids":[],"asks":[],"is_snapshot":true}"#,
+        )
+        .unwrap();
+        assert!(frame.ready);
+        assert_eq!(frame.seq, 276);
+    }
+
+    #[test]
+    fn resync_frame_without_seq_decodes() {
+        // Exact `orderbook_manager::resync_signal_json` payload.
+        let frame: OrderBook = serde_json::from_str(
+            r#"{"orderbook_id":"ob","resync":true,"message":"Please re-subscribe to get fresh snapshot","n_sig_figs":5,"mantissa":2}"#,
+        )
+        .unwrap();
+        assert!(frame.resync);
+        assert_eq!(frame.seq, 0);
+        assert!(!frame.ready);
     }
 
     #[test]
