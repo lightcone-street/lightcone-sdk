@@ -39,7 +39,6 @@ pub enum RejectionCode {
     InvalidPriceDecimals,
     InvalidPriceSignificantFigures,
     InvalidSizeDecimals,
-    TriggerPriceOutOfRange,
     Unknown(String),
 }
 
@@ -79,7 +78,6 @@ impl RejectionCode {
             Self::InvalidPriceDecimals => "Invalid Price Decimals".to_string(),
             Self::InvalidPriceSignificantFigures => "Invalid Price Significant Figures".to_string(),
             Self::InvalidSizeDecimals => "Invalid Size Decimals".to_string(),
-            Self::TriggerPriceOutOfRange => "Trigger Price Out of Range".to_string(),
             Self::Unknown(code) => code.clone(),
         }
     }
@@ -117,7 +115,6 @@ impl RejectionCode {
             Self::InvalidPriceDecimals => "INVALID_PRICE_DECIMALS".to_string(),
             Self::InvalidPriceSignificantFigures => "INVALID_PRICE_SIGNIFICANT_FIGURES".to_string(),
             Self::InvalidSizeDecimals => "INVALID_SIZE_DECIMALS".to_string(),
-            Self::TriggerPriceOutOfRange => "TRIGGER_PRICE_OUT_OF_RANGE".to_string(),
             Self::Unknown(code) => code.clone(),
         }
     }
@@ -154,7 +151,6 @@ impl RejectionCode {
             "INVALID_PRICE_DECIMALS" => Self::InvalidPriceDecimals,
             "INVALID_PRICE_SIGNIFICANT_FIGURES" => Self::InvalidPriceSignificantFigures,
             "INVALID_SIZE_DECIMALS" => Self::InvalidSizeDecimals,
-            "TRIGGER_PRICE_OUT_OF_RANGE" => Self::TriggerPriceOutOfRange,
             _ => Self::Unknown(raw.to_string()),
         }
     }
@@ -276,7 +272,6 @@ mod tests {
             RejectionCode::InvalidPriceDecimals,
             RejectionCode::InvalidPriceSignificantFigures,
             RejectionCode::InvalidSizeDecimals,
-            RejectionCode::TriggerPriceOutOfRange,
         ];
         for code in codes {
             let json = serde_json::to_string(&code).unwrap();

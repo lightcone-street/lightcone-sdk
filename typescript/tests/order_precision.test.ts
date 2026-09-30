@@ -281,7 +281,6 @@ describe("exact order precision", () => {
       "INVALID_PRICE_DECIMALS",
       "INVALID_PRICE_SIGNIFICANT_FIGURES",
       "INVALID_SIZE_DECIMALS",
-      "TRIGGER_PRICE_OUT_OF_RANGE",
     ]) {
       assert.notEqual(RejectionCode.from(code).label(), code);
       assert.equal(RejectionCode.from(code).wireName(), code);

@@ -15,7 +15,7 @@ use solana_signer::Signer;
 use crate::program::constants::{ORDER_SIZE, SIGNED_ORDER_SIZE};
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::types::{AskOrderParams, BidOrderParams, OrderSide};
-use crate::shared::{validate_raw_amounts, ExactDecimal, OrderbookRules, SubmitOrderRequest};
+use crate::shared::{validate_raw_amounts, OrderbookRules, SubmitOrderRequest};
 
 // ============================================================================
 // Signed Order (233 bytes)
@@ -297,16 +297,14 @@ impl OrderPayload {
         self.signature != [0u8; 64]
     }
 
-    /// Convert a signed payload to a `SubmitOrderRequest` (limit order, no trigger fields).
+    /// Converts a signed payload to the ordinary REST submission request.
     ///
     /// Intended for internal use by envelope types. Prefer using
-    /// `LimitOrderEnvelope::sign()` or `TriggerOrderEnvelope::sign()`.
+    /// `LimitOrderEnvelope::sign()`.
     pub(crate) fn to_submit_request(
         &self,
         orderbook_id: impl Into<String>,
         time_in_force: Option<crate::shared::TimeInForce>,
-        trigger_price: Option<ExactDecimal>,
-        trigger_type: Option<crate::shared::TriggerType>,
         deposit_source: Option<crate::shared::DepositSource>,
     ) -> Result<SubmitOrderRequest, SdkError> {
         if self.signature == [0u8; 64] {
@@ -327,8 +325,6 @@ impl OrderPayload {
             signature: hex::encode(self.signature),
             orderbook_id: orderbook_id.into(),
             time_in_force,
-            trigger_price,
-            trigger_type,
             deposit_source,
         })
     }
@@ -529,14 +525,6 @@ pub fn derive_condition_id(oracle: &Pubkey, question_id: &[u8; 32], num_outcomes
 /// The message is the order hash hex string as UTF-8 bytes (same protocol as order signing).
 pub fn cancel_order_message(order_hash: &str) -> Vec<u8> {
     order_hash.as_bytes().to_vec()
-}
-
-/// Build the message bytes for cancelling a trigger order.
-///
-/// The message is the trigger_order_id as UTF-8 bytes.
-#[cfg(feature = "trigger_orders")]
-pub fn cancel_trigger_order_message(trigger_order_id: &str) -> Vec<u8> {
-    trigger_order_id.as_bytes().to_vec()
 }
 
 /// Build the message string for cancelling all orders.
@@ -899,7 +887,7 @@ mod tests {
         order.sign(&keypair, &signing_rules()).unwrap();
 
         let request = order
-            .to_submit_request("test_orderbook", None, None, None, None)
+            .to_submit_request("test_orderbook", None, None)
             .unwrap();
 
         assert_eq!(request.maker, maker.to_string());
@@ -1019,17 +1007,9 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        let result = order.to_submit_request("test_orderbook", None, None, None, None);
+        let result = order.to_submit_request("test_orderbook", None, None);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("must be signed"),);
-    }
-
-    #[test]
-    #[cfg(feature = "trigger_orders")]
-    fn test_cancel_trigger_order_message() {
-        let id = "trigger-order-uuid-123";
-        let message = cancel_trigger_order_message(id);
-        assert_eq!(message, id.as_bytes());
     }
 
     #[test]

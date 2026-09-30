@@ -8,9 +8,9 @@ from solders.instruction import Instruction
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from ...error import SigningError, _require
+from ...error import DeserializationError, SigningError, _require
 from ...program.accounts import deserialize_order_status, deserialize_user_nonce
-from ...program.envelope import LimitOrderEnvelope, TriggerOrderEnvelope
+from ...program.envelope import LimitOrderEnvelope
 from ...program.errors import ArithmeticOverflowError
 from ...program.instructions import (
     build_cancel_order_instruction,
@@ -41,21 +41,16 @@ from ...shared.scaling import (
     OrderbookRules,
     validate_raw_amounts,
     validate_signed_fields,
-    validate_trigger_price,
 )
 from ...shared.types import (
     SubmitOrderRequest,
-    SubmitTriggerOrderRequest,
 )
 from . import (
     CancelAllBody,
     CancelAllSuccess,
     CancelBody,
     CancelSuccess,
-    CancelTriggerBody,
-    CancelTriggerSuccess,
     SubmitOrderResponse,
-    TriggerOrderResponse,
     UserMarketBalance,
     UserOrderFillsResponse,
     UserOrdersResponse,
@@ -131,14 +126,6 @@ class Orders:
         """
         return LimitOrderEnvelope().deposit_source(self._client.deposit_source)
 
-    def trigger_order(self) -> TriggerOrderEnvelope:
-        """Create a TriggerOrderEnvelope pre-seeded with the client's deposit source.
-
-        Users can still override the deposit source on the returned envelope
-        by calling ``.deposit_source()`` before signing.
-        """
-        return TriggerOrderEnvelope().deposit_source(self._client.deposit_source)
-
     # ── HTTP methods ─────────────────────────────────────────────────────
 
     async def submit(self, request: SubmitOrderRequest) -> SubmitOrderResponse:
@@ -166,23 +153,8 @@ class Orders:
             message=data.get("message", ""),
         )
 
-    async def submit_trigger(
-        self, request: SubmitTriggerOrderRequest | SubmitOrderRequest
-    ) -> TriggerOrderResponse:
-        """Submit a trigger order."""
-        normalized = (
-            request.to_submit_order_request()
-            if isinstance(request, SubmitTriggerOrderRequest)
-            else request
-        )
-        await self._preflight_submit(normalized)
-        data = await self._client._http.post("/api/orders/submit", normalized.to_dict())
-        return TriggerOrderResponse(
-            trigger_order_id=data.get("trigger_order_id", ""),
-            order_hash=data.get("order_hash", ""),
-        )
-
     async def _preflight_submit(self, request: SubmitOrderRequest) -> None:
+        """Check exact signed amounts against current orderbook rules before submission."""
         rules = await self._client.orderbooks().decimals(request.orderbook_id)
         try:
             side = OrderSide(request.side)
@@ -191,15 +163,6 @@ class Orders:
         validate_raw_amounts(request.amount_in, request.amount_out, int(side), rules)
         validate_signed_fields(
             request.amount_in, request.amount_out, request.salt, request.nonce
-        )
-        if request.trigger_price is not None:
-            validate_trigger_price(str(request.trigger_price), rules.price_decimals)
-
-    async def cancel_trigger(self, body: CancelTriggerBody) -> CancelTriggerSuccess:
-        """Cancel a trigger order."""
-        data = await self._client._http.post("/api/orders/cancel", body.to_dict())
-        return CancelTriggerSuccess(
-            trigger_order_id=data.get("trigger_order_id", body.trigger_order_id),
         )
 
     async def get_user_orders(
@@ -423,56 +386,6 @@ class Orders:
 
         raise SigningError(f"Unsupported signing strategy: {strategy.kind}")
 
-    async def cancel_trigger_signed(
-        self,
-        trigger_order_id: str,
-        maker: str,
-    ) -> CancelTriggerSuccess:
-        """Cancel a trigger order using the client's signing strategy."""
-        from ...program.orders import cancel_trigger_order_message
-        from ...shared.signing import SigningStrategyKind, classify_signer_error
-
-        strategy = self._client._require_signing_strategy()
-
-        if strategy.kind == SigningStrategyKind.NATIVE:
-            message = cancel_trigger_order_message(trigger_order_id)
-            from solders.keypair import Keypair as _Keypair
-
-            keypair: _Keypair = strategy.keypair
-            sig = keypair.sign_message(message)
-            body = CancelTriggerBody(
-                trigger_order_id=trigger_order_id,
-                maker=maker,
-                signature=bytes(sig).hex(),
-            )
-            return await self.cancel_trigger(body)
-
-        elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
-            message = cancel_trigger_order_message(trigger_order_id)
-            try:
-                sig_bytes = await strategy.signer.sign_message(message)
-            except Exception as exc:
-                raise classify_signer_error(str(exc)) from exc
-            sig_hex = sig_bytes.hex()
-            body = CancelTriggerBody(
-                trigger_order_id=trigger_order_id,
-                maker=maker,
-                signature=sig_hex,
-            )
-            return await self.cancel_trigger(body)
-
-        elif strategy.kind == SigningStrategyKind.PRIVY:
-            result = await self._client.privy().sign_and_cancel_trigger_order(
-                strategy.wallet_id,
-                trigger_order_id,
-                maker,
-            )
-            return CancelTriggerSuccess(
-                trigger_order_id=result.get("trigger_order_id", trigger_order_id),
-            )
-
-        raise SigningError(f"Unsupported signing strategy: {strategy.kind}")
-
     # ── On-chain instruction builders ────────────────────────────────────
 
     def cancel_order_ix(
@@ -551,9 +464,13 @@ class Orders:
 
 
 def _user_orders_response_from_wire(data: dict, wallet: str) -> UserOrdersResponse:
+    """Decode REST limit orders with their account and pagination metadata."""
+    orders = data.get("orders", [])
+    if not isinstance(orders, list):
+        raise DeserializationError("UserOrdersResponse orders must be an array")
     return UserOrdersResponse(
         user_pubkey=data.get("user_pubkey", wallet),
-        orders=[UserSnapshotOrder.from_dict(o) for o in data.get("orders", [])],
+        orders=[UserSnapshotOrder.from_dict(o) for o in orders],
         market_balances=[
             UserMarketBalance.from_dict(b)
             for b in _require(data, "market_balances", "UserOrdersResponse")

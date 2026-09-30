@@ -17,15 +17,12 @@ async fn main() -> ExampleResult {
 
     let snapshot = client.orders().get_user_orders(Some(50), None).await?;
 
-    let Some((order_hash, orderbook_id)) = snapshot.orders.iter().find_map(|order| match order {
-        UserSnapshotOrder::Limit { common, .. } => {
-            Some((common.order_hash.clone(), common.orderbook_id.clone()))
-        }
-        UserSnapshotOrder::Trigger { .. } => None,
-    }) else {
+    let Some(UserSnapshotOrder::Limit { common, .. }) = snapshot.orders.first() else {
         println!("No open limit orders to cancel.");
         return Ok(());
     };
+    let order_hash = common.order_hash.clone();
+    let orderbook_id = common.orderbook_id.clone();
 
     let cancel = CancelBody::signed(order_hash, keypair.pubkey().into(), &keypair);
     let salt = generate_cancel_all_salt();

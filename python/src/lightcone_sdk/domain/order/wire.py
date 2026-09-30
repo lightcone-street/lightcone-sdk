@@ -3,18 +3,17 @@
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from enum import Enum
-from typing import Optional, Union
+from typing import Union
 
 from ...error import DeserializationError, _require
-from ...shared.types import Side, TimeInForce, TriggerType
-from . import (
-    UserSnapshotOrder,
-    UserMarketBalance,
-    GlobalDepositBalance,
-    ConditionalBalance,
-    TriggerOrder,
-)
+from ...shared.types import Side
 from ..notification import Notification
+from . import (
+    ConditionalBalance,
+    GlobalDepositBalance,
+    UserMarketBalance,
+    UserSnapshotOrder,
+)
 
 
 @dataclass
@@ -38,18 +37,18 @@ class WsOrder:
     side: int
     price: str
     size: str
-    filled_size: Optional[str] = None
-    remaining_size: Optional[str] = None
-    status: Optional[str] = None
+    filled_size: str | None = None
+    remaining_size: str | None = None
+    status: str | None = None
     is_maker: bool = False
-    remaining: Optional[str] = None
-    filled: Optional[str] = None
-    fill_amount: Optional[str] = None
+    remaining: str | None = None
+    filled: str | None = None
+    fill_amount: str | None = None
     base_mint: str = ""
     quote_mint: str = ""
     outcome_index: int = 0
-    created_at: Optional[str] = None
-    balance: Optional[UserOrderUpdateBalance] = None
+    created_at: str | None = None
+    balance: UserOrderUpdateBalance | None = None
 
     @staticmethod
     def from_dict(d: dict) -> "WsOrder":
@@ -90,97 +89,24 @@ class OrderUpdate:
 
     market_pubkey: str
     orderbook_id: str
-    timestamp: Optional[str] = None
-    tx_signature: Optional[str] = None
-    update_type: Optional[str] = None
-    order: Optional[WsOrder] = None
+    timestamp: str | None = None
+    tx_signature: str | None = None
+    update_type: str | None = None
+    order: WsOrder | None = None
 
     @staticmethod
     def from_dict(d: dict) -> "OrderUpdate":
-        order_data = d.get("order")
+        """Decode a live limit order, requiring its order payload."""
+        order_data = _require(d, "order", "OrderUpdate")
+        if not isinstance(order_data, dict):
+            raise DeserializationError("OrderUpdate requires an order object")
         return OrderUpdate(
             market_pubkey=_require(d, "market_pubkey", "OrderUpdate"),
             orderbook_id=_require(d, "orderbook_id", "OrderUpdate"),
             timestamp=d.get("timestamp"),
             tx_signature=d.get("tx_signature"),
             update_type=d.get("type", d.get("update_type")),
-            order=WsOrder.from_dict(order_data) if order_data else None,
-        )
-
-
-@dataclass
-class TriggerOrderUpdate:
-    trigger_order_id: str
-    status: str
-    user_pubkey: str = ""
-    market_pubkey: str = ""
-    orderbook_id: str = ""
-    order_hash: str = ""
-    trigger_price: Optional[str] = None
-    trigger_above: Optional[bool] = None
-    update_type: Optional[str] = None
-    result_status: Optional[str] = None
-    result_filled: Optional[str] = None
-    result_remaining: Optional[str] = None
-    timestamp: Optional[str] = None
-    side: int = 0
-    maker_amount: str = "0"
-    taker_amount: str = "0"
-    tif: TimeInForce = TimeInForce.GTC
-
-    @staticmethod
-    def from_dict(d: dict) -> "TriggerOrderUpdate":
-        tif_raw = d.get("tif")
-        tif = TimeInForce.from_wire(tif_raw) if tif_raw is not None else TimeInForce.GTC
-        return TriggerOrderUpdate(
-            trigger_order_id=_require(d, "trigger_order_id", "TriggerOrderUpdate"),
-            status=_require(d, "status", "TriggerOrderUpdate"),
-            user_pubkey=d.get("user_pubkey", ""),
-            market_pubkey=d.get("market_pubkey", ""),
-            orderbook_id=d.get("orderbook_id", ""),
-            order_hash=d.get("order_hash", ""),
-            trigger_price=(
-                str(d.get("trigger_price"))
-                if d.get("trigger_price") is not None
-                else None
-            ),
-            trigger_above=d.get("trigger_above"),
-            update_type=d.get("type", d.get("update_type")),
-            result_status=d.get("result_status"),
-            result_filled=(
-                str(d.get("result_filled", "0"))
-                if d.get("result_filled") is not None
-                else None
-            ),
-            result_remaining=(
-                str(d.get("result_remaining", "0"))
-                if d.get("result_remaining") is not None
-                else None
-            ),
-            timestamp=d.get("timestamp"),
-            side=int(Side.from_wire(d.get("side", 0))),
-            maker_amount=str(d.get("maker_amount", "0")),
-            taker_amount=str(d.get("taker_amount", "0")),
-            tif=tif,
-        )
-
-    def into_trigger_order(self) -> TriggerOrder:
-        """Convert this WS update into a domain TriggerOrder."""
-        trigger_type = (
-            TriggerType.TAKE_PROFIT if self.trigger_above else TriggerType.STOP_LOSS
-        )
-        return TriggerOrder(
-            trigger_order_id=self.trigger_order_id,
-            order_hash=self.order_hash,
-            market_pubkey=self.market_pubkey,
-            orderbook_id=self.orderbook_id,
-            trigger_price=self.trigger_price or "0",
-            trigger_type=trigger_type,
-            side=self.side,
-            amount_in=self.maker_amount,
-            amount_out=self.taker_amount,
-            time_in_force=self.tif,
-            created_at=self.timestamp,
+            order=WsOrder.from_dict(order_data),
         )
 
 
@@ -190,7 +116,7 @@ class UserBalanceUpdate:
 
     market_pubkey: str = ""
     market_balance: UserMarketBalance = field(default_factory=UserMarketBalance)
-    timestamp: Optional[str] = None
+    timestamp: str | None = None
 
     @staticmethod
     def from_dict(d: dict) -> "UserBalanceUpdate":
@@ -207,7 +133,7 @@ class UserBalanceUpdate:
 class NotificationUpdate:
     """WebSocket notification push."""
 
-    notification: Optional[Notification] = None
+    notification: Notification | None = None
 
     @staticmethod
     def from_dict(d: dict) -> "NotificationUpdate":
@@ -224,7 +150,7 @@ class GlobalDepositUpdate:
 
     mint: str = ""
     balance: str = "0"
-    timestamp: Optional[str] = None
+    timestamp: str | None = None
 
     @staticmethod
     def from_dict(d: dict) -> "GlobalDepositUpdate":
@@ -241,7 +167,7 @@ class NonceUpdate:
 
     user_pubkey: str = ""
     new_nonce: int = 0
-    timestamp: Optional[str] = None
+    timestamp: str | None = None
 
     @staticmethod
     def from_dict(d: dict) -> "NonceUpdate":
@@ -254,7 +180,7 @@ class NonceUpdate:
 
 @dataclass
 class UserSnapshot:
-    """WebSocket user snapshot."""
+    """Account snapshot containing limit orders and the accompanying account data."""
 
     orders: list[UserSnapshotOrder] = field(default_factory=list)
     market_balances: list[UserMarketBalance] = field(default_factory=list)
@@ -264,8 +190,11 @@ class UserSnapshot:
 
     @staticmethod
     def from_dict(d: dict) -> "UserSnapshot":
+        orders = d.get("orders", [])
+        if not isinstance(orders, list):
+            raise DeserializationError("UserSnapshot orders must be an array")
         return UserSnapshot(
-            orders=[UserSnapshotOrder.from_dict(o) for o in d.get("orders", [])],
+            orders=[UserSnapshotOrder.from_dict(o) for o in orders],
             market_balances=[
                 UserMarketBalance.from_dict(b)
                 for b in _require(d, "market_balances", "UserSnapshot")
@@ -283,7 +212,6 @@ class UserSnapshot:
 UserUpdateData = Union[
     "UserSnapshot",
     "OrderUpdate",
-    "TriggerOrderUpdate",
     "UserBalanceUpdate",
     "GlobalDepositUpdate",
     "NonceUpdate",
@@ -295,7 +223,7 @@ UserUpdateData = Union[
 @dataclass
 class UserUpdate:
     event_type: str = ""
-    data: Optional[UserUpdateData] = None
+    data: UserUpdateData | None = None
 
     @staticmethod
     def from_dict(d: dict) -> "UserUpdate":
@@ -303,7 +231,9 @@ class UserUpdate:
         if event_type == "snapshot":
             payload = UserSnapshot.from_dict(d)
         elif event_type == "order":
-            payload = _parse_order_event(d)
+            if d.get("order_type") != "limit":
+                raise DeserializationError("Order event requires order_type 'limit'")
+            payload = OrderUpdate.from_dict(d)
         elif event_type == "market_balance_update":
             payload = UserBalanceUpdate.from_dict(d)
         elif event_type == "global_deposit_update":
@@ -313,9 +243,7 @@ class UserUpdate:
         elif event_type == "notification":
             payload = NotificationUpdate.from_dict(d)
         else:
-            raise DeserializationError(
-                f"Invalid user update event_type '{event_type}'"
-            )
+            raise DeserializationError(f"Invalid user update event_type '{event_type}'")
 
         return UserUpdate(event_type=event_type, data=payload)
 
@@ -324,8 +252,8 @@ class UserUpdate:
 class AuthUpdate:
     status: str = "anonymous"
     authenticated: bool = False
-    wallet_address: Optional[str] = None
-    reason: Optional[str] = None
+    wallet_address: str | None = None
+    reason: str | None = None
 
     @staticmethod
     def from_dict(d: dict) -> "AuthUpdate":
@@ -342,12 +270,6 @@ class AuthUpdate:
             wallet_address=d.get("wallet", d.get("wallet_address")),
             reason=d.get("reason"),
         )
-
-
-def _parse_order_event(d: dict) -> Union[OrderUpdate, TriggerOrderUpdate]:
-    if str(d.get("order_type", "")).lower() == "trigger":
-        return TriggerOrderUpdate.from_dict(d)
-    return OrderUpdate.from_dict(d)
 
 
 class Role(str, Enum):
@@ -430,7 +352,7 @@ class UserOrderFillsResponse:
     """Response from GET /api/users/order-fills."""
 
     orders: list[UserOrderFill] = field(default_factory=list)
-    next_cursor: Optional[str] = None
+    next_cursor: str | None = None
     has_more: bool = False
 
     @staticmethod

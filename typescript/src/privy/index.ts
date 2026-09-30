@@ -1,6 +1,6 @@
 export * from "./client";
 import { SdkError } from "../error";
-import type { LimitOrderEnvelope, TriggerOrderEnvelope } from "../program/envelope";
+import type { LimitOrderEnvelope } from "../program/envelope";
 
 export interface SignAndSendTxRequest {
   wallet_id: string;
@@ -11,6 +11,7 @@ export interface SignAndSendTxResponse {
   hash: string;
 }
 
+/** Ordinary order fields sent to the Privy signing endpoint, with exact token units. */
 export interface PrivyOrderEnvelope {
   maker: string;
   nonce: number;
@@ -24,8 +25,6 @@ export interface PrivyOrderEnvelope {
   expiration?: bigint;
   orderbook_id: string;
   tif?: import("../shared").TimeInForce;
-  trigger_price?: number;
-  trigger_type?: import("../shared").TriggerType;
   deposit_source?: import("../shared").DepositSource;
 }
 
@@ -34,9 +33,8 @@ export interface SignAndSendOrderRequest {
   order: PrivyOrderEnvelope;
 }
 
-export type CancelTarget =
-  | { cancel_type: "limit"; order_hash: string }
-  | { cancel_type: "trigger"; trigger_order_id: string };
+/** A supported ordinary-order cancellation target. */
+export type CancelTarget = { cancel_type: "limit"; order_hash: string };
 
 export type SignAndCancelOrderRequest = {
   wallet_id: string;
@@ -77,23 +75,16 @@ export interface LimitOrderResponse {
   fills: OrderFill[];
 }
 
-export interface TriggerOrderResponse {
-  trigger_order_id: string;
-  order_hash: string;
-}
-
-export type SignAndSendOrderResponse = LimitOrderResponse | TriggerOrderResponse;
+/** Result of submitting an ordinary order through Privy. */
+export type SignAndSendOrderResponse = LimitOrderResponse;
 
 export interface LimitCancelResponse {
   order_hash: string;
   remaining: string;
 }
 
-export interface TriggerCancelResponse {
-  trigger_order_id: string;
-}
-
-export type SignAndCancelOrderResponse = LimitCancelResponse | TriggerCancelResponse;
+/** Result of cancelling an ordinary order through Privy. */
+export type SignAndCancelOrderResponse = LimitCancelResponse;
 
 export interface SignAndCancelAllResponse {
   user_pubkey: string;
@@ -139,41 +130,6 @@ export function privyOrderFromLimitEnvelope(
     amount_out: amountOut,
     expiration: envelope.getExpiration(),
     orderbook_id: orderbookId,
-    deposit_source: envelope.getDepositSource(),
-  };
-}
-
-export function privyOrderFromTriggerEnvelope(
-  envelope: TriggerOrderEnvelope,
-  orderbookId: string
-): PrivyOrderEnvelope {
-  const maker = requireDefined(envelope.getMaker(), "maker");
-  const nonce = requireDefined(envelope.getNonce(), "nonce");
-  const salt = requireDefined(envelope.getSalt(), "salt");
-  const market = requireDefined(envelope.getMarket(), "market");
-  const baseMint = requireDefined(envelope.getBaseMint(), "base_mint");
-  const quoteMint = requireDefined(envelope.getQuoteMint(), "quote_mint");
-  const side = requireDefined(envelope.getSide(), "side");
-  const amountIn = requireDefined(envelope.getAmountIn(), "amount_in");
-  const amountOut = requireDefined(envelope.getAmountOut(), "amount_out");
-
-  return {
-    maker: maker.toBase58(),
-    nonce,
-    salt,
-    market_pubkey: market.toBase58(),
-    base_token: baseMint.toBase58(),
-    quote_token: quoteMint.toBase58(),
-    side,
-    amount_in: amountIn,
-    amount_out: amountOut,
-    expiration: envelope.getExpiration(),
-    orderbook_id: orderbookId,
-    tif: envelope.getTimeInForce(),
-    trigger_price: envelope.getTriggerPrice() === undefined
-      ? undefined
-      : Number(envelope.getTriggerPrice()),
-    trigger_type: envelope.getTriggerType(),
     deposit_source: envelope.getDepositSource(),
   };
 }

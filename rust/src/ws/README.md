@@ -102,20 +102,20 @@ Discriminated union of all inbound message types:
 
 ### `UserUpdate`
 
-The `User` channel delivers three event types:
+The `User` channel delivers account snapshots and updates:
 
 | Variant | Description |
 |---------|-------------|
 | `UserUpdate::Snapshot(UserSnapshot)` | Full snapshot of orders, balances, and global deposits |
-| `UserUpdate::Order(OrderEvent)` | Limit or trigger order update |
+| `UserUpdate::Order(OrderEvent)` | Live limit-order update |
 | `UserUpdate::BalanceUpdate(UserBalanceUpdate)` | Token balance change |
+| `UserUpdate::GlobalDepositUpdate(GlobalDepositUpdate)` | Global deposit balance change |
+| `UserUpdate::NonceUpdate(NonceUpdate)` | Account order nonce change |
+| `UserUpdate::Notification(NotificationUpdate)` | User notification |
 
-`OrderEvent` is further discriminated:
+`OrderEvent::Limit(OrderUpdate)` carries limit order placements, updates, and cancellations.
 
-| Variant | Description |
-|---------|-------------|
-| `OrderEvent::Limit(OrderUpdate)` | Limit order placement, update, or cancellation |
-| `OrderEvent::Trigger(TriggerOrderUpdate)` | Trigger order status change |
+Refer to the [shared order-response contract](../../../README.md#supported-order-responses) for limit-order decoding and account metadata.
 
 ### `WalletDepositBalancesEvent`
 

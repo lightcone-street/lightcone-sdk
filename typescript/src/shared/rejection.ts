@@ -29,7 +29,6 @@ const REJECTION_CODE_LABELS = {
   INVALID_PRICE_DECIMALS: "Invalid Price Decimals",
   INVALID_PRICE_SIGNIFICANT_FIGURES: "Invalid Price Significant Figures",
   INVALID_SIZE_DECIMALS: "Invalid Size Decimals",
-  TRIGGER_PRICE_OUT_OF_RANGE: "Trigger Price Out of Range",
 } as const;
 
 type KnownRejectionCode = keyof typeof REJECTION_CODE_LABELS;
