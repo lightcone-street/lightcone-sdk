@@ -287,10 +287,10 @@ function normalizeUserSnapshotOrderCommon(
   const amountIn = order.amount_in ?? order.maker_amount;
   const amountOut = order.amount_out ?? order.taker_amount;
 
-  if (amountIn === undefined) {
+  if (amountIn === undefined || amountIn === null) {
     throw new Error("Invalid user snapshot order: missing amount_in/maker_amount");
   }
-  if (amountOut === undefined) {
+  if (amountOut === undefined || amountOut === null) {
     throw new Error("Invalid user snapshot order: missing amount_out/taker_amount");
   }
 
@@ -305,6 +305,9 @@ function normalizeUserSnapshotOrderCommon(
 export function normalizeUserSnapshotOrder(order: RawLimitSnapshotOrder): UserSnapshotOrder {
   if (order.order_type !== "limit") {
     throw new Error("Invalid snapshot order: expected order_type limit");
+  }
+  if (typeof order.order_hash !== "string") {
+    throw new Error("Invalid snapshot order: order_hash must be a string");
   }
   return {
     ...normalizeUserSnapshotOrderCommon(order),
@@ -379,7 +382,8 @@ export function normalizeUserOrdersPayload(
 } {
   return {
     user_pubkey: response.user_pubkey,
-    orders: requireArray(response.orders ?? [], "user orders").map(normalizeUserSnapshotOrder),
+    orders: requireArray(response.orders === undefined ? [] : response.orders, "user orders")
+      .map(normalizeUserSnapshotOrder),
     market_balances: requireArray(
       response.market_balances,
       "user orders response market_balances"

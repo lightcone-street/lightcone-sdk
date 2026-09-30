@@ -368,6 +368,21 @@ On WASM these methods are equivalent to their non-`_with_cookies` counterparts b
 
 If you maintain a non-Rust SDK (TypeScript, Python) and need to support an SSR consumer, mirror the same pattern: the wire contract is unchanged — only the per-call `Cookie: lightcone-token=<token>` header attachment differs.
 
+## API Key
+
+Configure an API key for native or server-side submit, cancel, and cancel-all requests. Public reads and authentication need no API key. The key identifies an API Consumer; user authentication, wallet ownership, and signed-order validation still apply.
+
+```rust
+let client = LightconeClient::builder()
+    .env(LightconeEnv::Staging)
+    .api_key(&std::env::var("LIGHTCONE_API_KEY")?)
+    .build()?;
+```
+
+The SDK attaches `x-lightcone-api-key` only to POST `/api/orders/submit`, `/api/orders/cancel`, and `/api/orders/cancel-all` on the configured API origin. It never forwards the key to another origin or logs it. HTTPS is required except for loopback development. Keep keys out of source control and browsers. Browser builds reject API-key configuration; web users trade with their existing Privy session.
+
+Cloudflare limits these trading attempts by public source IP, not by API key: direct API callers share 500 attempts per 10-second window per IP. A 429 response does not revoke credentials. Public reads and WebSocket messages are outside this trading limit. Revocation reaches all backend process caches within 24 hours; new keys work immediately through a database lookup on cache miss.
+
 ## Environment Configuration
 
 The SDK defaults to the **production** environment. Use `LightconeEnv` to target a different deployment:

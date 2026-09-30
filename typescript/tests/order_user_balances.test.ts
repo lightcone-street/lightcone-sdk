@@ -216,8 +216,16 @@ describe("limit order decoding", () => {
     assert.equal(message.data.nonce, 17);
   });
 
-  it("rejects limit orders with missing amounts", () => {
-    for (const field of ["amount_in", "amount_out"] as const) {
+  it("rejects null order collections while preserving the optional REST default", () => {
+    assert.throws(() => normalizeUserOrdersPayload(restPayload(null as never)), /expected array/);
+    assert.throws(() => parseMessageIn(frame({
+      event_type: "snapshot", orders: null, market_balances: [marketBalance],
+    })), /expected array/);
+    assert.deepEqual(normalizeUserOrdersPayload({ ...restPayload([]), orders: undefined }).orders, []);
+  });
+
+  it("rejects limit orders with missing required fields", () => {
+    for (const field of ["amount_in", "amount_out", "order_hash"] as const) {
       const invalid = { ...supported(), [field]: undefined } as never;
       assert.throws(() => normalizeUserOrdersPayload(restPayload([supported(), invalid])));
       assert.throws(() => parseMessageIn(frame({
@@ -235,6 +243,20 @@ describe("limit order decoding", () => {
     assert.ok(message.type === "user" && message.data.event_type === "order");
     state.upsert(message.data);
     assert.equal(state.isEmpty(), false);
+  });
+
+  it("rejects null amounts and non-string snapshot hashes", () => {
+    const invalidOrders = [
+      ...[null, 1, {}].map(order_hash => ({ ...supported(), order_hash })),
+      { ...supported(), amount_in: null, maker_amount: null },
+      { ...supported(), amount_out: null, taker_amount: null },
+    ];
+    for (const invalid of invalidOrders) {
+      assert.throws(() => normalizeUserOrdersPayload(restPayload([invalid as never])));
+      assert.throws(() => parseMessageIn(frame({
+        event_type: "snapshot", orders: [invalid], market_balances: [marketBalance],
+      })));
+    }
   });
 
   it("rejects invalid wire kinds rather than relabelling them as limit", () => {

@@ -58,6 +58,11 @@ pub fn rest_client() -> ExampleResult<LightconeClient> {
         };
         builder = builder.env(environment);
     }
+    if let Ok(api_key) = env::var("LIGHTCONE_API_KEY") {
+        if !api_key.trim().is_empty() {
+            builder = builder.api_key(&api_key);
+        }
+    }
     Ok(builder.build()?)
 }
 

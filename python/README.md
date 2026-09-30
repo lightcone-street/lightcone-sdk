@@ -192,6 +192,27 @@ await client.auth().login_with_message(message, signature_bs58, pubkey_bytes)
 client.set_order_nonce(await client.orders().current_nonce(keypair.pubkey()))
 ```
 
+## API Key
+
+Configure an API key for native or server-side submit, cancel, and cancel-all requests. Public reads and authentication need no API key. The key identifies an API Consumer; user authentication, wallet ownership, and signed-order validation still apply.
+
+```python
+import os
+
+from lightcone_sdk import LightconeClientBuilder, LightconeEnv
+
+client = (
+    LightconeClientBuilder()
+    .env(LightconeEnv.STAGING)
+    .api_key(os.environ["LIGHTCONE_API_KEY"])
+    .build()
+)
+```
+
+The SDK attaches `x-lightcone-api-key` only to POST `/api/orders/submit`, `/api/orders/cancel`, and `/api/orders/cancel-all` on the configured API origin. It never forwards the key to another origin or logs it. HTTPS is required except for loopback development. Keep keys out of source control and browsers.
+
+Cloudflare limits these trading attempts by public source IP, not by API key: direct API callers share 500 attempts per 10-second window per IP. A 429 response does not revoke credentials. Public reads and WebSocket messages are outside this trading limit. Revocation reaches all backend process caches within 24 hours; new keys work immediately through a database lookup on cache miss.
+
 ## Environment Configuration
 
 The SDK defaults to the **production** environment. Use `LightconeEnv` to target a different deployment:

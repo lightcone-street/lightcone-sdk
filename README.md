@@ -34,7 +34,7 @@ Refer to the response declarations for [Rust](rust/src/domain/faucet.rs), [TypeS
 
 ### Supported order responses
 
-REST order lists, WebSocket account snapshots, and live order events carry limit orders. The SDKs decode these payloads directly. Invalid limit payloads fail decoding. Account snapshots retain balances, notifications, and nonce. REST responses retain the server's pagination metadata.
+The SDK decoders model REST orders, WebSocket account snapshots, and live order events as limit orders. They decode these payloads directly and propagate decoding errors. Their account models retain balances, notifications, and nonce. REST response models retain the server's pagination metadata. The [published API specification](https://github.com/lightcone-street/docs/blob/main/api-reference/openapi.json) owns backend payload semantics.
 
 The snapshot converters return `UserOpenLimitOrders`: `convert_snapshot_orders` in Rust and Python, and `convertSnapshotOrders` in TypeScript. Market-style execution still uses a signed limit order with its time-in-force policy.
 
@@ -133,6 +133,7 @@ For Caddy + mkcert TLS setup and running the full local stack, refer to the [web
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `LIGHTCONE_ENV` | Yes | Target environment: `local`, `staging`, or `prod` |
+| `LIGHTCONE_API_KEY` | For direct trading on deployed API hosts | Your own API Key for Rust/Python `api_key(...)` or TypeScript `apiKey(...)`. Shared example builders read it when set. Only submit, cancel, and cancel-all requests send it; public read examples need no key. Keep it server-side. |
 | `SDK_RPC_URL` | Optional | Solana RPC URL. Use a private devnet RPC (e.g. [Helius](https://www.helius.dev/)) to avoid 429 rate-limit errors from the public `api.devnet.solana.com`. Local `wsol_conversion` runs and eligible staging-CI runs may retain it; other fund-moving examples document stricter guards. |
 | `LIGHTCONE_WALLET_PATH` | Yes | Path to Solana keypair JSON for Rust examples |
 | `LIGHTCONE_WALLET_PATH_TS` | Yes | Path to Solana keypair JSON for TypeScript examples |

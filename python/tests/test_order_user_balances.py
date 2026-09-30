@@ -300,6 +300,16 @@ def test_live_limit_order_updates_state():
     assert not state.is_empty()
 
 
+@pytest.mark.parametrize("order_hash", [None, 1, {}])
+def test_snapshot_hash_must_be_a_string(order_hash):
+    invalid = {**user_order("book-1", "base-1"), "order_hash": order_hash}
+    payload = rest_payload([invalid])
+    with pytest.raises(DeserializationError, match="order_hash must be a string"):
+        _user_orders_response_from_wire(payload, "")
+    with pytest.raises(DeserializationError, match="order_hash must be a string"):
+        parse_message_in(user_frame({**payload, "event_type": "snapshot"}))
+
+
 @pytest.mark.parametrize("orders", [{}, "", None])
 def test_malformed_order_collections_fail_rest_and_snapshot_decoding(orders):
     payload = rest_payload(orders)
@@ -332,7 +342,7 @@ def test_invalid_wire_kind_is_not_relabelled_as_limit(order_type):
 
 
 def test_malformed_live_limit_order_fails_decoding():
-    for fields in [{}, {"order": {}}]:
+    for fields in [{}, {"order": {}}, {"order": None}, {"order": []}, {"order": 1}]:
         malformed = {
             "event_type": "order",
             "order_type": "limit",
@@ -342,3 +352,12 @@ def test_malformed_live_limit_order_fails_decoding():
         }
         with pytest.raises(DeserializationError):
             parse_message_in(user_frame(malformed))
+
+
+@pytest.mark.parametrize("order", [None, [], 1])
+def test_non_object_snapshot_order_raises_decoding_error(order):
+    payload = rest_payload([order])
+    with pytest.raises(DeserializationError, match="requires an order object"):
+        _user_orders_response_from_wire(payload, "")
+    with pytest.raises(DeserializationError, match="requires an order object"):
+        parse_message_in(user_frame({**payload, "event_type": "snapshot"}))

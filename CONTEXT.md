@@ -19,6 +19,9 @@ Equivalent observable behavior across all three SDKs, expressed with each langua
 numeric, and error conventions.
 _Avoid_: Identical APIs
 
+**Trading API Key**:
+Server-side clients attach an opaque API Key only to submit, cancel, and cancel-all POST requests on their configured API origin. The key identifies an API Consumer, not an Account, and does not replace user authentication or order signatures. Browser callers use their existing Privy session directly. Public reads, authentication, and WebSocket connections do not carry the key.
+
 ## SDK Terms
 
 **SOL Action Plan**:

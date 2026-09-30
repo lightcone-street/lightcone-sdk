@@ -14,6 +14,7 @@ TypeScript SDK for the Lightcone impact market protocol on Solana.
      - [Step 6: Exit a Position](#step-6-exit-a-position)
      - [Step 7: Withdraw](#step-7-withdraw)
 - [Authentication](#authentication)
+- [API Key](#api-key)
 - [Environment Configuration](#environment-configuration)
 - [Examples](#examples)
 - [Error Handling](#error-handling)
@@ -518,6 +519,21 @@ const positions = await client
 ```
 
 In browsers, use the ordinary methods. The browser supplies the cookie through `credentials: "include"`.
+
+## API Key
+
+Configure an API key for native or server-side submit, cancel, and cancel-all requests. Public reads and authentication need no API key. The key identifies an API Consumer; user authentication, wallet ownership, and signed-order validation still apply.
+
+```ts
+const client = LightconeClient.builder()
+  .env(LightconeEnv.Staging)
+  .apiKey(process.env.LIGHTCONE_API_KEY!)
+  .build();
+```
+
+The SDK attaches `x-lightcone-api-key` only to POST `/api/orders/submit`, `/api/orders/cancel`, and `/api/orders/cancel-all` on the configured API origin. It never forwards the key to another origin or logs it. HTTPS is required except for loopback development. Keep keys out of source control and browsers. Browser builds reject API-key configuration; web users trade with their existing Privy session.
+
+Cloudflare limits these trading attempts by public source IP, not by API key: direct API callers share 500 attempts per 10-second window per IP. A 429 response does not revoke credentials. Public reads and WebSocket messages are outside this trading limit. Revocation reaches all backend process caches within 24 hours; new keys work immediately through a database lookup on cache miss.
 
 ## Environment Configuration
 

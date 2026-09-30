@@ -242,8 +242,13 @@ class UserSnapshotOrder:
         """Decode a limit order with its required wire kind, amounts, and order hash."""
         from ...shared.types import Side as _Side
 
+        if not isinstance(d, dict):
+            raise DeserializationError("UserSnapshotOrder requires an order object")
         if d.get("order_type") != OrderType.LIMIT.value:
             raise DeserializationError("UserSnapshotOrder requires order_type 'limit'")
+        order_hash = _require(d, "order_hash", "UserSnapshotOrder")
+        if not isinstance(order_hash, str):
+            raise DeserializationError("UserSnapshotOrder order_hash must be a string")
         amount_in = d.get("amount_in", d.get("maker_amount"))
         amount_out = d.get("amount_out", d.get("taker_amount"))
         if amount_in is None or amount_out is None:
@@ -256,7 +261,7 @@ class UserSnapshotOrder:
         if size is None:
             size = _sum_decimal_strings(remaining, filled)
         return UserSnapshotOrder(
-            order_hash=_require(d, "order_hash", "UserSnapshotOrder"),
+            order_hash=order_hash,
             side=int(_Side.from_wire(d.get("side", 0))),
             price=d.get("price", "0"),
             size=str(size),

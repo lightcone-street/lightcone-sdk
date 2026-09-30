@@ -98,6 +98,8 @@ class OrderUpdate:
     def from_dict(d: dict) -> "OrderUpdate":
         """Decode a live limit order, requiring its order payload."""
         order_data = _require(d, "order", "OrderUpdate")
+        if not isinstance(order_data, dict):
+            raise DeserializationError("OrderUpdate requires an order object")
         return OrderUpdate(
             market_pubkey=_require(d, "market_pubkey", "OrderUpdate"),
             orderbook_id=_require(d, "orderbook_id", "OrderUpdate"),
