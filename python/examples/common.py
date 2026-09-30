@@ -41,6 +41,9 @@ def client() -> LightconeClient:
             raise RuntimeError(
                 f"invalid LIGHTCONE_ENV '{env_str}'. Options: local, staging, prod"
             ) from exc
+    api_key = os.environ.get("LIGHTCONE_API_KEY", "").strip()
+    if api_key:
+        builder = builder.api_key(api_key)
     return builder.build()
 
 
