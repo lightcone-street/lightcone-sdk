@@ -44,7 +44,6 @@ lightcone = { version = "=0.10.0-rc.1", features = ["wasm"] }
 |---------|-----------------|----------|
 | **`native`** | `http` + `native-auth` + `ws-native` + `solana-rpc` | **Market makers, bots, CLI tools** |
 | **`wasm`** | `http` + `ws-wasm` | **Browser applications** |
-| **`trigger_orders`** | Stop-limit & take-profit-limit order types, envelope, state | **Under development** — not yet available. For internal use only. |
 
 ## Solana v1 transactions
 

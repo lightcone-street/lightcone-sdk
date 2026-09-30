@@ -32,6 +32,12 @@ The SDK HTTP transports unwrap successful responses from `{"status":"success","b
 
 Refer to the response declarations for [Rust](rust/src/domain/faucet.rs), [TypeScript](typescript/src/domain/faucet.ts), and [Python](python/src/lightcone_sdk/domain/faucet.py). The published [claim reference](https://github.com/lightcone-street/docs/blob/main/api-reference/endpoint/claim.mdx) and [OpenAPI specification](https://github.com/lightcone-street/docs/blob/main/api-reference/openapi.json) belong to the documentation repository.
 
+### Supported order responses
+
+REST order lists, WebSocket account snapshots, and live order events carry limit orders. The SDKs decode these payloads directly. Invalid limit payloads fail decoding. Account snapshots retain balances, notifications, and nonce. REST responses retain the server's pagination metadata.
+
+The snapshot converters return `UserOpenLimitOrders`: `convert_snapshot_orders` in Rust and Python, and `convertSnapshotOrders` in TypeScript. Market-style execution still uses a signed limit order with its time-in-force policy.
+
 ### On-chain program
 
 The program builders target the [reviewed program ABI](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src). This is a hard cutover. Orderbooks use the 176-byte layout with both collateral mints and a shared outcome. Matching requires both collateral identities. Preparation uses `InitPositionTokens` without a slot. Retired ALT operations and their SDK parameters are removed.

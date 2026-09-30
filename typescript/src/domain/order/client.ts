@@ -22,10 +22,8 @@ import {
   createSignedBidOrder as programCreateSignedBidOrder,
   createSignedAskOrder as programCreateSignedAskOrder,
   signCancelOrder,
-  signCancelTriggerOrder,
   signCancelAll,
   cancelOrderMessage,
-  cancelTriggerOrderMessage,
   cancelAllMessage,
   generateCancelAllSalt as programGenerateCancelAllSalt,
 } from "../../program/orders";
@@ -50,13 +48,12 @@ import {
   asPubkeyStr,
   validateRawAmounts,
   validateSignedFields,
-  validateTriggerPrice,
   type OrderBookId,
   type OrderbookRules,
   type PubkeyStr,
   type SubmitOrderRequest,
 } from "../../shared";
-import { LimitOrderEnvelope, TriggerOrderEnvelope } from "../../program/envelope";
+import { LimitOrderEnvelope } from "../../program/envelope";
 import { Orderbooks } from "../orderbook/client";
 import {
   normalizeUserOrdersPayload,
@@ -129,33 +126,6 @@ export function cancelAllBodySigned(
   return { user_pubkey: userPubkey, orderbook_id: orderbookId, signature, timestamp, salt };
 }
 
-export interface CancelTriggerBody {
-  trigger_order_id: string;
-  maker: PubkeyStr;
-  signature: string;
-}
-
-export function cancelTriggerBodyFromBase58(
-  triggerOrderId: string,
-  maker: PubkeyStr,
-  signatureBase58: string
-): CancelTriggerBody {
-  return {
-    trigger_order_id: triggerOrderId,
-    maker,
-    signature: Buffer.from(bs58.decode(signatureBase58)).toString("hex"),
-  };
-}
-
-export function cancelTriggerBodySigned(
-  triggerOrderId: string,
-  maker: PubkeyStr,
-  keypair: Keypair
-): CancelTriggerBody {
-  const signature = signCancelTriggerOrder(triggerOrderId, keypair);
-  return { trigger_order_id: triggerOrderId, maker, signature };
-}
-
 // ─── Response types ──────────────────────────────────────────────────────────
 
 export interface FillInfo {
@@ -189,15 +159,6 @@ export interface CancelAllSuccess {
   message: string;
 }
 
-export interface TriggerOrderResponse {
-  trigger_order_id: string;
-  order_hash: string;
-}
-
-export interface CancelTriggerSuccess {
-  trigger_order_id: string;
-}
-
 export interface UserOrdersResponse {
   user_pubkey: PubkeyStr;
   orders: UserSnapshotOrder[];
@@ -225,10 +186,6 @@ export class Orders {
 
   limitOrder(): LimitOrderEnvelope {
     return LimitOrderEnvelope.new().depositSource(this.client.depositSource);
-  }
-
-  triggerOrder(): TriggerOrderEnvelope {
-    return TriggerOrderEnvelope.new().depositSource(this.client.depositSource);
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────
@@ -263,16 +220,7 @@ export class Orders {
     );
   }
 
-  async submitTrigger(request: SubmitOrderRequest): Promise<TriggerOrderResponse> {
-    await this.preflightSubmit(request);
-    const url = `${this.client.http.baseUrl()}/api/orders/submit`;
-    return this.client.http.post<TriggerOrderResponse, SubmitOrderRequest>(
-      url,
-      request,
-      RetryPolicy.None
-    );
-  }
-
+  /** Validates exact signed amounts against current book rules before submission. */
   private async preflightSubmit(request: SubmitOrderRequest): Promise<void> {
     const rules = await new Orderbooks(this.client).decimals(request.orderbook_id);
     if (request.side !== OrderSide.BID && request.side !== OrderSide.ASK) {
@@ -280,18 +228,6 @@ export class Orders {
     }
     validateRawAmounts(request.amount_in, request.amount_out, request.side, rules);
     validateSignedFields(request.amount_in, request.amount_out, request.salt, request.nonce);
-    if (request.trigger_price !== undefined) {
-      validateTriggerPrice(String(request.trigger_price), rules.priceDecimals);
-    }
-  }
-
-  async cancelTrigger(body: CancelTriggerBody): Promise<CancelTriggerSuccess> {
-    const url = `${this.client.http.baseUrl()}/api/orders/cancel`;
-    return this.client.http.post<CancelTriggerSuccess, CancelTriggerBody>(
-      url,
-      body,
-      RetryPolicy.None
-    );
   }
 
   /**
@@ -490,42 +426,6 @@ export class Orders {
           orderbook_id: asOrderBookId(result.orderbook_id),
           message: result.message,
         };
-      }
-    }
-  }
-
-  async cancelTriggerSigned(
-    triggerOrderId: string,
-    maker: PubkeyStr
-  ): Promise<CancelTriggerSuccess> {
-    const strategy = requireSigningStrategy(this.client);
-
-    switch (strategy.type) {
-      case "native": {
-        const body = cancelTriggerBodySigned(triggerOrderId, maker, strategy.keypair);
-        return this.cancelTrigger(body);
-      }
-      case "walletAdapter": {
-        const message = cancelTriggerOrderMessage(triggerOrderId);
-        const sigBytes = await strategy.signer
-          .signMessage(message)
-          .catch((err: unknown) => {
-            const msg = err instanceof Error ? err.message : String(err);
-            if (isUserCancellation(msg)) throw SdkError.userCancelled();
-            throw SdkError.signing(msg);
-          });
-        const sigBs58 = bs58.encode(sigBytes);
-        const body = cancelTriggerBodyFromBase58(triggerOrderId, maker, sigBs58);
-        return this.cancelTrigger(body);
-      }
-      case "privy": {
-        const privy = new Privy(this.client);
-        const result = await privy.signAndCancelTriggerOrder(
-          strategy.walletId,
-          triggerOrderId,
-          maker as string
-        );
-        return { trigger_order_id: result.trigger_order_id };
       }
     }
   }

@@ -9,19 +9,20 @@ import pytest
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from lightcone_sdk.error import DeserializationError
-from lightcone_sdk.domain.orderbook.client import Orderbooks
 from lightcone_sdk.domain.order.client import Orders as OrderClient
+from lightcone_sdk.domain.orderbook.client import Orderbooks
 from lightcone_sdk.domain.orderbook.wire import DecimalsResponse, OrderbookDepthResponse
+from lightcone_sdk.error import DeserializationError
+from lightcone_sdk.program.envelope import LimitOrderEnvelope
+from lightcone_sdk.program.errors import InvalidOrderError
 from lightcone_sdk.program.orders import (
     generate_salt,
     hash_order_hex,
     serialize_order_for_hashing,
     sign_order,
 )
-from lightcone_sdk.program.errors import InvalidOrderError
 from lightcone_sdk.program.types import OrderSide, SignedOrder
-from lightcone_sdk.program.envelope import LimitOrderEnvelope
+from lightcone_sdk.shared.rejection import RejectionCode
 from lightcone_sdk.shared.scaling import (
     I64_MAX,
     ScalingError,
@@ -29,9 +30,7 @@ from lightcone_sdk.shared.scaling import (
     validate_raw_amounts,
     validate_signed_fields,
 )
-from lightcone_sdk.shared.rejection import RejectionCode
 from lightcone_sdk.shared.types import SubmitOrderRequest
-
 
 RULES_WIRE = {
     "orderbook_id": "11111111111111111111111111111111",
@@ -301,7 +300,6 @@ def test_new_rejection_codes_are_stable_known_values():
         "INVALID_PRICE_DECIMALS",
         "INVALID_PRICE_SIGNIFICANT_FIGURES",
         "INVALID_SIZE_DECIMALS",
-        "TRIGGER_PRICE_OUT_OF_RANGE",
     ):
         parsed = RejectionCode.from_wire(code)
         assert parsed is not None and parsed.is_known()

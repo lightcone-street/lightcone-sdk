@@ -18,8 +18,6 @@ pub use accounts::{
     UserNonce,
 };
 pub use constants::*;
-#[cfg(feature = "trigger_orders")]
-pub use envelope::TriggerOrderEnvelope;
 pub use envelope::{LimitOrderEnvelope, OrderEnvelope};
 pub use error::{SdkError, SdkResult};
 pub use instructions::*;

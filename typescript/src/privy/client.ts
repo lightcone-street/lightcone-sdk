@@ -8,7 +8,6 @@ import type {
   SignAndCancelAllRequest,
   SignAndCancelAllResponse,
   SignAndCancelOrderRequest,
-  TriggerCancelResponse,
   SignAndSendOrderRequest,
   SignAndSendOrderResponse,
   SignAndSendTxResponse,
@@ -44,25 +43,6 @@ export class Privy {
       order_hash: orderHash,
     };
     return this.client.http.post<LimitCancelResponse, SignAndCancelOrderRequest>(
-      url,
-      body,
-      RetryPolicy.None
-    );
-  }
-
-  async signAndCancelTriggerOrder(
-    walletId: string,
-    triggerOrderId: string,
-    maker: string
-  ): Promise<TriggerCancelResponse> {
-    const url = `${this.client.http.baseUrl()}/api/privy/sign_and_cancel_order`;
-    const body: SignAndCancelOrderRequest = {
-      wallet_id: walletId,
-      maker,
-      cancel_type: "trigger",
-      trigger_order_id: triggerOrderId,
-    };
-    return this.client.http.post<TriggerCancelResponse, SignAndCancelOrderRequest>(
       url,
       body,
       RetryPolicy.None

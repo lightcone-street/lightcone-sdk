@@ -56,8 +56,7 @@ pub mod prelude {
     pub use crate::program::transaction::{V1ResourceConfig, V1Transaction, V1TransactionContext};
     // Shared newtypes
     pub use crate::shared::{
-        Denominator, DepositSource, ExactDecimal, OrderBookId, PubkeyStr, Resolution, Side,
-        TimeInForce, TriggerType,
+        Denominator, DepositSource, OrderBookId, PubkeyStr, Resolution, Side, TimeInForce,
     };
 
     // Domain types — market (includes outcome + tokens)
@@ -79,15 +78,9 @@ pub mod prelude {
     pub use crate::domain::order::{
         AnyOrder, CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, ConditionalBalance,
         FillInfo, GlobalDepositBalance, GlobalDepositUpdate, LimitOrder, Order, OrderEvent,
-        OrderStatus, OrderType, SubmitOrderResponse, SubmitOrderStatus, TriggerOrderUpdate,
-        UserBalanceUpdate, UserDepositAssetBalance, UserMarketBalance, UserOpenLimitOrders,
-        UserOrdersResponse, UserOutcomeBalance, UserSnapshotOrder, UserSnapshotOrderCommon,
-        UserUpdate,
-    };
-    #[cfg(feature = "trigger_orders")]
-    pub use crate::domain::order::{
-        CancelTriggerBody, CancelTriggerSuccess, TriggerOrder, TriggerOrderResponse,
-        UserTriggerOrders,
+        OrderStatus, OrderType, SubmitOrderResponse, SubmitOrderStatus, UserBalanceUpdate,
+        UserDepositAssetBalance, UserMarketBalance, UserOpenLimitOrders, UserOrdersResponse,
+        UserOutcomeBalance, UserSnapshotOrder, UserSnapshotOrderCommon, UserUpdate,
     };
 
     // Domain types — position (includes portfolio + token balances)
@@ -149,8 +142,6 @@ pub mod prelude {
     };
 
     // Program — order envelopes, trait, payload
-    #[cfg(feature = "trigger_orders")]
-    pub use crate::program::TriggerOrderEnvelope;
     pub use crate::program::{
         generate_cancel_all_salt, LimitOrderEnvelope, OrderEnvelope, OrderPayload,
     };

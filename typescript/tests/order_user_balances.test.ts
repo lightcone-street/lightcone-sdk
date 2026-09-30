@@ -6,6 +6,7 @@ import {
   normalizeUserUpdate,
 } from "../src/domain/order/wire";
 import { parseMessageIn } from "../src/ws";
+import { convertSnapshotOrders, UserOpenLimitOrders } from "../src/domain/order";
 
 const marketBalance = {
   market_pubkey: "market-1",
@@ -165,5 +166,97 @@ describe("user market balances", () => {
         } as never),
       /market_balances/
     );
+  });
+});
+
+describe("limit order decoding", () => {
+  const supported = () => userOrder("book-1", "base-1");
+  const restPayload = (orders: ReturnType<typeof userOrder>[]) => ({
+    user_pubkey: "user-1",
+    orders,
+    market_balances: [marketBalance],
+    next_cursor: "next-page",
+    has_more: true,
+  });
+  const frame = (data: unknown) => JSON.stringify({ type: "user", version: 1, data });
+
+  it("preserves limit REST orders, balances, and pagination", () => {
+    const response = normalizeUserOrdersPayload(restPayload([supported()]));
+    assert.equal(response.orders.length, 1);
+    assert.equal(response.orders[0].order_hash, "order-book-1");
+    assert.deepEqual(response.market_balances, [marketBalance]);
+    assert.equal(response.next_cursor, "next-page");
+    assert.equal(response.has_more, true);
+    assert.equal(convertSnapshotOrders(response.orders).isEmpty(), false);
+
+    const empty = normalizeUserOrdersPayload(restPayload([]));
+    assert.deepEqual(empty.orders, []);
+    assert.deepEqual(empty.market_balances, [marketBalance]);
+    assert.equal(empty.next_cursor, "next-page");
+    assert.equal(empty.has_more, true);
+  });
+
+  it("preserves all sibling account data through the WebSocket entry point", () => {
+    const notifications = [{ id: "notice", notification_type: "global", title: "Notice", message: "Fixture" }];
+    const globalDeposits = [{ mint: "quote", balance: "9.250000" }];
+    const message = parseMessageIn(frame({
+      event_type: "snapshot",
+      orders: [supported()],
+      market_balances: [marketBalance],
+      global_deposits: globalDeposits,
+      notifications,
+      nonce: 17,
+    }));
+    assert.ok(message.type === "user" && message.data.event_type === "snapshot");
+    assert.equal(message.data.orders.length, 1);
+    assert.equal(message.data.orders[0].order_hash, "order-book-1");
+    assert.deepEqual(message.data.market_balances, [marketBalance]);
+    assert.deepEqual(message.data.global_deposits, globalDeposits);
+    assert.deepEqual(message.data.notifications, notifications);
+    assert.equal(message.data.nonce, 17);
+  });
+
+  it("rejects limit orders with missing amounts", () => {
+    for (const field of ["amount_in", "amount_out"] as const) {
+      const invalid = { ...supported(), [field]: undefined } as never;
+      assert.throws(() => normalizeUserOrdersPayload(restPayload([supported(), invalid])));
+      assert.throws(() => parseMessageIn(frame({
+        event_type: "snapshot", orders: [supported(), invalid], market_balances: [marketBalance],
+      })));
+    }
+  });
+
+  it("processes live limit orders", () => {
+    const state = new UserOpenLimitOrders();
+    const message = parseMessageIn(frame({
+      event_type: "order", order_type: "limit", market_pubkey: "market-1", orderbook_id: "book-1",
+      timestamp: "2026-01-01T00:00:00Z", order: { ...supported(), is_maker: true, fill_amount: "0" },
+    }));
+    assert.ok(message.type === "user" && message.data.event_type === "order");
+    state.upsert(message.data);
+    assert.equal(state.isEmpty(), false);
+  });
+
+  it("rejects invalid wire kinds rather than relabelling them as limit", () => {
+    for (const orderType of ["market", undefined]) {
+      const invalid = { ...supported(), order_type: orderType } as never;
+      assert.throws(() => normalizeUserOrdersPayload(restPayload([invalid])), /order_type limit/);
+      assert.throws(() => parseMessageIn(frame({
+        event_type: "snapshot", orders: [invalid], market_balances: [marketBalance],
+      })), /order_type limit/);
+      assert.throws(() => parseMessageIn(frame({
+        event_type: "order", order_type: orderType, market_pubkey: "market-1", orderbook_id: "book-1",
+        timestamp: "2026-01-01T00:00:00Z", order: { ...supported(), is_maker: true, fill_amount: "0" },
+      })), /order_type limit/);
+    }
+  });
+
+  it("rejects live limit orders without an order payload", () => {
+    for (const order of [null, undefined]) {
+      assert.throws(() => parseMessageIn(frame({
+        event_type: "order", order_type: "limit", market_pubkey: "market-1", orderbook_id: "book-1",
+        timestamp: "2026-01-01T00:00:00Z", order,
+      })));
+    }
   });
 });

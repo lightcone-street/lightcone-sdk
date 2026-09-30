@@ -1,22 +1,19 @@
-import Decimal from "decimal.js";
-import { Side, type OrderBookId, type PubkeyStr, type TimeInForce, type TriggerType } from "../../shared";
+import { Side, type OrderBookId, type PubkeyStr } from "../../shared";
 
 export * from "./client";
 export * from "./wire";
 export * from "./state";
 export { limitSnapshotToOrder, convertSnapshotOrders, orderFromUpdate } from "./convert";
 
+/** Supported resting-order kind. */
 export enum OrderType {
   Limit = "limit",
-  Trigger = "trigger",
 }
 
 export function orderTypeLabel(orderType: OrderType): string {
   switch (orderType) {
     case OrderType.Limit:
       return "Limit";
-    case OrderType.Trigger:
-      return "Trigger";
   }
 }
 
@@ -43,41 +40,4 @@ export interface LimitOrder {
   createdAt: Date;
   status: OrderStatus;
   outcomeIndex: number;
-}
-
-export interface TriggerOrder {
-  triggerOrderId: string;
-  orderHash: string;
-  marketPubkey: PubkeyStr;
-  orderbookId: OrderBookId;
-  triggerPrice: string;
-  triggerType: TriggerType;
-  side: Side;
-  amountIn: string;
-  amountOut: string;
-  timeInForce: TimeInForce;
-  createdAt: Date;
-}
-
-/**
- * Derive the limit price from pre-scaled amounts.
- *
- * `amountIn` and `amountOut` are already human-readable decimals
- * (scaled by the snapshot/websocket layer), so no further decimal
- * conversion is needed.
- *
- * For Ask: maker gives base, receives quote -> price = quote / base
- * For Bid: maker gives quote, receives base -> price = quote / base
- */
-export function triggerOrderLimitPrice(order: TriggerOrder): Decimal | undefined {
-  const amountIn = new Decimal(order.amountIn);
-  const amountOut = new Decimal(order.amountOut);
-
-  if (order.side === Side.Ask && amountIn.greaterThan(0)) {
-    return amountOut.div(amountIn);
-  }
-  if (order.side === Side.Bid && amountOut.greaterThan(0)) {
-    return amountIn.div(amountOut);
-  }
-  return undefined;
 }

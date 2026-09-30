@@ -212,19 +212,3 @@ export function validateSignedFields(
     throw ScalingError.code("ORDER_FIELD_OUT_OF_RANGE", "nonce");
   }
 }
-
-export function validateTriggerPrice(
-  value: string | Decimal,
-  priceDecimals: number
-): bigint {
-  let raw: bigint;
-  try {
-    raw = exactScaledInteger(value, priceDecimals);
-  } catch {
-    throw ScalingError.code("TRIGGER_PRICE_OUT_OF_RANGE");
-  }
-  if (raw <= 0n || raw > I64_MAX) {
-    throw ScalingError.code("TRIGGER_PRICE_OUT_OF_RANGE");
-  }
-  return raw;
-}

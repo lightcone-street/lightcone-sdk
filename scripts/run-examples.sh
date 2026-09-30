@@ -189,7 +189,7 @@ run_sdk() {
                         unset SDK_API_URL SDK_WS_URL SDK_PROGRAM_ID
                     fi
                     LIGHTCONE_WALLET_PATH="$wallet_path" timeout "$TIMEOUT" \
-                        cargo run --example "$name" --features "native,trigger_orders"
+                        cargo run --example "$name" --features "native"
                 ) || run_exit=$?
                 ;;
             ts)

@@ -1,19 +1,15 @@
 """Order wire-to-domain conversion."""
 
-from typing import Optional
-
 from . import (
+    FillInfo,
     LimitOrder,
     OrderStatus,
     SubmitOrderResponse,
     SubmitOrderStatus,
-    FillInfo,
-    TriggerOrder,
     UserSnapshotOrder,
 )
+from .state import UserOpenLimitOrders
 from .wire import WsOrder
-from .state import UserOpenLimitOrders, UserTriggerOrders
-from ...shared.types import TimeInForce, TriggerType
 
 
 def order_from_ws(ws: WsOrder, market_pubkey: str, orderbook_id: str) -> LimitOrder:
@@ -82,36 +78,15 @@ def limit_snapshot_to_order(snapshot: UserSnapshotOrder) -> LimitOrder:
     )
 
 
-def trigger_snapshot_to_order(snapshot: UserSnapshotOrder) -> TriggerOrder:
-    """Convert a trigger-type UserSnapshotOrder to a TriggerOrder domain type."""
-    return TriggerOrder(
-        trigger_order_id=snapshot.trigger_order_id or "",
-        order_hash=snapshot.order_hash,
-        market_pubkey=snapshot.market_pubkey,
-        orderbook_id=snapshot.orderbook_id,
-        trigger_price=snapshot.trigger_price or "0",
-        trigger_type=snapshot.trigger_type or TriggerType.STOP_LOSS,
-        side=snapshot.side,
-        amount_in=snapshot.amount_in,
-        amount_out=snapshot.amount_out,
-        time_in_force=snapshot.time_in_force or TimeInForce.GTC,
-        created_at=snapshot.created_at,
-    )
-
-
 def convert_snapshot_orders(
     snapshots: list[UserSnapshotOrder],
-) -> tuple[UserOpenLimitOrders, UserTriggerOrders]:
-    """Split a list of UserSnapshotOrders into limit and trigger containers."""
+) -> UserOpenLimitOrders:
+    """Group open limit orders from a decoded account snapshot."""
     open_orders = UserOpenLimitOrders()
-    trigger_orders = UserTriggerOrders()
 
     for snapshot in snapshots:
-        if str(snapshot.order_type).lower() == "trigger":
-            trigger_orders.insert(trigger_snapshot_to_order(snapshot))
-        else:
-            order = limit_snapshot_to_order(snapshot)
-            if order.remaining_size not in ("0", "", None):
-                open_orders.upsert(order)
+        order = limit_snapshot_to_order(snapshot)
+        if order.remaining_size not in ("0", "", None):
+            open_orders.upsert(order)
 
-    return open_orders, trigger_orders
+    return open_orders

@@ -6,14 +6,12 @@ import { SdkError } from "../error";
 import { RetryPolicy } from "../http";
 import {
   privyOrderFromLimitEnvelope,
-  privyOrderFromTriggerEnvelope,
 } from "../privy";
 import {
   ScalingError,
   scalePriceSize,
   validateRawAmounts,
   validateSignedFields,
-  validateTriggerPrice,
   type OrderbookRules,
 } from "../shared/scaling";
 import { isUserCancellation } from "../shared/signing";
@@ -22,10 +20,8 @@ import type {
   DepositSource,
   SubmitOrderRequest,
   TimeInForce,
-  TriggerType,
 } from "../shared";
 import type { SubmitOrderResponse } from "../domain/order/client";
-import type { TriggerOrderResponse } from "../domain/order/client";
 import { ProgramSdkError } from "./error";
 import {
   generateSalt,
@@ -383,166 +379,6 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
         return client.http.post(url, { wallet_id: strategy.walletId, order: envelope }, RetryPolicy.None);
       }
     }
-  }
-}
-
-export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
-  private timeInForceValue?: TimeInForce;
-  private triggerPriceValue?: string;
-  private triggerTypeValue?: TriggerType;
-
-  static new(): TriggerOrderEnvelope {
-    return new TriggerOrderEnvelope();
-  }
-
-  timeInForce(value: TimeInForce): this {
-    this.timeInForceValue = value;
-    return this;
-  }
-
-  triggerPrice(value: string): this {
-    this.triggerPriceValue = value;
-    return this;
-  }
-
-  triggerType(value: TriggerType): this {
-    this.triggerTypeValue = value;
-    return this;
-  }
-
-  takeProfit(price: string): this {
-    this.triggerPriceValue = price;
-    this.triggerTypeValue = "TP" as TriggerType;
-    return this;
-  }
-
-  stopLoss(price: string): this {
-    this.triggerPriceValue = price;
-    this.triggerTypeValue = "SL" as TriggerType;
-    return this;
-  }
-
-  gtc(): this {
-    this.timeInForceValue = "GTC" as TimeInForce;
-    return this;
-  }
-
-  ioc(): this {
-    this.timeInForceValue = "IOC" as TimeInForce;
-    return this;
-  }
-
-  fok(): this {
-    this.timeInForceValue = "FOK" as TimeInForce;
-    return this;
-  }
-
-  alo(): this {
-    this.timeInForceValue = "ALO" as TimeInForce;
-    return this;
-  }
-
-  getTimeInForce(): TimeInForce | undefined {
-    return this.timeInForceValue;
-  }
-
-  getTriggerPrice(): string | undefined {
-    return this.triggerPriceValue;
-  }
-
-  getTriggerType(): TriggerType | undefined {
-    return this.triggerTypeValue;
-  }
-
-  sign(keypair: Keypair, orderbook: OrderBookPair, rules: OrderbookRules): SubmitOrderRequest {
-    const trigger = this.requireTriggerFields();
-    validateTriggerPrice(trigger.price, rules.priceDecimals);
-    this.autoFillFromOrderbook(orderbook);
-    this.applyRules(rules, orderbook.orderbookId);
-    const signed = signOrderFull(this.payload(), keypair, rules);
-    return toSubmitRequest(signed, orderbook.orderbookId, {
-      timeInForce: this.timeInForceValue,
-      triggerPrice: Number(trigger.price),
-      triggerType: trigger.type,
-      depositSource: this.getDepositSource(),
-    });
-  }
-
-  finalize(signatureBase58: string, orderbook: OrderBookPair, rules: OrderbookRules): SubmitOrderRequest {
-    const trigger = this.requireTriggerFields();
-    validateTriggerPrice(trigger.price, rules.priceDecimals);
-    this.autoFillFromOrderbook(orderbook);
-    this.applyRules(rules, orderbook.orderbookId);
-    const signatureHex = Buffer.from(bs58.decode(signatureBase58)).toString("hex");
-    return this.finalizeWithHexSignature(signatureHex, orderbook.orderbookId, {
-      timeInForce: this.timeInForceValue,
-      triggerPrice: Number(trigger.price),
-      triggerType: trigger.type,
-    });
-  }
-
-  async submit(
-    client: ClientContext,
-    orderbook: OrderBookPair
-  ): Promise<TriggerOrderResponse> {
-    const rules = await new Orderbooks(client).decimals(orderbook.orderbookId);
-    const strategy = requireSigningStrategy(client);
-    const trigger = this.requireTriggerFields();
-    validateTriggerPrice(trigger.price, rules.priceDecimals);
-    this.autoFillFromOrderbook(orderbook);
-    this.applyRules(rules, orderbook.orderbookId);
-
-    // Nonce cache: cache if explicitly set, auto-populate from cache if not
-    if (this.fields.nonce !== undefined) {
-      client.setOrderNonce?.(this.fields.nonce);
-    } else {
-      this.fields.nonce = client.orderNonce?.() ?? 0;
-    }
-
-    switch (strategy.type) {
-      case "native": {
-        const request = this.sign(strategy.keypair, orderbook, rules);
-        const url = `${client.http.baseUrl()}/api/orders/submit`;
-        return client.http.post<TriggerOrderResponse, SubmitOrderRequest>(
-          url,
-          request,
-          RetryPolicy.None
-        );
-      }
-      case "walletAdapter": {
-        const unsigned = this.payload();
-        const hash = hashOrderHex({ ...unsigned, signature: Buffer.alloc(64) });
-        const sigBytes = await strategy.signer
-          .signMessage(new TextEncoder().encode(hash))
-          .catch((err: unknown) => {
-            const msg = err instanceof Error ? err.message : String(err);
-            if (isUserCancellation(msg)) throw SdkError.userCancelled();
-            throw SdkError.signing(msg);
-          });
-        const request = this.finalize(bs58.encode(sigBytes), orderbook, rules);
-        const url = `${client.http.baseUrl()}/api/orders/submit`;
-        return client.http.post<TriggerOrderResponse, SubmitOrderRequest>(
-          url,
-          request,
-          RetryPolicy.None
-        );
-      }
-      case "privy": {
-        const envelope = privyOrderFromTriggerEnvelope(this, orderbook.orderbookId);
-        const url = `${client.http.baseUrl()}/api/privy/sign_and_send_order`;
-        return client.http.post(url, { wallet_id: strategy.walletId, order: envelope }, RetryPolicy.None);
-      }
-    }
-  }
-
-  private requireTriggerFields(): { price: string; type: TriggerType } {
-    if (this.triggerPriceValue === undefined) {
-      throw ProgramSdkError.missingField("trigger_price");
-    }
-    if (!this.triggerTypeValue) {
-      throw ProgramSdkError.missingField("trigger_type");
-    }
-    return { price: this.triggerPriceValue, type: this.triggerTypeValue };
   }
 }
 

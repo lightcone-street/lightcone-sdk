@@ -1,7 +1,7 @@
 """Privy wallet integration types for the Lightcone SDK."""
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal
 
 from ..shared.types import DepositSource
 
@@ -12,9 +12,8 @@ class PrivyOrderEnvelope:
 
     Matches the backend's OrderForSigning struct.
 
-    Prefer using the builder via ``client.privy().limit_order()`` or
-    ``client.privy().trigger_order()`` which pre-seeds the client's deposit
-    source. Direct construction and ``from_limit()``/``from_trigger()`` are also available.
+    Use ``client.orders().limit_order()`` to pre-seed the deposit source.
+    ``privy_order_from_limit_envelope`` converts the resulting ordinary order.
     """
 
     maker: str = ""
@@ -28,10 +27,8 @@ class PrivyOrderEnvelope:
     amount_out: int = 0
     expiration: int = 0
     orderbook_id: str = ""
-    time_in_force: Optional[str] = None
-    trigger_price: Optional[float] = None
-    trigger_type: Optional[str] = None
-    deposit_source: Optional[DepositSource] = None
+    time_in_force: str | None = None
+    deposit_source: DepositSource | None = None
 
     def to_dict(self) -> dict:
         d: dict = {
@@ -49,10 +46,6 @@ class PrivyOrderEnvelope:
         }
         if self.time_in_force is not None:
             d["tif"] = self.time_in_force
-        if self.trigger_price is not None:
-            d["trigger_price"] = self.trigger_price
-        if self.trigger_type is not None:
-            d["trigger_type"] = self.trigger_type
         if self.deposit_source is not None:
             d["deposit_source"] = self.deposit_source.as_str()
         return d
@@ -78,29 +71,28 @@ class SignAndSendOrderRequest:
     """Request to sign and send an order via Privy."""
 
     wallet_id: str = ""
-    order: Optional[PrivyOrderEnvelope] = None
+    order: PrivyOrderEnvelope | None = None
 
 
 @dataclass
 class SignAndCancelOrderRequest:
-    """Request to cancel an order via Privy signing."""
+    """Ordinary-order cancellation through Privy. Unsupported target kinds are rejected."""
 
     wallet_id: str = ""
     maker: str = ""
-    cancel_type: str = ""  # "limit" or "trigger"
-    order_hash: Optional[str] = None
-    trigger_order_id: Optional[str] = None
+    cancel_type: Literal["limit"] = "limit"
+    order_hash: str | None = None
 
     def to_dict(self) -> dict:
+        if self.cancel_type != "limit":
+            raise ValueError("unsupported cancellation target")
         d: dict = {
             "wallet_id": self.wallet_id,
             "maker": self.maker,
             "cancel_type": self.cancel_type,
         }
-        if self.cancel_type == "limit" and self.order_hash is not None:
+        if self.order_hash is not None:
             d["order_hash"] = self.order_hash
-        elif self.cancel_type == "trigger" and self.trigger_order_id is not None:
-            d["trigger_order_id"] = self.trigger_order_id
         return d
 
 
@@ -159,52 +151,6 @@ def privy_order_from_limit_envelope(envelope, orderbook) -> PrivyOrderEnvelope:
     )
 
 
-def privy_order_from_trigger_envelope(envelope, orderbook) -> PrivyOrderEnvelope:
-    """Build a PrivyOrderEnvelope from a TriggerOrderEnvelope.
-
-    Args:
-        envelope: A TriggerOrderEnvelope instance (from program.envelope)
-        orderbook: The OrderBookPair for the order
-
-    Returns:
-        PrivyOrderEnvelope with trigger fields populated
-    """
-    order = envelope.payload()
-
-    trigger_price = None
-    tp = envelope.get_trigger_price
-    if tp is not None and tp != 0:
-        trigger_price = float(tp)
-
-    trigger_type = None
-    tt = envelope.get_trigger_type
-    if tt is not None:
-        trigger_type = tt.as_wire()
-
-    time_in_force = None
-    tif = envelope.get_time_in_force
-    if tif is not None:
-        time_in_force = tif.as_wire()
-
-    return PrivyOrderEnvelope(
-        maker=str(order.maker),
-        nonce=order.nonce,
-        salt=order.salt,
-        market_pubkey=str(order.market),
-        base_token=str(order.base_mint),
-        quote_token=str(order.quote_mint),
-        side=int(order.side),
-        amount_in=order.amount_in,
-        amount_out=order.amount_out,
-        expiration=order.expiration,
-        orderbook_id=orderbook.orderbook_id,
-        time_in_force=time_in_force,
-        trigger_price=trigger_price,
-        trigger_type=trigger_type,
-        deposit_source=envelope.get_deposit_source,
-    )
-
-
 __all__ = [
     "PrivyOrderEnvelope",
     "SignAndSendTxRequest",
@@ -215,5 +161,4 @@ __all__ = [
     "ExportWalletRequest",
     "ExportWalletResponse",
     "privy_order_from_limit_envelope",
-    "privy_order_from_trigger_envelope",
 ]

@@ -1,10 +1,7 @@
 //! Wire types for order and user WS messages.
 
 use super::OrderStatus;
-use crate::shared::{
-    serde_util, OrderBookId, OrderUpdateType, PubkeyStr, Side, TimeInForce, TriggerResultStatus,
-    TriggerStatus, TriggerType, TriggerUpdateType,
-};
+use crate::shared::{serde_util, OrderBookId, OrderUpdateType, PubkeyStr, Side};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -118,7 +115,7 @@ pub struct WsOrder {
     pub balance: Option<UserOrderUpdateBalance>,
 }
 
-/// Fields shared by both limit and trigger order snapshots.
+/// Validated fields of a supported limit-order snapshot.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UserSnapshotOrderCommon {
     pub order_hash: String,
@@ -146,11 +143,7 @@ pub struct UserSnapshotOrderCommon {
     pub status: OrderStatus,
 }
 
-/// Order snapshot — tagged enum discriminated by `order_type`.
-///
-/// Used in REST `GET /api/users/orders` and WS user snapshots.
-/// The backend returns limit and trigger orders in the same array,
-/// distinguished by the `order_type` field.
+/// Limit order in REST lists and WebSocket account snapshots.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "order_type", rename_all = "lowercase")]
 pub enum UserSnapshotOrder {
@@ -160,26 +153,12 @@ pub enum UserSnapshotOrder {
         #[serde(default)]
         tx_signature: Option<String>,
     },
-    Trigger {
-        #[serde(flatten)]
-        common: UserSnapshotOrderCommon,
-        trigger_order_id: String,
-        trigger_price: Decimal,
-        trigger_type: TriggerType,
-        #[serde(
-            default,
-            with = "serde_util::tif_numeric_opt",
-            skip_serializing_if = "Option::is_none"
-        )]
-        time_in_force: Option<TimeInForce>,
-    },
 }
 
 impl UserSnapshotOrder {
     pub fn common(&self) -> &UserSnapshotOrderCommon {
         match self {
             UserSnapshotOrder::Limit { common, .. } => common,
-            UserSnapshotOrder::Trigger { common, .. } => common,
         }
     }
 }
@@ -203,76 +182,11 @@ pub struct UserSnapshot {
     pub nonce: u64,
 }
 
-// ─── Trigger order wire types ───────────────────────────────────────────────
-
-/// Trigger order WS update event on `user_events` channel.
-#[derive(Debug, Clone, Deserialize)]
-pub struct TriggerOrderUpdate {
-    pub trigger_order_id: String,
-    #[serde(default)]
-    pub user_pubkey: PubkeyStr,
-    pub market_pubkey: PubkeyStr,
-    pub orderbook_id: OrderBookId,
-    pub trigger_price: Decimal,
-    pub trigger_above: bool,
-    pub status: TriggerStatus,
-    /// Uppercase version of status: "CREATED", "TRIGGERED", "FAILED", or "EXPIRED".
-    #[serde(rename = "type", default)]
-    pub update_type: TriggerUpdateType,
-    pub order_hash: String,
-    pub side: Side,
-    #[serde(default, with = "serde_util::empty_string_as_none")]
-    pub result_status: Option<TriggerResultStatus>,
-    #[serde(default)]
-    pub result_filled: Decimal,
-    #[serde(default)]
-    pub result_remaining: Decimal,
-    pub timestamp: DateTime<Utc>,
-    #[serde(default)]
-    pub maker_amount: Decimal,
-    #[serde(default)]
-    pub taker_amount: Decimal,
-    #[serde(default, with = "serde_util::tif_numeric")]
-    pub tif: TimeInForce,
-}
-
-#[cfg(feature = "trigger_orders")]
-impl TriggerOrderUpdate {
-    /// Convert this update into a domain TriggerOrder.
-    pub fn into_trigger_order(self) -> super::TriggerOrder {
-        let trigger_type = if self.trigger_above {
-            TriggerType::TakeProfit
-        } else {
-            TriggerType::StopLoss
-        };
-
-        super::TriggerOrder {
-            trigger_order_id: self.trigger_order_id,
-            order_hash: self.order_hash,
-            market_pubkey: self.market_pubkey,
-            orderbook_id: self.orderbook_id,
-            trigger_price: self.trigger_price,
-            trigger_type,
-            side: self.side,
-            amount_in: self.maker_amount,
-            amount_out: self.taker_amount,
-            time_in_force: self.tif,
-            created_at: self.timestamp,
-        }
-    }
-}
-
-/// WS order event — two-level dispatch on `order_type`.
-///
-/// Both limit and trigger order updates arrive as `event_type: "order"`,
-/// discriminated by `order_type: "limit"` or `"trigger"`.
+/// Live limit-order update, decoded with the ordinary order payload validation.
 #[derive(Deserialize, Debug, Clone)]
-#[serde(tag = "order_type")]
+#[serde(tag = "order_type", rename_all = "lowercase")]
 pub enum OrderEvent {
-    #[serde(rename = "limit")]
     Limit(OrderUpdate),
-    #[serde(rename = "trigger")]
-    Trigger(TriggerOrderUpdate),
 }
 
 /// WS user update — tagged enum.
@@ -374,4 +288,139 @@ pub enum FillStatus {
     Filled,
     Cancelled,
     PartiallyFilled,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::order::{UserOpenLimitOrders, UserOrdersResponse};
+    use crate::ws::{Kind, MessageIn};
+    use serde_json::{json, Value};
+
+    fn supported_order() -> Value {
+        json!({
+            "order_type": "limit", "order_hash": "order-1", "market_pubkey": "market-1",
+            "orderbook_id": "book-1", "side": "bid", "amount_in": "1.25",
+            "amount_out": "2.5", "remaining": "2.5", "filled": "0", "price": "0.5",
+            "created_at": 1700000000000_u64, "base_mint": "base", "quote_mint": "quote",
+            "outcome_index": 0, "status": "OPEN", "tx_signature": "signature"
+        })
+    }
+
+    fn account_payload(orders: Vec<Value>) -> Value {
+        json!({
+            "event_type": "snapshot", "user_pubkey": "wallet", "orders": orders,
+            "market_balances": [{"market_pubkey": "market-1", "deposit_assets": [{
+                "deposit_asset": "quote", "outcomes": [{"outcome_index": 0,
+                "conditional_token": "base", "balance": "1234.56789",
+                "balance_idle": "1200.5", "balance_on_book": "34.06789"}]
+            }]}],
+            "global_deposits": [{"mint": "quote", "balance": "9.25"}],
+            "notifications": [{"id": "notice", "notification_type": "global",
+                "title": "Notice", "message": "Fixture", "created_at": "2026-01-01T00:00:00Z"}],
+            "nonce": 17, "next_cursor": "next-page", "has_more": true
+        })
+    }
+
+    #[test]
+    fn limit_rest_and_ws_snapshots_preserve_account_data() -> Result<(), serde_json::Error> {
+        let payload = account_payload(vec![supported_order()]);
+        let expected_order: UserSnapshotOrder = serde_json::from_value(supported_order())?;
+        let rest: UserOrdersResponse = serde_json::from_value(payload.clone())?;
+        assert_eq!(rest.orders, vec![expected_order.clone()]);
+        assert_eq!(rest.next_cursor.as_deref(), Some("next-page"));
+        assert!(rest.has_more);
+        assert_eq!(
+            serde_json::to_value(&rest.market_balances)?,
+            payload["market_balances"]
+        );
+
+        let message: MessageIn = serde_json::from_value(json!({
+            "type": "user", "version": 0.1, "data": payload
+        }))?;
+        let Kind::User(UserUpdate::Snapshot(snapshot)) = message.kind else {
+            return Err(<serde_json::Error as serde::de::Error>::custom(
+                "expected snapshot",
+            ));
+        };
+        assert_eq!(snapshot.orders, vec![expected_order]);
+        assert_eq!(snapshot.market_balances, rest.market_balances);
+        assert_eq!(snapshot.nonce, 17);
+        assert_eq!(
+            serde_json::to_value(snapshot.global_deposits)?,
+            payload["global_deposits"]
+        );
+        assert_eq!(
+            serde_json::to_value(snapshot.notifications)?,
+            payload["notifications"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn empty_order_list_keeps_balances_and_pagination() -> Result<(), serde_json::Error> {
+        let rest: UserOrdersResponse = serde_json::from_value(account_payload(vec![]))?;
+        assert!(rest.orders.is_empty());
+        assert_eq!(rest.market_balances.len(), 1);
+        assert_eq!(rest.next_cursor.as_deref(), Some("next-page"));
+        assert!(rest.has_more);
+        Ok(())
+    }
+
+    #[test]
+    fn malformed_limit_orders_fail_rest_and_snapshot_decoding() {
+        for field in ["amount_in", "amount_out", "order_hash"] {
+            let mut invalid = supported_order();
+            invalid[field] = Value::Null;
+            let payload = account_payload(vec![supported_order(), invalid]);
+            assert!(serde_json::from_value::<UserOrdersResponse>(payload.clone()).is_err());
+            assert!(serde_json::from_value::<MessageIn>(json!({
+                "type": "user", "version": 0.1, "data": payload
+            }))
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn live_limit_order_updates_state() -> Result<(), serde_json::Error> {
+        let data = json!({
+            "event_type": "order", "order_type": "limit", "market_pubkey": "market-1",
+            "orderbook_id": "book-1", "timestamp": "2026-01-01T00:00:00Z", "type": "PLACEMENT",
+            "order": {"order_hash": "order-1", "price": "0.5", "is_maker": true,
+                "remaining": "2.5", "filled": "0", "fill_amount": "0", "side": "bid",
+                "created_at": 1700000000000_u64, "base_mint": "base", "quote_mint": "quote",
+                "outcome_index": 0}
+        });
+        let mut state = UserOpenLimitOrders::new();
+        let message: MessageIn = serde_json::from_value(json!({
+            "type": "user", "version": 0.1, "data": data
+        }))?;
+        let Kind::User(UserUpdate::Order(OrderEvent::Limit(update))) = message.kind else {
+            return Err(<serde_json::Error as serde::de::Error>::custom(
+                "expected order event",
+            ));
+        };
+        state.upsert(&update);
+        assert_eq!(
+            state
+                .get(&"market-1".into(), &"book-1".into())
+                .map(Vec::len),
+            Some(1)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn malformed_live_limit_order_fails_decoding() {
+        for order in [Value::Null, json!({})] {
+            let data = json!({
+                "event_type": "order", "order_type": "limit", "market_pubkey": "market-1",
+                "orderbook_id": "book-1", "timestamp": "2026-01-01T00:00:00Z", "order": order
+            });
+            assert!(serde_json::from_value::<MessageIn>(json!({
+                "type": "user", "version": 0.1, "data": data
+            }))
+            .is_err());
+        }
+    }
 }
