@@ -19,25 +19,29 @@ The SDK uses a cookie-based auth model with platform-specific handling:
 
 ### WASM / Browser
 
-- Token lives **only** in an HTTP-only cookie set by the backend.
-- The SDK **never** reads, stores, or exposes the token.
+- Browser clients authenticate using Privy-managed cookies. Self-custody nonce and login resources reject browser Origin headers.
+- The browser client transport does not extract or store the Lightcone compatibility cookie.
 - Authenticated requests work because the browser auto-includes cookies.
 - Never store tokens in localStorage, sessionStorage, or any JS/WASM-accessible location.
 
 ### Native / CLI
 
 - The SDK stores the token **internally** (private field) and injects it as a `Cookie: lightcone-token=<token>` header.
-- Token is **never** exposed via public API -- no `.token()` accessor.
+- Keep explicit token state scoped to the selected native client and environment.
 - `AuthCredentials` only exposes: `user_id`, `wallet_address`, `expires_at`, `is_authenticated()`.
 
 ### Logout
 
-On **both** platforms, `client.auth().logout()`:
-1. Calls `POST /api/auth/logout` to clear the server-side cookie.
-2. On native: clears the internal token.
+For a native client's Lightcone session, `client.auth().logout()`:
+1. Presents `lightcone-token` to `POST /api/auth/logout` for per-token revocation and private WebSocket fencing.
+2. Clears the internal token, including when the server call fails.
 3. Clears auth credentials.
 
-Client-side clearing alone is insufficient -- the backend must be told to invalidate.
+Clearing the native client's local state alone is insufficient -- the backend must be told to invalidate the Lightcone token.
+
+Browser clients use Privy. Use Privy's logout procedure to terminate that provider session. Calling the SDK's Lightcone logout does not terminate Privy authentication.
+
+Read the [native client recovery guide](../../../docs/auth-session-recovery.md) before treating local cleanup as successful remote teardown. Privy credential logout remains provider-owned.
 
 ## Types
 
@@ -64,6 +68,7 @@ the durable user profile plus session-scoped facts. There is no
 | `linked_identities` | `Vec<LinkedIdentity>` | Every connected verified method, primary first |
 | `max_slippage_preference` | `Option<Decimal>` | Remembered account-wide percentage strictly below 10%; `None` until one is stored |
 | `connected_x` | `Option<XAccountData>` | X account connected by a non-X-identity user; `None` when identity is X |
+| `telegram_invite_url` | `Option<String>` | Single-use Telegram group invite URL assigned to the Account; `None` when the Account holds no invite or an older backend omits the field. The URL is a secret of the Account: do not log it or send it to analytics |
 
 **Methods:**
 - `privy()` — Privy account data regardless of identity type
@@ -170,7 +175,7 @@ async fn login_with_message(
 ) -> Result<SessionResponse, SdkError>
 ```
 
-Authenticate with a pre-signed message. Returns the session envelope with the full user profile. On native, stores the auth token internally. On WASM, the backend sets an HTTP-only cookie.
+Authenticate a native client with a pre-signed message. The method returns the full session profile and stores the Lightcone token internally. Browser-origin self-custody login is rejected. Browser clients authenticate through Privy instead.
 
 Set `use_embedded_wallet` to `Some(true)` to provision a Privy embedded wallet during login.
 
@@ -210,7 +215,7 @@ Create or synchronize a Lightcone Account after every interactive Privy authenti
 async fn logout(&self) -> Result<(), SdkError>
 ```
 
-Log out -- clears server-side cookie, internal token (native), and auth credentials.
+Revoke the presented Lightcone token and wait for its private WebSocket output fence. Local token and credential clearing occurs even when the request fails. Privy logout remains provider-owned.
 
 ### `credentials`
 

@@ -94,7 +94,7 @@ export class Auth {
       SessionResponse,
       LoginRequest
     >(url, body, RetryPolicy.None);
-    normalizeSessionMaxSlippagePreference(session);
+    normalizeSessionUser(session);
 
     this.client.authState.setCredentials(credentialsFromSession(session));
 
@@ -110,7 +110,7 @@ export class Auth {
         url,
         RetryPolicy.Idempotent,
       );
-      normalizeSessionMaxSlippagePreference(session);
+      normalizeSessionUser(session);
     } catch (error) {
       this.client.authState.setCredentials(undefined);
       throw SdkError.from(error);
@@ -124,11 +124,16 @@ export class Auth {
   /**
    * Logout — clears the server-side cookie, internal token, and credentials.
    *
+   * Server revocation targets native clients' `lightcone-token` credentials.
+   * Browser clients must end their Privy session through the Privy SDK.
+   *
    * Local state is cleared even when the server call fails — the caller asked
    * to be signed out locally regardless — but the failure is then rethrown:
    * callers gating security decisions on teardown (e.g. whether an app may
    * restart an authenticated transport) must be able to see that the
-   * server-side cookie may still be valid. A 401 counts as success: it means
+   * revocation may be unconfirmed, or a revoked token may still await remote
+   * WebSocket teardown. Refer to the authentication guide in README.
+   * A 401 counts as success: it means
    * "already logged out".
    */
   async logout(): Promise<void> {
@@ -176,7 +181,7 @@ export class Auth {
       request,
       RetryPolicy.Idempotent,
     );
-    normalizeSessionMaxSlippagePreference(session);
+    normalizeSessionUser(session);
     this.client.authState.setCredentials(credentialsFromSession(session));
     return session;
   }
@@ -222,6 +227,42 @@ export class Auth {
     }
     return Date.now() < credentials.expires_at.getTime();
   }
+}
+
+/**
+ * Enforces the session user's nullable-field contracts after every
+ * session-returning call. Login, session restoration, and Privy registration
+ * share it so that no entry point skips a field.
+ */
+function normalizeSessionUser(session: SessionResponse): void {
+  normalizeSessionMaxSlippagePreference(session);
+  session.user.telegram_invite_url = decodeTelegramInviteUrl(session.user);
+}
+
+/**
+ * Decodes the session user's Telegram invite URL. A missing key (older backend)
+ * and an explicit null (Account without an invite) both mean no invite. Any
+ * other non-string value is a contract violation. Error text never includes the
+ * value, because the URL is a secret of the Account.
+ */
+function decodeTelegramInviteUrl(user: unknown): string | null {
+  if (typeof user !== "object" || user === null) {
+    throw SdkError.serde("Session user is malformed");
+  }
+  // An own-property read keeps an inherited value from counting as an invite.
+  if (!Object.prototype.hasOwnProperty.call(user, "telegram_invite_url")) {
+    return null;
+  }
+  const inviteUrl = (user as Record<string, unknown>).telegram_invite_url;
+  if (inviteUrl === undefined || inviteUrl === null) {
+    return null;
+  }
+  if (typeof inviteUrl === "string") {
+    return inviteUrl;
+  }
+  throw SdkError.serde(
+    "Session user telegram_invite_url must contain a string or null",
+  );
 }
 
 function normalizeSessionMaxSlippagePreference(session: SessionResponse): void {

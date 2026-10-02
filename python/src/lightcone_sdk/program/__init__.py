@@ -142,7 +142,7 @@ from .constants import (
 )
 
 # Envelope builders
-from .envelope import LimitOrderEnvelope, TriggerOrderEnvelope
+from .envelope import LimitOrderEnvelope
 
 # Errors
 from .errors import (
@@ -261,7 +261,6 @@ from .orders import (
     calculate_taker_fill,
     cancel_all_message,
     cancel_order_message,
-    cancel_trigger_order_message,
     create_ask_order,
     create_bid_order,
     create_signed_ask_order,
@@ -640,7 +639,6 @@ __all__ = [
     "calculate_taker_fill",
     "cancel_all_message",
     "cancel_order_message",
-    "cancel_trigger_order_message",
     "create_bid_order",
     "create_ask_order",
     "create_signed_bid_order",
@@ -712,7 +710,6 @@ __all__ = [
     "build_withdraw_from_global_instruction",
     # Envelope Builders
     "LimitOrderEnvelope",
-    "TriggerOrderEnvelope",
     # Order Builder
     "OrderBuilder",
 ]

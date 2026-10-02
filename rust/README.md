@@ -44,7 +44,6 @@ lightcone = { version = "=0.10.0-rc.1", features = ["wasm"] }
 |---------|-----------------|----------|
 | **`native`** | `http` + `native-auth` + `ws-native` + `solana-rpc` | **Market makers, bots, CLI tools** |
 | **`wasm`** | `http` + `ws-wasm` | **Browser applications** |
-| **`trigger_orders`** | Stop-limit & take-profit-limit order types, envelope, state | **Under development** — not yet available. For internal use only. |
 
 ## Solana v1 transactions
 
@@ -320,9 +319,12 @@ let withdraw_ix = client.positions().withdraw().await
 ```
 
 ## Authentication
-Authentication is required for user-specific endpoints. Fetch `/api/auth/nonce`, then sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `sign_login_message` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone.
 
-Authenticate before connecting a private WebSocket. Native clients send the session cookie during the upgrade, and browsers supply the cookie automatically. Private user subscriptions require `wallet_address`. Derive the Trading Wallet from `session.user.trading_wallet(session.auth_method)`. Refer to the [authenticated streaming example](examples/ws_user_and_market.rs).
+Native client session teardown and WebSocket recovery follow the [native client recovery guide](../docs/auth-session-recovery.md). It explains per-token logout, incomplete teardown, anonymous public continuity, and finite reconnect budgets.
+
+Authentication is required for user-specific endpoints. Native clients using Lightcone sessions fetch `/api/auth/nonce`. Sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `sign_login_message` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone. Browser clients authenticate through Privy.
+
+Authenticate before connecting a private WebSocket. Native clients send the Lightcone session cookie during the upgrade. Browser clients supply their Privy cookie automatically. Private user subscriptions require `wallet_address`. Derive the Trading Wallet from `session.user.trading_wallet(session.auth_method)`. Refer to the [authenticated streaming example](examples/ws_user_and_market.rs).
 
 ### Cookie handling
 
@@ -365,6 +367,21 @@ keep their existing behavior.
 On WASM these methods are equivalent to their non-`_with_cookies` counterparts because the browser is already attaching the cookie via credentials mode.
 
 If you maintain a non-Rust SDK (TypeScript, Python) and need to support an SSR consumer, mirror the same pattern: the wire contract is unchanged — only the per-call `Cookie: lightcone-token=<token>` header attachment differs.
+
+## API Key
+
+Configure an API key for native or server-side submit, cancel, and cancel-all requests. Public reads and authentication need no API key. The key identifies an API Consumer; user authentication, wallet ownership, and signed-order validation still apply.
+
+```rust
+let client = LightconeClient::builder()
+    .env(LightconeEnv::Staging)
+    .api_key(&std::env::var("LIGHTCONE_API_KEY")?)
+    .build()?;
+```
+
+The SDK attaches `x-lightcone-api-key` only to POST `/api/orders/submit`, `/api/orders/cancel`, and `/api/orders/cancel-all` on the configured API origin. It never forwards the key to another origin or logs it. HTTPS is required except for loopback development. Keep keys out of source control and browsers. Browser builds reject API-key configuration; web users trade with their existing Privy session.
+
+Cloudflare limits these trading attempts by public source IP, not by API key: direct API callers share 500 attempts per 10-second window per IP. A 429 response does not revoke credentials. Public reads and WebSocket messages are outside this trading limit. Revocation reaches all backend process caches within 24 hours; new keys work immediately through a database lookup on cache miss.
 
 ## Environment Configuration
 

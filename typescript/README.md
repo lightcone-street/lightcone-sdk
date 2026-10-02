@@ -14,6 +14,7 @@ TypeScript SDK for the Lightcone impact market protocol on Solana.
      - [Step 6: Exit a Position](#step-6-exit-a-position)
      - [Step 7: Withdraw](#step-7-withdraw)
 - [Authentication](#authentication)
+- [API Key](#api-key)
 - [Environment Configuration](#environment-configuration)
 - [Examples](#examples)
 - [Error Handling](#error-handling)
@@ -469,9 +470,11 @@ const withdrawIx = client.positions().withdraw()
 
 ## Authentication
 
-Authentication is required for user-specific endpoints. Fetch `/api/auth/nonce`, then sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `auth.signLoginMessage` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone.
+Native clients running in Node follow the [native client recovery guide](../docs/auth-session-recovery.md) for session teardown and WebSocket recovery. It explains per-token logout, incomplete teardown, anonymous public continuity, and finite reconnect budgets. Browser clients use Privy authentication.
 
-Authenticate before connecting a private WebSocket. Node clients send the session cookie during the upgrade, and browsers supply the cookie automatically. Private user subscriptions require `wallet_address`. Derive the Trading Wallet with `tradingWallet(session.user, session.auth_method)`. Refer to the [authenticated streaming example](examples/ws_user_and_market.ts).
+Authentication is required for user-specific endpoints. Native clients using Lightcone sessions fetch `/api/auth/nonce`. Sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `auth.signLoginMessage` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone.
+
+Authenticate before connecting a private WebSocket. Native clients running in Node send the Lightcone session cookie during the upgrade. Browser clients supply their Privy cookie automatically. Private user subscriptions require `wallet_address`. Derive the Trading Wallet with `tradingWallet(session.user, session.auth_method)`. Refer to the [authenticated streaming example](examples/ws_user_and_market.ts).
 
 Privy hosts can also authenticate with passwordless Email, Google, X, or Wallet. After every interactive success, call `client.auth().registerPrivy({ attempted_identity })`. The backend validates the exact selector against Privy's verified methods, creates or synchronizes the Account, and changes the Primary Login Identity only for a new Account. `session.user.identity` is that stable primary; `session.user.linked_identities` contains every connected method with primary first.
 
@@ -483,6 +486,8 @@ label for the wallet the session trades with, regardless of login identity.
 than 10 using `client.auth().updateMaxSlippagePreference(value)`; the method
 returns the canonical exact decimal string. Values at or above 10% remain valid
 order protection but are not remembered through this API.
+
+`session.user.telegram_invite_url` is the single-use Telegram group invite URL that the backend assigned to the Account. It is `null` when the Account holds no invite or when an older backend omits the field. The URL is a secret of the Account. Do not log it and do not send it to analytics.
 
 ### Cookie handling
 
@@ -514,6 +519,21 @@ const positions = await client
 ```
 
 In browsers, use the ordinary methods. The browser supplies the cookie through `credentials: "include"`.
+
+## API Key
+
+Configure an API key for native or server-side submit, cancel, and cancel-all requests. Public reads and authentication need no API key. The key identifies an API Consumer; user authentication, wallet ownership, and signed-order validation still apply.
+
+```ts
+const client = LightconeClient.builder()
+  .env(LightconeEnv.Staging)
+  .apiKey(process.env.LIGHTCONE_API_KEY!)
+  .build();
+```
+
+The SDK attaches `x-lightcone-api-key` only to POST `/api/orders/submit`, `/api/orders/cancel`, and `/api/orders/cancel-all` on the configured API origin. It never forwards the key to another origin or logs it. HTTPS is required except for loopback development. Keep keys out of source control and browsers. Browser builds reject API-key configuration; web users trade with their existing Privy session.
+
+Cloudflare limits these trading attempts by public source IP, not by API key: direct API callers share 500 attempts per 10-second window per IP. A 429 response does not revoke credentials. Public reads and WebSocket messages are outside this trading limit. Revocation reaches all backend process caches within 24 hours; new keys work immediately through a database lookup on cache miss.
 
 ## Environment Configuration
 
@@ -741,6 +761,6 @@ When a request to the API origin fails with HTTP 401 and a restorer is registere
 
 The SDK stays credential-agnostic: what "restore" means belongs to the host. For classifying auth failures in your own code, use `isUnauthorized(error)` from the error module — it covers both bare 401s and 401s carrying a structured rejection envelope (`ApiRejectedDetails.httpStatus`).
 
-## Trigger Orders
+## Supported order responses
 
-Trigger orders (stop-limit, take-profit-limit) are under development and not yet available. Internal types exist in the source for internal use only.
+Refer to the [shared order-response contract](../README.md#supported-order-responses). `normalizeUserSnapshotOrder` normalizes a limit order. REST and WebSocket snapshots contain these orders alongside account metadata. Live order events carry `order_type: "limit"`. `convertSnapshotOrders` returns `UserOpenLimitOrders`.

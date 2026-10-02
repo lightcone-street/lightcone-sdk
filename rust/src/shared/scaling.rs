@@ -106,8 +106,6 @@ pub enum ScalingError {
     PriceOutOfRange,
     #[error("ORDER_FIELD_OUT_OF_RANGE: {field}")]
     OrderFieldOutOfRange { field: &'static str },
-    #[error("TRIGGER_PRICE_OUT_OF_RANGE")]
-    TriggerPriceOutOfRange,
     #[error("trading rules for orderbook '{actual}' cannot be used for '{expected}'")]
     OrderbookMismatch { expected: String, actual: String },
 }
@@ -346,15 +344,6 @@ pub fn validate_signed_fields(
         return Err(ScalingError::OrderFieldOutOfRange { field: "nonce" });
     }
     Ok(())
-}
-
-pub fn validate_trigger_price(value: &str, price_decimals: u8) -> Result<u64, ScalingError> {
-    let raw = exact_scaled_integer(value, price_decimals)
-        .map_err(|_| ScalingError::TriggerPriceOutOfRange)?;
-    if raw.is_zero() || raw > BigUint::from(I64_MAX_U64) {
-        return Err(ScalingError::TriggerPriceOutOfRange);
-    }
-    raw.to_u64().ok_or(ScalingError::TriggerPriceOutOfRange)
 }
 
 #[cfg(test)]

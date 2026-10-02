@@ -31,8 +31,7 @@ page instead of copying public definitions here.
 
 - Keep Rust unit tests beside their owning modules. Run
   `cargo fmt --manifest-path rust/Cargo.toml --all` and
-  `cargo test --manifest-path rust/Cargo.toml --features native`. Also use
-  `native,trigger_orders` when touching trigger-order surfaces.
+  `cargo test --manifest-path rust/Cargo.toml --features native`.
 - Keep Python tests under `python/tests`. From `python`, run Black and Ruff on the changed
   Python files, then run `uv run pytest`. Do not fold repository-wide formatting or lint
   cleanup into an unrelated task.

@@ -1,33 +1,30 @@
 """Order envelope builders for the Lightcone SDK.
 
-Provides fluent builder pattern for constructing limit and trigger orders.
+Provides a fluent builder for ordinary signed orders.
 """
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from .types import SignedOrder, OrderSide
-from .orders import sign_order, to_submit_request, apply_signature, signature_hex
-from ..shared.types import (
-    DepositSource,
-    Side,
-    SubmitOrderRequest,
-    SubmitTriggerOrderRequest,
-    TimeInForce,
-    TriggerType,
-)
+from ..error import SigningError
 from ..shared.scaling import (
     OrderbookRules,
     scale_price_size,
     validate_raw_amounts,
     validate_signed_fields,
-    validate_trigger_price,
 )
-from ..error import SigningError
+from ..shared.types import (
+    DepositSource,
+    Side,
+    SubmitOrderRequest,
+    TimeInForce,
+)
+from .orders import apply_signature, sign_order, to_submit_request
+from .types import OrderSide, SignedOrder
 
 if TYPE_CHECKING:
     from ..domain.orderbook import OrderBookPair
@@ -64,20 +61,20 @@ class LimitOrderEnvelope:
     """
 
     def __init__(self):
-        self._nonce: Optional[int] = None
-        self._salt: Optional[int] = None
-        self._maker: Optional[Pubkey] = None
-        self._market: Optional[Pubkey] = None
-        self._base_mint: Optional[Pubkey] = None
-        self._quote_mint: Optional[Pubkey] = None
+        self._nonce: int | None = None
+        self._salt: int | None = None
+        self._maker: Pubkey | None = None
+        self._market: Pubkey | None = None
+        self._base_mint: Pubkey | None = None
+        self._quote_mint: Pubkey | None = None
         self._side: OrderSide = OrderSide.BID
-        self._amount_in: Optional[int] = None
-        self._amount_out: Optional[int] = None
+        self._amount_in: int | None = None
+        self._amount_out: int | None = None
         self._expiration: int = 0
-        self._price_str: Optional[str] = None
-        self._size_str: Optional[str] = None
-        self._deposit_source: Optional[DepositSource] = None
-        self._time_in_force: Optional[TimeInForce] = None
+        self._price_str: str | None = None
+        self._size_str: str | None = None
+        self._deposit_source: DepositSource | None = None
+        self._time_in_force: TimeInForce | None = None
 
     def nonce(self, nonce: int) -> LimitOrderEnvelope:
         self._nonce = nonce
@@ -153,6 +150,7 @@ class LimitOrderEnvelope:
             self._market = Pubkey.from_string(orderbook.market_pubkey)
         if self._salt is None:
             from .orders import generate_salt as _gen_salt
+
             self._salt = _gen_salt()
         if self._base_mint is None:
             self._base_mint = Pubkey.from_string(orderbook.base.pubkey)
@@ -190,6 +188,7 @@ class LimitOrderEnvelope:
         assert self._amount_out is not None, "amount_out is required"
         if self._salt is None:
             from .orders import generate_salt as _gen_salt
+
             self._salt = _gen_salt()
         validate_signed_fields(
             self._amount_in, self._amount_out, self._salt, self._nonce
@@ -221,7 +220,8 @@ class LimitOrderEnvelope:
         order = self.payload()
         apply_signature(order, sig_bs58, rules)
         return to_submit_request(
-            order, orderbook.orderbook_id,
+            order,
+            orderbook.orderbook_id,
             time_in_force=self._time_in_force,
             deposit_source=self._deposit_source,
         )
@@ -239,7 +239,8 @@ class LimitOrderEnvelope:
         order = self.payload()
         sign_order(order, keypair, rules)
         return to_submit_request(
-            order, orderbook.orderbook_id,
+            order,
+            orderbook.orderbook_id,
             time_in_force=self._time_in_force,
             deposit_source=self._deposit_source,
         )
@@ -247,31 +248,31 @@ class LimitOrderEnvelope:
     # Field accessors (matching Rust get_* methods)
 
     @property
-    def get_maker(self) -> Optional[Pubkey]:
+    def get_maker(self) -> Pubkey | None:
         return self._maker
 
     @property
-    def get_market(self) -> Optional[Pubkey]:
+    def get_market(self) -> Pubkey | None:
         return self._market
 
     @property
-    def get_base_mint(self) -> Optional[Pubkey]:
+    def get_base_mint(self) -> Pubkey | None:
         return self._base_mint
 
     @property
-    def get_quote_mint(self) -> Optional[Pubkey]:
+    def get_quote_mint(self) -> Pubkey | None:
         return self._quote_mint
 
     @property
-    def get_side(self) -> Optional[OrderSide]:
+    def get_side(self) -> OrderSide | None:
         return self._side
 
     @property
-    def get_amount_in(self) -> Optional[int]:
+    def get_amount_in(self) -> int | None:
         return self._amount_in
 
     @property
-    def get_amount_out(self) -> Optional[int]:
+    def get_amount_out(self) -> int | None:
         return self._amount_out
 
     @property
@@ -279,7 +280,7 @@ class LimitOrderEnvelope:
         return self._expiration
 
     @property
-    def get_nonce(self) -> Optional[int]:
+    def get_nonce(self) -> int | None:
         return self._nonce
 
     @property
@@ -287,16 +288,16 @@ class LimitOrderEnvelope:
         return self._salt
 
     @property
-    def get_deposit_source(self) -> Optional[DepositSource]:
+    def get_deposit_source(self) -> DepositSource | None:
         return self._deposit_source
 
     @property
-    def get_time_in_force(self) -> Optional[TimeInForce]:
+    def get_time_in_force(self) -> TimeInForce | None:
         return self._time_in_force
 
     # ── Unified submit (dispatches based on client signing strategy) ──
 
-    async def submit(self, client: object, orderbook: "OrderBookPair"):
+    async def submit(self, client: object, orderbook: OrderBookPair):
         """Submit this order using the client's signing strategy.
 
         - **Native**: signs locally with keypair, submits via REST
@@ -336,319 +337,21 @@ class LimitOrderEnvelope:
             except Exception as exc:
                 raise classify_signer_error(str(exc)) from exc
             import bs58 as _bs58
+
             sig_bs58 = _bs58.b58encode(sig_bytes).decode("ascii")
             request = self.finalize(sig_bs58, orderbook, rules)
             return await client.orders().submit(request)  # type: ignore[attr-defined]
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
             from ..privy import privy_order_from_limit_envelope
+
             envelope = privy_order_from_limit_envelope(self, orderbook)
             result = await client.privy().sign_and_send_order(  # type: ignore[attr-defined]
-                strategy.wallet_id, envelope,
+                strategy.wallet_id,
+                envelope,
             )
             from ..domain.order.convert import submit_response_from_dict
+
             return submit_response_from_dict(result)
-
-        raise SigningError(f"Unsupported signing strategy: {strategy.kind}")
-
-
-class TriggerOrderEnvelope:
-    """Fluent builder for trigger orders."""
-
-    def __init__(self):
-        self._limit = LimitOrderEnvelope()
-        self._trigger_price: Optional[str] = None
-        self._trigger_type: Optional[TriggerType] = None
-        self._time_in_force: TimeInForce = TimeInForce.GTC
-
-    def nonce(self, nonce: int) -> TriggerOrderEnvelope:
-        self._limit.nonce(nonce)
-        return self
-
-    def salt(self, salt: int) -> TriggerOrderEnvelope:
-        self._limit.salt(salt)
-        return self
-
-    def maker(self, maker: Pubkey) -> TriggerOrderEnvelope:
-        self._limit.maker(maker)
-        return self
-
-    def market(self, market: Pubkey) -> TriggerOrderEnvelope:
-        self._limit.market(market)
-        return self
-
-    def base_mint(self, mint: Pubkey) -> TriggerOrderEnvelope:
-        self._limit.base_mint(mint)
-        return self
-
-    def quote_mint(self, mint: Pubkey) -> TriggerOrderEnvelope:
-        self._limit.quote_mint(mint)
-        return self
-
-    def bid(self) -> TriggerOrderEnvelope:
-        self._limit.bid()
-        return self
-
-    def ask(self) -> TriggerOrderEnvelope:
-        self._limit.ask()
-        return self
-
-    def side(self, side: Side) -> TriggerOrderEnvelope:
-        self._limit.side(side)
-        return self
-
-    def amount_in(self, amount: int) -> TriggerOrderEnvelope:
-        self._limit.amount_in(amount)
-        return self
-
-    def amount_out(self, amount: int) -> TriggerOrderEnvelope:
-        self._limit.amount_out(amount)
-        return self
-
-    def expiration(self, expiration: int) -> TriggerOrderEnvelope:
-        self._limit.expiration(expiration)
-        return self
-
-    def price(self, price: str) -> TriggerOrderEnvelope:
-        self._limit.price(price)
-        return self
-
-    def size(self, size: str) -> TriggerOrderEnvelope:
-        self._limit.size(size)
-        return self
-
-    def deposit_source(self, ds: DepositSource) -> TriggerOrderEnvelope:
-        self._limit.deposit_source(ds)
-        return self
-
-    def trigger_price(self, price: str) -> TriggerOrderEnvelope:
-        self._trigger_price = price
-        return self
-
-    def trigger_type(self, tt: TriggerType) -> TriggerOrderEnvelope:
-        self._trigger_type = tt
-        return self
-
-    def stop_loss(self, price: str) -> TriggerOrderEnvelope:
-        """Set trigger type to STOP_LOSS and trigger price."""
-        self._trigger_type = TriggerType.STOP_LOSS
-        self._trigger_price = price
-        return self
-
-    def take_profit(self, price: str) -> TriggerOrderEnvelope:
-        """Set trigger type to TAKE_PROFIT and trigger price."""
-        self._trigger_type = TriggerType.TAKE_PROFIT
-        self._trigger_price = price
-        return self
-
-    def time_in_force(self, tif: TimeInForce) -> TriggerOrderEnvelope:
-        self._time_in_force = tif
-        return self
-
-    def gtc(self) -> TriggerOrderEnvelope:
-        self._time_in_force = TimeInForce.GTC
-        return self
-
-    def ioc(self) -> TriggerOrderEnvelope:
-        self._time_in_force = TimeInForce.IOC
-        return self
-
-    def fok(self) -> TriggerOrderEnvelope:
-        self._time_in_force = TimeInForce.FOK
-        return self
-
-    def alo(self) -> TriggerOrderEnvelope:
-        """Set time-in-force to add-liquidity-only."""
-        self._time_in_force = TimeInForce.ALO
-        return self
-
-    def payload(self) -> SignedOrder:
-        """Build an unsigned SignedOrder without consuming the envelope."""
-        return self._limit.payload()
-
-    def finalize(
-        self, sig_bs58: str, orderbook: OrderBookPair, rules: OrderbookRules
-    ) -> SubmitOrderRequest:
-        """Apply external signature and produce a SubmitOrderRequest.
-
-        Performs the same exact preflight as sign().
-        """
-        assert self._trigger_price is not None, "trigger_price is required for trigger orders"
-        assert self._trigger_type is not None, "trigger_type is required for trigger orders"
-        validate_trigger_price(self._trigger_price, rules.price_decimals)
-        self._limit._auto_fill_from_orderbook(orderbook)
-        self._limit._apply_rules(rules, orderbook.orderbook_id)
-        order = self.payload()
-        apply_signature(order, sig_bs58, rules)
-        return to_submit_request(
-            order,
-            orderbook.orderbook_id,
-            time_in_force=self._time_in_force,
-            trigger_price=float(self._trigger_price),
-            trigger_type=self._trigger_type,
-            deposit_source=self._limit.get_deposit_source,
-        )
-
-    def sign(
-        self, keypair: Keypair, orderbook: OrderBookPair, rules: OrderbookRules
-    ) -> SubmitOrderRequest:
-        """Sign and produce a SubmitOrderRequest.
-
-        Performs the same exact preflight as LimitOrderEnvelope.sign().
-        """
-        assert self._trigger_price is not None, "trigger_price is required for trigger orders"
-        assert self._trigger_type is not None, "trigger_type is required for trigger orders"
-        validate_trigger_price(self._trigger_price, rules.price_decimals)
-        self._limit._auto_fill_from_orderbook(orderbook)
-        self._limit._apply_rules(rules, orderbook.orderbook_id)
-        order = self.payload()
-        sign_order(order, keypair, rules)
-        return to_submit_request(
-            order,
-            orderbook.orderbook_id,
-            time_in_force=self._time_in_force,
-            trigger_price=float(self._trigger_price),
-            trigger_type=self._trigger_type,
-            deposit_source=self._limit.get_deposit_source,
-        )
-
-    def to_submit_trigger_request(self, order: SignedOrder, orderbook_id: str) -> SubmitTriggerOrderRequest:
-        """Convert to a SubmitTriggerOrderRequest."""
-        return SubmitTriggerOrderRequest(
-            maker=str(order.maker),
-            nonce=order.nonce,
-            salt=order.salt,
-            market_pubkey=str(order.market),
-            base_token=str(order.base_mint),
-            quote_token=str(order.quote_mint),
-            side=int(order.side),
-            amount_in=order.amount_in,
-            amount_out=order.amount_out,
-            expiration=order.expiration,
-            signature=signature_hex(order),
-            orderbook_id=orderbook_id,
-            trigger_price=str(self._trigger_price) if self._trigger_price is not None else "0",
-            trigger_type=self._trigger_type or TriggerType.STOP_LOSS,
-            time_in_force=self._time_in_force,
-        )
-
-    # Field accessors (matching Rust get_* methods)
-
-    @property
-    def get_maker(self) -> Optional[Pubkey]:
-        return self._limit.get_maker
-
-    @property
-    def get_market(self) -> Optional[Pubkey]:
-        return self._limit.get_market
-
-    @property
-    def get_base_mint(self) -> Optional[Pubkey]:
-        return self._limit.get_base_mint
-
-    @property
-    def get_quote_mint(self) -> Optional[Pubkey]:
-        return self._limit.get_quote_mint
-
-    @property
-    def get_side(self) -> Optional[OrderSide]:
-        return self._limit.get_side
-
-    @property
-    def get_amount_in(self) -> Optional[int]:
-        return self._limit.get_amount_in
-
-    @property
-    def get_amount_out(self) -> Optional[int]:
-        return self._limit.get_amount_out
-
-    @property
-    def get_expiration(self) -> int:
-        return self._limit.get_expiration
-
-    @property
-    def get_nonce(self) -> Optional[int]:
-        return self._limit.get_nonce
-
-    @property
-    def get_salt(self) -> int:
-        return self._limit.get_salt
-
-    @property
-    def get_deposit_source(self) -> Optional[DepositSource]:
-        return self._limit.get_deposit_source
-
-    @property
-    def get_time_in_force(self) -> Optional[TimeInForce]:
-        return self._time_in_force
-
-    @property
-    def get_trigger_price(self) -> Optional[str]:
-        return self._trigger_price
-
-    @property
-    def get_trigger_type(self) -> Optional[TriggerType]:
-        return self._trigger_type
-
-    # ── Unified submit (dispatches based on client signing strategy) ──
-
-    async def submit(self, client: object, orderbook: "OrderBookPair"):
-        """Submit this trigger order using the client's signing strategy.
-
-        - **Native**: signs locally with keypair, submits via REST
-        - **WalletAdapter**: signs via external signer, submits via REST
-        - **Privy**: sends to backend for signing and submission
-
-        Args:
-            client: A ``LightconeClient`` instance with a signing strategy set.
-            orderbook: The ``OrderBookPair`` for this order.
-
-        Returns:
-            ``TriggerOrderResponse`` on success.
-        """
-        from ..shared.signing import SigningStrategyKind, classify_signer_error
-
-        rules = await client.orderbooks().decimals(orderbook.orderbook_id)  # type: ignore[attr-defined]
-        if self._trigger_price is None:
-            raise ValueError("trigger_price is required for trigger orders")
-        validate_trigger_price(self._trigger_price, rules.price_decimals)
-        # Pre-fill orderbook-derived fields and validate before signing
-        self._limit._auto_fill_from_orderbook(orderbook)
-        self._limit._apply_rules(rules, orderbook.orderbook_id)
-
-        # Cache nonce if explicitly provided, or auto-populate from cache
-        if self._limit._nonce is not None:
-            client.set_order_nonce(self._limit._nonce)  # type: ignore[attr-defined]
-        else:
-            self._limit._nonce = client.order_nonce or 0  # type: ignore[attr-defined]
-
-        strategy = client._require_signing_strategy()  # type: ignore[attr-defined]
-
-        if strategy.kind == SigningStrategyKind.NATIVE:
-            request = self.sign(strategy.keypair, orderbook, rules)
-            return await client.orders().submit_trigger(request)  # type: ignore[attr-defined]
-
-        elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
-            hash_hex = self.payload().hash_hex()
-            try:
-                sig_bytes = await strategy.signer.sign_message(hash_hex.encode())
-            except Exception as exc:
-                raise classify_signer_error(str(exc)) from exc
-            import bs58 as _bs58
-            sig_bs58 = _bs58.b58encode(sig_bytes).decode("ascii")
-            request = self.finalize(sig_bs58, orderbook, rules)
-            return await client.orders().submit_trigger(request)  # type: ignore[attr-defined]
-
-        elif strategy.kind == SigningStrategyKind.PRIVY:
-            from ..privy import privy_order_from_trigger_envelope
-            envelope = privy_order_from_trigger_envelope(self, orderbook)
-            result = await client.privy().sign_and_send_order(  # type: ignore[attr-defined]
-                strategy.wallet_id, envelope,
-            )
-            from ..domain.order import TriggerOrderResponse
-            return TriggerOrderResponse(
-                trigger_order_id=result.get("trigger_order_id", ""),
-                order_hash=result.get("order_hash", ""),
-            )
 
         raise SigningError(f"Unsupported signing strategy: {strategy.kind}")

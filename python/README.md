@@ -192,6 +192,27 @@ await client.auth().login_with_message(message, signature_bs58, pubkey_bytes)
 client.set_order_nonce(await client.orders().current_nonce(keypair.pubkey()))
 ```
 
+## API Key
+
+Configure an API key for native or server-side submit, cancel, and cancel-all requests. Public reads and authentication need no API key. The key identifies an API Consumer; user authentication, wallet ownership, and signed-order validation still apply.
+
+```python
+import os
+
+from lightcone_sdk import LightconeClientBuilder, LightconeEnv
+
+client = (
+    LightconeClientBuilder()
+    .env(LightconeEnv.STAGING)
+    .api_key(os.environ["LIGHTCONE_API_KEY"])
+    .build()
+)
+```
+
+The SDK attaches `x-lightcone-api-key` only to POST `/api/orders/submit`, `/api/orders/cancel`, and `/api/orders/cancel-all` on the configured API origin. It never forwards the key to another origin or logs it. HTTPS is required except for loopback development. Keep keys out of source control and browsers.
+
+Cloudflare limits these trading attempts by public source IP, not by API key: direct API callers share 500 attempts per 10-second window per IP. A 429 response does not revoke credentials. Public reads and WebSocket messages are outside this trading limit. Revocation reaches all backend process caches within 24 hours; new keys work immediately through a database lookup on cache miss.
+
 ## Environment Configuration
 
 The SDK defaults to the **production** environment. Use `LightconeEnv` to target a different deployment:
@@ -362,7 +383,10 @@ tx_hash = await (client.positions().merge()
 `market.num_outcomes` is the validated protocol outcome count. Market deposit, merge, and unified withdrawal use it instead of the length of display outcome metadata. The pubkey-only `withdraw_from_position()` builder requires `.num_outcomes(market.num_outcomes)` before building.
 
 ## Authentication
-Authentication is required for user-specific endpoints. Fetch `/api/auth/nonce`, then sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `sign_login_message` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone.
+
+Native client session teardown and WebSocket recovery follow the [native client recovery guide](../docs/auth-session-recovery.md). It explains per-token logout, incomplete teardown, anonymous public continuity, and finite reconnect budgets.
+
+Authentication is required for user-specific endpoints. Native clients using Lightcone sessions fetch `/api/auth/nonce`. Sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `sign_login_message` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone. Browser clients authenticate through Privy.
 
 Authenticate before calling `client.ws()`, which copies the current session token. The WebSocket sends that token as a cookie during the upgrade. Private user subscriptions require `wallet_address`. Derive the Trading Wallet with `session.user.trading_wallet(session.auth_method)`. After a session change, disconnect and create a new WebSocket client. Refer to the [authenticated streaming example](examples/ws_user_and_market.py).
 
@@ -376,6 +400,8 @@ label for the wallet the session trades with, regardless of login identity.
 than 10 using `await client.auth().update_max_slippage_preference(value)`; the
 method returns the canonical exact decimal string. Values at or above 10%
 remain valid order protection but are not remembered through this API.
+
+`session.user.telegram_invite_url` is the single-use Telegram group invite URL that the backend assigned to the Account. It is `None` when the Account holds no invite or when an older backend omits the field. The URL is a secret of the Account. Do not log it and do not send it to analytics.
 
 ### Cookie handling
 
@@ -700,6 +726,6 @@ When a request to the API origin fails with HTTP 401 and a restorer is registere
 
 The SDK stays credential-agnostic: what "restore" means belongs to the host. For classifying auth failures in your own code, use `lightcone_sdk.error.is_unauthorized(error)` — it covers both bare 401s and 401s carrying a structured rejection envelope (`ApiRejectedDetails.http_status`).
 
-## Trigger Orders
+## Supported order responses
 
-Trigger orders (stop-limit, take-profit-limit) are under development and not yet available. Internal types exist in the source for internal use only.
+Refer to the [shared order-response contract](../README.md#supported-order-responses). `UserSnapshotOrder.from_dict` decodes a limit order. REST and WebSocket snapshots contain these orders alongside account metadata. Live order events contain `OrderUpdate`. The snapshot converter returns `UserOpenLimitOrders`.

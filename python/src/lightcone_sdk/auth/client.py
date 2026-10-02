@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import base58
 from nacl.signing import SigningKey
@@ -48,13 +48,13 @@ class Auth:
 
     def __init__(
         self,
-        client: "LightconeClient",
-        credentials: Optional[AuthCredentials] = None,
+        client: LightconeClient,
+        credentials: AuthCredentials | None = None,
     ):
         self._client = client
-        self._credentials: Optional[AuthCredentials] = credentials
+        self._credentials: AuthCredentials | None = credentials
 
-    def credentials(self) -> Optional[AuthCredentials]:
+    def credentials(self) -> AuthCredentials | None:
         """Get current credentials."""
         return self._credentials
 
@@ -80,7 +80,7 @@ class Auth:
         message: str,
         signature_bs58: str,
         pubkey_bytes: list[int],
-        use_embedded_wallet: Optional[bool] = None,
+        use_embedded_wallet: bool | None = None,
     ) -> SessionResponse:
         """Login with a pre-signed message and return the session envelope.
 
@@ -164,13 +164,15 @@ class Auth:
         return session
 
     async def logout(self) -> None:
-        """Logout — clears server-side cookie, internal token, and credentials.
+        """Log out the native client's Lightcone session and clear local credentials.
 
         Local state is cleared even when the server call fails — the caller
         asked to be signed out locally regardless — but the failure is then
         re-raised: callers gating security decisions on teardown (e.g. whether
         an app may restart an authenticated transport) must be able to see
-        that the server-side cookie may still be valid. A 401 counts as
+        whether revocation is unconfirmed or a revoked token still awaits
+        remote WebSocket teardown. Refer to the authentication guide in README.
+        A 401 counts as
         success: it means "already logged out".
         """
         logout_error: Exception | None = None
@@ -368,12 +370,20 @@ def _user_from_dict(d: dict) -> User:
     ):
         raise DeserializationError("user has malformed max_slippage_preference")
 
+    # A missing key (older backend) and an explicit null (Account without an
+    # invite) both mean no invite. The error never includes the value, because
+    # the URL is a secret of the Account.
+    telegram_invite_url = d.get("telegram_invite_url")
+    if telegram_invite_url is not None and not isinstance(telegram_invite_url, str):
+        raise DeserializationError("user has malformed telegram_invite_url")
+
     return User(
         user_id=str(_require(d, "user_id", "user")),
         identity=_identity_from_dict(identity_dict),
         max_slippage_preference=max_slippage_preference,
         linked_identities=linked_identities,
         connected_x=connected_x,
+        telegram_invite_url=telegram_invite_url,
     )
 
 

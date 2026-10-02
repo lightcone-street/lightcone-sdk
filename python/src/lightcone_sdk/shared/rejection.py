@@ -40,14 +40,13 @@ class RejectionCode(str):
         "INVALID_PRICE_DECIMALS": "Invalid Price Decimals",
         "INVALID_PRICE_SIGNIFICANT_FIGURES": "Invalid Price Significant Figures",
         "INVALID_SIZE_DECIMALS": "Invalid Size Decimals",
-        "TRIGGER_PRICE_OUT_OF_RANGE": "Trigger Price Out of Range",
     }
 
-    def __new__(cls, value: str) -> "RejectionCode":
+    def __new__(cls, value: str) -> RejectionCode:
         return super().__new__(cls, value)
 
     @classmethod
-    def from_wire(cls, value: str | None) -> "RejectionCode | None":
+    def from_wire(cls, value: str | None) -> RejectionCode | None:
         if value is None:
             return None
         normalized = value.upper()

@@ -212,6 +212,13 @@ pub struct User {
     /// X account connected by a non-X-identity user; `None` when identity is X.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connected_x: Option<XAccountData>,
+    /// Single-use Telegram group invite URL that the backend assigned to this
+    /// Account. `None` means the Account holds no invite. A missing value from
+    /// an older backend also reads as `None` during a rolling deployment.
+    /// The URL is a secret of this Account. Do not write it to a log, an error
+    /// report, or an analytics event.
+    #[serde(default)]
+    pub telegram_invite_url: Option<String>,
 }
 
 /// Keeps Email labels compact while preserving the recognizable address ends.
@@ -430,6 +437,7 @@ mod tests {
             linked_identities: Vec::new(),
             max_slippage_preference: None,
             connected_x: None,
+            telegram_invite_url: None,
         }
     }
 
@@ -632,5 +640,52 @@ mod tests {
             "max_slippage_preference": 10
         });
         assert!(serde_json::from_value::<User>(numeric).is_err());
+    }
+
+    fn wallet_user_json(telegram_invite_url: Option<serde_json::Value>) -> serde_json::Value {
+        let mut user = serde_json::json!({
+            "user_id": "user:test",
+            "identity": {
+                "type": "wallet",
+                "address": "11111111111111111111111111111111",
+                "chain": "solana"
+            }
+        });
+        if let (Some(value), Some(fields)) = (telegram_invite_url, user.as_object_mut()) {
+            fields.insert("telegram_invite_url".to_string(), value);
+        }
+        user
+    }
+
+    #[test]
+    fn telegram_invite_url_deserializes_missing_null_or_string() -> Result<(), serde_json::Error> {
+        let missing: User = serde_json::from_value(wallet_user_json(None))?;
+        assert_eq!(missing.telegram_invite_url, None);
+
+        let null_user: User =
+            serde_json::from_value(wallet_user_json(Some(serde_json::Value::Null)))?;
+        assert_eq!(null_user.telegram_invite_url, None);
+
+        let invited: User = serde_json::from_value(wallet_user_json(Some(serde_json::json!(
+            "https://t.me/+EXAMPLE0001"
+        ))))?;
+        assert_eq!(
+            invited.telegram_invite_url.as_deref(),
+            Some("https://t.me/+EXAMPLE0001")
+        );
+
+        let numeric = wallet_user_json(Some(serde_json::json!(10)));
+        assert!(serde_json::from_value::<User>(numeric).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn telegram_invite_url_round_trips_through_serialization() -> Result<(), serde_json::Error> {
+        let invited: User = serde_json::from_value(wallet_user_json(Some(serde_json::json!(
+            "https://t.me/+EXAMPLE0001"
+        ))))?;
+        let restored: User = serde_json::from_value(serde_json::to_value(&invited)?)?;
+        assert_eq!(restored, invited);
+        Ok(())
     }
 }
