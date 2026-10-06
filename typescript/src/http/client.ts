@@ -1,4 +1,4 @@
-import { HttpError, SdkError } from "../error";
+import { HttpError, SdkError, isPrivyVerificationUnavailable } from "../error";
 import {
   ApiRejectedDetails,
   isApiResponse,
@@ -364,6 +364,13 @@ export class LightconeHttp {
         return parseApiResponse<T>(apiResponse, requestId);
       } catch (error) {
         if (error instanceof HttpStatusError) {
+          // Classify before the generic 503 policy so no retry is scheduled.
+          const surfaced = error.status === 503
+            ? parseRejectedBody(error.body, error.requestId, error.status, retryAfterMs(error.headers))
+            : undefined;
+          if (isPrivyVerificationUnavailable(surfaced)) {
+            throw surfaced;
+          }
           // On the first 401, give the host a chance to restore its
           // credentials (e.g. refresh an auth session) — at most once per
           // logical request, shared with any concurrent requests (see
@@ -570,7 +577,7 @@ export class LightconeHttp {
   }
 
   private statusErrorToSdk(error: HttpStatusError): Error {
-    const rejected = parseRejectedBody(error.body, error.requestId, error.status);
+    const rejected = parseRejectedBody(error.body, error.requestId, error.status, retryAfterMs(error.headers));
     if (rejected) {
       return rejected;
     }
@@ -601,7 +608,8 @@ function parseApiResponse<T>(payload: unknown, requestId: string): T {
 function parseRejectedBody(
   body: string,
   requestId: string,
-  httpStatus: number
+  httpStatus: number,
+  retryAfterMs?: number
 ): SdkError | undefined {
   let payload: unknown;
   try {
@@ -614,9 +622,16 @@ function parseRejectedBody(
     return undefined;
   }
 
-  return SdkError.apiRejected(
-    ApiRejectedDetails.fromWire(payload.error_details, requestId, httpStatus)
-  );
+  const details = payload.error_details;
+  if (!details || typeof details !== "object") return undefined;
+  try {
+    return SdkError.apiRejected(
+      ApiRejectedDetails.fromWire(details, requestId, httpStatus, retryAfterMs)
+    );
+  } catch {
+    // Malformed optional wire fields must not abort an unrelated 503 retry.
+    return undefined;
+  }
 }
 
 function generateRequestId(): string {
@@ -643,24 +658,43 @@ function getSetCookieHeaders(headers: Headers): string[] {
   return combined ? [combined] : [];
 }
 
+/** Preserve numeric or HTTP-date guidance; elapsed dates permit an immediate manual retry. */
 function retryAfterMs(headers: Headers): number | undefined {
-  const retryAfterMsValue = headers.get("retry-after-ms");
-  if (retryAfterMsValue) {
-    const parsed = Number.parseInt(retryAfterMsValue, 10);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
+  for (const [name, scale] of [["retry-after-ms", 1], ["retry-after", 1000]] as const) {
+    const value = headers.get(name)?.trim();
+    if (!value || !/^\d+(?:\.\d+)?$/.test(value)) continue;
+    const delay = Math.ceil(Number(value) * scale);
+    if (Number.isSafeInteger(delay) && delay >= 0) return delay;
   }
-
-  const retryAfterValue = headers.get("retry-after");
-  if (retryAfterValue) {
-    const parsed = Number.parseFloat(retryAfterValue);
-    if (Number.isFinite(parsed)) {
-      return Math.round(parsed * 1000);
-    }
+  const value = headers.get("retry-after")?.trim();
+  const deadline = value ? httpDateMs(value) : undefined;
+  if (deadline !== undefined) {
+    const delay = Math.max(0, Math.ceil(deadline - Date.now()));
+    if (Number.isSafeInteger(delay)) return delay;
   }
-
   return undefined;
+}
+
+
+/** Decode the three HTTP-date forms as UTC, rejecting normalized invalid dates. */
+function httpDateMs(value: string): number | undefined {
+  const modern = /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat), (\d{2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/.exec(value);
+  const obsolete = /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), (\d{2})-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-(\d{2}) (\d{2}):(\d{2}):(\d{2}) GMT$/.exec(value);
+  const ascii = /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([ \d]\d) (\d{2}):(\d{2}):(\d{2}) (\d{4})$/.exec(value);
+  const parts = modern ?? obsolete ?? (ascii && [ascii[0], ascii[1], ascii[3], ascii[2], ascii[7], ascii[4], ascii[5], ascii[6]]);
+  if (!parts) return undefined;
+  const [, weekday = "", day, month = "", year, hour, minute, second] = parts;
+  let fullYear = Number(year);
+  if (obsolete) fullYear += fullYear < 70 ? 2000 : 1900;
+  const monthIndex = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].indexOf(month);
+  const date = new Date(0);
+  date.setUTCFullYear(fullYear, monthIndex, Number(day));
+  date.setUTCHours(Number(hour), Number(minute), Number(second), 0);
+  if (date.getUTCFullYear() !== fullYear || date.getUTCMonth() !== monthIndex ||
+      date.getUTCDate() !== Number(day) || date.getUTCHours() !== Number(hour) ||
+      date.getUTCMinutes() !== Number(minute) || date.getUTCSeconds() !== Number(second) ||
+      ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][date.getUTCDay()] !== weekday.slice(0, 3)) return undefined;
+  return date.getTime();
 }
 
 function extractCookieValue(header: string, name: string): string | undefined {

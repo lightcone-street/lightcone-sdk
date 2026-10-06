@@ -1,4 +1,4 @@
-import { SdkError, isUnauthorized } from "../error";
+import { isPrivyVerificationUnavailable, SdkError, isUnauthorized } from "../error";
 import { RetryPolicy, type LightconeHttp } from "../http";
 import { asPubkeyStr } from "../shared";
 import { tradingWallet } from "./index";
@@ -112,7 +112,10 @@ export class Auth {
       );
       normalizeSessionUser(session);
     } catch (error) {
-      this.client.authState.setCredentials(undefined);
+      // Authority outages do not invalidate a previously established session.
+      if (!isPrivyVerificationUnavailable(error)) {
+        this.client.authState.setCredentials(undefined);
+      }
       throw SdkError.from(error);
     }
 

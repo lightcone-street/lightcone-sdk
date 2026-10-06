@@ -742,7 +742,7 @@ The SDK generates a UUID v4 `x-request-id` header on every HTTP request. On reje
 
 ## Retry Strategy
 
-- **Replay-safe requests**: GETs and idempotent set operations such as favorite-market updates use `RetryPolicy.Idempotent`, which retries transport failures and 502/503/504 and backs off on 429 with exponential backoff + jitter.
+- **Replay-safe requests**: GETs and idempotent set operations such as favorite-market updates use `RetryPolicy.Idempotent`, which retries transport failures and 502/503/504 and backs off on 429 with exponential backoff + jitter. The exact `503 PRIVY_VERIFICATION_UNAVAILABLE` rejection returns immediately.
 - **Non-idempotent requests** (order submit, cancel, auth): `RetryPolicy.None` - no automatic retry, which prevents duplicate side effects.
 - Customizable per-call with `RetryPolicy.custom(config)`.
 
@@ -760,6 +760,10 @@ client.setCredentialRestorer(async () => {
 When a request to the API origin fails with HTTP 401 and a restorer is registered, the transport consults it **at most once per logical request**, with concurrent 401s sharing one restoration (bounded by a 30-second timeout). A successful restoration replays the request once **only if it declared itself retry-safe** (an idempotent/custom retry policy); `RetryPolicy.None` requests — mutations like orders and cancels — are never auto-replayed: the restoration still heals the session for the caller's next attempt, but the original 401 propagates. Restoration is skipped for credential-management endpoints (login, logout) and for cookie-override/custom-session requests, redirects are never followed on the API transport, and without a registered restorer 401s propagate unchanged. A timed-out restoration has its `AbortSignal` fired — promises cannot be cancelled, so restorers whose work is non-idempotent (refresh-token rotation) must honor the signal or serialize internally.
 
 The SDK stays credential-agnostic: what "restore" means belongs to the host. For classifying auth failures in your own code, use `isUnauthorized(error)` from the error module — it covers both bare 401s and 401s carrying a structured rejection envelope (`ApiRejectedDetails.httpStatus`).
+
+### Temporary Privy verification failures
+
+Use `isPrivyVerificationUnavailable(error)` from the error module to identify the manual-retry rejection. `error.apiRejectedDetails?.retryAfterMs` carries the optional delay in milliseconds. See the [SDK recovery contract](../README.md#manual-recovery-from-temporary-authentication-failures).
 
 ## Supported order responses
 

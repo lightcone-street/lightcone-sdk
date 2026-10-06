@@ -230,3 +230,11 @@ Then use `cargo cooldown` in place of `cargo` when updating dependencies (e.g. `
 | Rust | [`cargo-cooldown`](https://crates.io/crates/cargo-cooldown) | `cooldown.toml` — `cooldown_minutes = 10080` |
 | TypeScript | npm `min-release-age` | `.npmrc` — `min-release-age=7` |
 | Python | uv `exclude-newer` | `pyproject.toml` — `exclude-newer = "7 days"` |
+
+## Manual recovery from temporary authentication failures
+
+An HTTP `503 PRIVY_VERIFICATION_UNAVAILABLE` response means the backend could not verify the current Privy credential. Rust, TypeScript, and Python return that rejection immediately, even for registration or an idempotent read. They retain cached credentials on session checks and do not invoke 401 credential restoration for this failure.
+
+Applications keep the retry action disabled until the surfaced delay ends. Expiry only enables the action. Without valid guidance, offer manual retry immediately without a countdown. Countdown expiry must not submit a request by itself. The structured rejection provides `retry_after_ms` in Rust/Python and `retryAfterMs` in TypeScript, measured in milliseconds from response receipt. Numeric and HTTP-date guidance are supported. Expired dates produce zero delay. Absent or malformed guidance produces no delay. Other failures retain their retry policies. The shared delay parser also applies strict numeric validation, upward rounding, and HTTP-date support to their delays. Trading mutations remain single-attempt.
+
+Rust consumers constructing `ApiRejectedDetails` directly must add `retry_after_ms: None` when no HTTP response supplied a delay. Exhaustive destructuring patterns must include the field or `..`. This optional transport field is skipped by Serde, so backend JSON remains unchanged. Existing error variants remain available.

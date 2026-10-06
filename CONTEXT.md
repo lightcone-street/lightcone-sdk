@@ -36,3 +36,9 @@ estimation. Submission may add signatures but may not replace message fields.
 **Canonical WSOL Account**:
 The persistent Tokenkeg associated token account referenced by SOL planning contracts. Use the
 ADR for its lifecycle rather than restating that definition elsewhere.
+
+## Temporary Privy Verification Failure
+
+The exact HTTP `503 PRIVY_VERIFICATION_UNAVAILABLE` rejection bypasses SDK retry scheduling, including idempotent and custom policies. Applications choose when to retry. Session checks retain cached credentials because an unavailable authority does not prove that the credentials are invalid.
+
+Structured rejections expose the response status, stable code, and optional retry delay in milliseconds. The delay starts at response receipt. Missing, negative, malformed, nonfinite, or out-of-range guidance remains absent. The SDK rounds fractional milliseconds upward and never schedules a retry for this rejection. Genuine 401 restoration and retry-policy selection retain their existing behavior. Shared delay parsing rejects malformed numeric values and supports HTTP dates for other responses too.

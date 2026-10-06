@@ -8,6 +8,7 @@ pub enum RetryPolicy {
     /// No retries — used for non-idempotent POST endpoints by default.
     None,
     /// Retry on transport failures + 502/503/504, with backoff on 429.
+    /// The exact Privy verification-unavailable rejection always returns immediately.
     /// Use for any request whose result is safe to replay.
     Idempotent,
     /// User-provided retry logic.

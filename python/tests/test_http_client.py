@@ -937,3 +937,244 @@ def test_api_key_rejects_non_loopback_cleartext_origin() -> None:
         LightconeHttp("http://api.example.com", api_key="test-key")
     assert LightconeHttp("http://127.0.0.1:3001", api_key="test-key").has_api_key
     assert LightconeHttp("https://api.example.com", api_key="test-key").has_api_key
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "header,delay",
+    [
+        ("60", 60000),
+        ("0.0001", 1),
+        (None, None),
+        ("-1", None),
+        ("NaN", None),
+        ("5junk", None),
+    ],
+)
+async def test_privy_unavailable_returns_first_rejection_and_retains_credentials(
+    header, delay
+):
+    attempts = 0
+
+    async def handler(request):
+        nonlocal attempts
+        attempts += 1
+        return web.json_response(
+            {
+                "status": "error",
+                "error_details": {
+                    "reason": "Unavailable",
+                    "error_code": "PRIVY_VERIFICATION_UNAVAILABLE",
+                },
+            },
+            status=503,
+            headers={"Retry-After": header} if header is not None else {},
+        )
+
+    base, cleanup = await _start_server(handler)
+    http = LightconeHttp(base)
+    auth = Auth(SimpleNamespace(_http=http))
+    cached = object()
+    auth._credentials = cached
+    try:
+        with pytest.raises(ApiRejected) as raised:
+            await asyncio.wait_for(auth.check_session(), timeout=2)
+        assert raised.value.details.is_privy_verification_unavailable()
+        assert raised.value.details.retry_after_ms == delay
+        assert auth._credentials is cached
+        assert attempts == 1
+        from lightcone_sdk.auth import LinkedIdentitySelector, RegisterPrivyRequest
+
+        with pytest.raises(ApiRejected):
+            await asyncio.wait_for(
+                auth.register_privy(
+                    RegisterPrivyRequest(
+                        LinkedIdentitySelector(
+                            type="email", email="fixture@example.test"
+                        )
+                    )
+                ),
+                timeout=2,
+            )
+        assert auth._credentials is cached
+        assert attempts == 2
+    finally:
+        await http.close()
+        await cleanup()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "policy", [RetryPolicy.IDEMPOTENT, _fast_retry({503}), RetryPolicy.NONE]
+)
+@pytest.mark.parametrize("method", ["GET", "POST"])
+async def test_privy_policy_matrix_has_one_send_and_no_restoration(policy, method):
+    async def handler(_request):
+        nonlocal attempts
+        attempts += 1
+        return web.json_response(
+            {
+                "status": "error",
+                "error_details": {
+                    "reason": "Unavailable",
+                    "error_code": "PRIVY_VERIFICATION_UNAVAILABLE",
+                },
+            },
+            status=503,
+            headers={"Retry-After": "60"},
+        )
+
+    attempts = 0
+    restores = 0
+
+    async def restore():
+        nonlocal restores
+        restores += 1
+        return True
+
+    base, cleanup = await _start_server(handler)
+    http = LightconeHttp(base)
+    http.set_credential_restorer(restore)
+    try:
+        with pytest.raises(ApiRejected) as raised:
+            call = (
+                http.get("/test", policy)
+                if method == "GET"
+                else http.post("/test", {"signature": "original"}, policy)
+            )
+            await asyncio.wait_for(call, timeout=2)
+        assert raised.value.details.is_privy_verification_unavailable()
+        assert raised.value.details.retry_after_ms == 60000
+        assert attempts == 1
+        assert restores == 0
+    finally:
+        await http.close()
+        await cleanup()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "details",
+    [123, {"reason": "Unavailable", "error_code": "OTHER", "rejection_code": 123}],
+)
+async def test_malformed_unrelated_503_keeps_generic_retry(details):
+    import json
+
+    base, attempts, cleanup = await _server(
+        [
+            (503, json.dumps({"status": "error", "error_details": details})),
+            (200, '{"status":"success","body":{"ok":true}}'),
+        ]
+    )
+    http = LightconeHttp(base)
+    try:
+        assert await http.get("/test", _fast_retry({503})) == {"ok": True}
+        assert attempts() == 2
+    finally:
+        await http.close()
+        await cleanup()
+
+
+@pytest.mark.parametrize(
+    "header,expected",
+    [
+        ("Wed, 21 Oct 2015 07:28:05 GMT", 5000),
+        ("Wed, 21 Oct 2015 07:27:00 GMT", 0),
+        ("Wed, invalid", None),
+        ("Wednesday, 21-Oct-15 07:28:05 GMT", 5000),
+        ("Wed Oct 21 07:28:05 2015", 5000),
+        ("Wed, 31 Feb 2027 07:28:05 GMT", None),
+        ("Oct 21 2099", None),
+        ("Wed 1", None),
+    ],
+)
+def test_http_date_retry_guidance_uses_response_time(header, expected):
+    from lightcone_sdk.http.client import _retry_after_ms
+
+    assert _retry_after_ms({"retry-after": header}, now_ms=1445412480000) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["submit", "cancel", "cancel_all"])
+async def test_public_order_operations_surface_one_privy_rejection(operation):
+    from lightcone_sdk.domain.order import CancelAllBody, CancelBody
+    from lightcone_sdk.shared.types import SubmitOrderRequest
+
+    rules = {
+        "orderbook_id": "11111111111111111111111111111111",
+        "base_decimals": 8,
+        "quote_decimals": 6,
+        "price_decimals": 4,
+        "trading_rules": {
+            "base_size_decimals": 5,
+            "max_price_decimals": 1,
+            "max_price_significant_figures": 5,
+            "integer_prices_always_allowed": True,
+            "price_quantum": "0.1000",
+            "price_quantum_raw": "1000",
+            "base_size_quantum": "0.00001000",
+            "base_size_quantum_raw": "1000",
+        },
+    }
+    attempts = 0
+
+    async def handler(request):
+        nonlocal attempts
+        if request.path.endswith("/decimals"):
+            return web.json_response({"status": "success", "body": rules})
+        attempts += 1
+        return web.json_response(
+            {
+                "status": "error",
+                "error_details": {
+                    "reason": "Unavailable",
+                    "error_code": "PRIVY_VERIFICATION_UNAVAILABLE",
+                },
+            },
+            status=503,
+            headers={"Retry-After": "60"},
+        )
+
+    base, cleanup = await _start_server(handler)
+    client = LightconeClientBuilder().base_url(base).build()
+    wallet = "11111111111111111111111111111111"
+    try:
+        with pytest.raises(ApiRejected) as raised:
+            if operation == "submit":
+                call = client.orders().submit(
+                    SubmitOrderRequest(
+                        maker=wallet,
+                        nonce=0,
+                        salt=0,
+                        market_pubkey=wallet,
+                        base_token=wallet,
+                        quote_token=wallet,
+                        side=0,
+                        amount_in=15_185_088,
+                        amount_out=123_456_000,
+                        expiration=0,
+                        signature="fixture",
+                        orderbook_id=wallet,
+                    )
+                )
+            elif operation == "cancel":
+                call = client.orders().cancel(
+                    CancelBody(order_hash="fixture", maker=wallet, signature="fixture")
+                )
+            else:
+                call = client.orders().cancel_all(
+                    CancelAllBody(
+                        user_pubkey=wallet,
+                        orderbook_id=wallet,
+                        signature="fixture",
+                        timestamp=0,
+                        salt="fixture",
+                    )
+                )
+            await asyncio.wait_for(call, timeout=2)
+        assert raised.value.details.is_privy_verification_unavailable()
+        assert raised.value.details.retry_after_ms == 60000
+        assert attempts == 1
+    finally:
+        await client.close()
+        await cleanup()

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Generic, Literal, Optional, TypeVar, cast
+from typing import Generic, Literal, TypeVar, cast
 
 from .rejection import RejectionCode
 
@@ -21,20 +21,33 @@ class ApiRejectedDetails:
     """
 
     reason: str
-    rejection_code: Optional[RejectionCode] = None
-    error_code: Optional[str] = None
-    existing_method: Optional[LinkedIdentityType] = None
-    error_log_id: Optional[str] = None
-    request_id: Optional[str] = None
+    rejection_code: RejectionCode | None = None
+    error_code: str | None = None
+    existing_method: LinkedIdentityType | None = None
+    error_log_id: str | None = None
+    request_id: str | None = None
     # HTTP status of the response that carried this rejection. Set by the HTTP
     # client when the rejection rode a non-2xx response; not present in the
     # backend JSON. Lets callers classify rejections at the transport level
     # (e.g. ``lightcone_sdk.error.is_unauthorized``) without matching on
     # backend error strings.
-    http_status: Optional[int] = None
+    http_status: int | None = None
+    # Server delay in milliseconds from response receipt, not a backend JSON field.
+    retry_after_ms: int | None = None
+
+    def is_privy_verification_unavailable(self) -> bool:
+        """Exact pre-execution authority failure requiring a manual retry decision."""
+        return (
+            self.http_status == 503
+            and self.error_code == "PRIVY_VERIFICATION_UNAVAILABLE"
+        )
+
+    def with_retry_after_ms(self, delay: int | None) -> ApiRejectedDetails:
+        """Attach parsed transport guidance without inventing a missing delay."""
+        return replace(self, retry_after_ms=delay)
 
     @staticmethod
-    def from_dict(data: dict) -> "ApiRejectedDetails":
+    def from_dict(data: dict) -> ApiRejectedDetails:
         return ApiRejectedDetails(
             reason=str(data.get("reason", "")),
             rejection_code=RejectionCode.from_wire(data.get("rejection_code")),
@@ -43,10 +56,10 @@ class ApiRejectedDetails:
             error_log_id=data.get("error_log_id"),
         )
 
-    def with_request_id(self, request_id: Optional[str]) -> "ApiRejectedDetails":
+    def with_request_id(self, request_id: str | None) -> ApiRejectedDetails:
         return replace(self, request_id=request_id)
 
-    def with_http_status(self, http_status: Optional[int]) -> "ApiRejectedDetails":
+    def with_http_status(self, http_status: int | None) -> ApiRejectedDetails:
         return replace(self, http_status=http_status)
 
     def __str__(self) -> str:
@@ -64,7 +77,7 @@ class ApiRejectedDetails:
         return "\n".join(lines)
 
 
-def _linked_identity_type(value: object) -> Optional[LinkedIdentityType]:
+def _linked_identity_type(value: object) -> LinkedIdentityType | None:
     """Keep known public method guidance and ignore future backend variants."""
     if value in ("email", "google", "x", "wallet"):
         return cast(LinkedIdentityType, value)
@@ -83,11 +96,11 @@ class ApiResponse(Generic[T]):
     """
 
     status: str
-    body: Optional[T] = None
-    details: Optional[ApiRejectedDetails] = None
+    body: T | None = None
+    details: ApiRejectedDetails | None = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ApiResponse[T]":
+    def from_dict(cls, data: dict) -> ApiResponse[T]:
         status = str(data.get("status", ""))
         if status == "success":
             return cls(status=status, body=data.get("body"))

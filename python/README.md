@@ -706,7 +706,7 @@ except ApiRejected as err:
 
 ## Retry Strategy
 
-- **Replay-safe requests**: GET and DELETE helpers default to `RetryPolicy.IDEMPOTENT`, and idempotent set operations such as favorite-market POSTs opt into it explicitly. This policy retries transport failures and 429/502/503/504 with exponential backoff + jitter.
+- **Replay-safe requests**: GET and DELETE helpers default to `RetryPolicy.IDEMPOTENT`, and idempotent set operations such as favorite-market POSTs opt into it explicitly. This policy retries transport failures and 429/502/503/504 with exponential backoff + jitter. The exact `503 PRIVY_VERIFICATION_UNAVAILABLE` rejection returns immediately.
 - **Non-idempotent requests** (order submit, cancel, auth): `RetryPolicy.NONE` - no automatic retry, which prevents duplicate side effects.
 - Customizable per-call with `RetryPolicy.custom(RetryConfig(...))`. If you use `LightconeHttp` directly, pass a `RetryPolicy` per request.
 
@@ -725,6 +725,10 @@ client.set_credential_restorer(restore_credentials)
 When a request to the API origin fails with HTTP 401 and a restorer is registered, the transport consults it **at most once per logical request**, with concurrent 401s sharing one restoration (bounded by a 30-second timeout). A successful restoration replays the request once **only if it declared itself retry-safe** (an idempotent/custom retry policy); `RetryPolicy.NONE` requests — mutations like orders and cancels — are never auto-replayed: the restoration still heals the session for the caller's next attempt, but the original 401 propagates. Restoration is skipped for credential-management endpoints (login, logout) and for cookie-override/custom-session requests, redirects are never followed on the API transport, and without a registered restorer 401s propagate unchanged. A timed-out restoration is cancelled outright (asyncio task cancellation), so it can never keep running alongside the next one. The transport also disables aiohttp's ambient cookie jar (`DummyCookieJar`): cookies are managed explicitly, so a response's `Set-Cookie` can never silently ride a later request.
 
 The SDK stays credential-agnostic: what "restore" means belongs to the host. For classifying auth failures in your own code, use `lightcone_sdk.error.is_unauthorized(error)` — it covers both bare 401s and 401s carrying a structured rejection envelope (`ApiRejectedDetails.http_status`).
+
+### Temporary Privy verification failures
+
+Use `is_privy_verification_unavailable(error)` from the error module to identify the manual-retry rejection. `error.details.retry_after_ms` carries the optional delay in milliseconds. See the [SDK recovery contract](../README.md#manual-recovery-from-temporary-authentication-failures).
 
 ## Supported order responses
 

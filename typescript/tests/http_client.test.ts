@@ -15,6 +15,7 @@ type TestResponse = {
   setCookie?: string;
   /** Optional Location header, for redirect responses. */
   location?: string;
+  retryAfter?: string;
 };
 
 async function withServer(
@@ -37,6 +38,7 @@ async function withServer(
       body: '{"status":"error","error_details":{"reason":"unexpected extra request"}}',
     };
     const headers: Record<string, string> = { "content-type": "application/json" };
+    if (next.retryAfter !== undefined) headers["retry-after"] = next.retryAfter;
     if (next.setCookie) {
       headers["set-cookie"] = next.setCookie;
     }
@@ -918,3 +920,128 @@ describe("API key transport", () => {
     );
   });
 });
+
+
+describe("manual Privy retry contract", () => {
+  for (const [header, delay] of [["60", 60000], ["0.0001", 1], [undefined, undefined], ["-1", undefined], ["NaN", undefined], ["5junk", undefined]] as const) {
+    it(`returns the first rejection and retains timing ${header}`, async () => {
+      await withServer([{status:503, retryAfter:header, body:JSON.stringify({status:"error",error_details:{reason:"Unavailable",error_code:"PRIVY_VERIFICATION_UNAVAILABLE"}})}], async (base, attempts) => {
+        const http = new LightconeHttp(base);
+        let restores = 0;
+        http.setCredentialRestorer(async () => { restores++; return true; });
+        await assert.rejects(() => http.get(base, RetryPolicy.Idempotent), (error: unknown) => {
+          assert(error instanceof SdkError);
+          assert.equal(error.apiRejectedDetails?.isPrivyVerificationUnavailable(), true);
+          assert.equal(error.apiRejectedDetails?.retryAfterMs, delay);
+          return true;
+        });
+        assert.equal(attempts(), 1);
+        assert.equal(restores, 0);
+      });
+    });
+  }
+  it("session checks retain cached credentials on authority failure", async () => {
+    await withServer(Array.from({length:2},()=>({status:503, body:JSON.stringify({status:"error",error_details:{reason:"Unavailable",error_code:"PRIVY_VERIFICATION_UNAVAILABLE"}})})), async (base, attempts) => {
+      let writes = 0;
+      const cached = {user_id:"existing-account",wallet_address:"wallet",expires_at:new Date(Date.now()+60_000)};
+      const auth = new Auth({http:new LightconeHttp(base),authState:{getCredentials:()=>cached,setCredentials:()=>{writes++;},clearCaches:async()=>{}}});
+      await assert.rejects(() => auth.checkSession());
+      assert.equal(writes,0);
+      assert.equal(attempts(),1);
+      await assert.rejects(() => auth.registerPrivy({attempted_identity:{type:"email",email:"fixture@example.test"}}));
+      assert.equal(writes,0);
+      assert.equal(attempts(),2);
+    });
+  });
+});
+
+describe("Privy policy and malformed-response regressions", () => {
+  const rejection = JSON.stringify({ status: "error", error_details: {
+    reason: "Unavailable", error_code: "PRIVY_VERIFICATION_UNAVAILABLE",
+  } });
+  for (const policy of [RetryPolicy.Idempotent, fastRetry([503]), RetryPolicy.None]) {
+    for (const method of ["GET", "POST"]) {
+      it(`${method} surfaces Privy once under policy ${JSON.stringify(policy)}`, async () => {
+        await withServer([{ status: 503, body: rejection, retryAfter: "60" }], async (base, attempts) => {
+          const http = new LightconeHttp(base);
+          let restores = 0;
+          http.setCredentialRestorer(async () => { restores++; return true; });
+          const call = () => method === "GET" ? http.get(base, policy) : http.post(base, { signature: "original" }, policy);
+          await assert.rejects(call, (error: unknown) => {
+            assert(error instanceof SdkError);
+            assert.equal(error.apiRejectedDetails?.isPrivyVerificationUnavailable(), true);
+            assert.equal(error.apiRejectedDetails?.retryAfterMs, 60000);
+            return true;
+          });
+          assert.equal(attempts(), 1);
+          assert.equal(restores, 0);
+        });
+      });
+    }
+  }
+  for (const details of [123, { reason: "Unavailable", error_code: "OTHER", rejection_code: 123 }]) {
+    it(`malformed 503 details retain generic retry: ${JSON.stringify(details)}`, async () => {
+      await withServer([
+        { status: 503, body: JSON.stringify({ status: "error", error_details: details }) },
+        { status: 200, body: JSON.stringify({ status: "success", body: { ok: true } }) },
+      ], async (base, attempts) => {
+        assert.deepEqual(await new LightconeHttp(base).get(base, fastRetry([503])), { ok: true });
+        assert.equal(attempts(), 2);
+      });
+    });
+  }
+  for (const [header, expected] of [
+    ["Wed, 21 Oct 2015 07:28:05 GMT", 5000],
+    ["Wed, 21 Oct 2015 07:27:00 GMT", 0],
+    ["Wed, invalid", undefined],
+    ["Wednesday, 21-Oct-15 07:28:05 GMT", 5000],
+    ["Wed Oct 21 07:28:05 2015", 5000],
+    ["Wed, 31 Feb 2027 07:28:05 GMT", undefined],
+    ["Oct 21 2099", undefined],
+    ["Wed 1", undefined],
+  ] as const) {
+    it(`retains HTTP-date guidance ${header}`, async (context) => {
+      context.mock.method(Date, "now", () => Date.parse("Wed, 21 Oct 2015 07:28:00 GMT"));
+      await withServer([{ status: 503, body: rejection, retryAfter: header }], async (base, attempts) => {
+        await assert.rejects(() => new LightconeHttp(base).get(base, RetryPolicy.None), (error: unknown) => {
+          assert(error instanceof SdkError);
+          assert.equal(error.apiRejectedDetails?.retryAfterMs, expected);
+          return true;
+        });
+        assert.equal(attempts(), 1);
+      });
+    });
+  }
+});
+
+for (const operation of ["submit", "cancel", "cancelAll"] as const) {
+  it(`public ${operation} surfaces one Privy rejection`, async () => {
+    const { LightconeClient } = await import("../src/client");
+    const { asPubkeyStr, asOrderBookId } = await import("../src/shared");
+    const wallet = asPubkeyStr("11111111111111111111111111111111");
+    const orderbook = asOrderBookId(wallet);
+    const rules = { orderbook_id: orderbook, base_decimals: 8, quote_decimals: 6, price_decimals: 4,
+      trading_rules: { base_size_decimals: 5, max_price_decimals: 1, max_price_significant_figures: 5,
+        integer_prices_always_allowed: true, price_quantum: "0.1000", price_quantum_raw: "1000",
+        base_size_quantum: "0.00001000", base_size_quantum_raw: "1000" } };
+    const responses: TestResponse[] = operation === "submit" ? [{ status: 200, body: JSON.stringify({ status: "success", body: rules }) }] : [];
+    responses.push({ status: 503, retryAfter: "60", body: JSON.stringify({ status: "error", error_details: {
+      reason: "Unavailable", error_code: "PRIVY_VERIFICATION_UNAVAILABLE",
+    } }) });
+    await withServer(responses, async (base, attempts) => {
+      const orders = LightconeClient.builder().baseUrl(base).build().orders();
+      const call = () => operation === "submit" ? orders.submit({ maker: wallet, nonce: 0, salt: 0n,
+        market_pubkey: wallet, base_token: wallet, quote_token: wallet, side: 0,
+        amount_in: 15_185_088n, amount_out: 123_456_000n, expiration: 0n, signature: "fixture", orderbook_id: orderbook,
+      }) : operation === "cancel" ? orders.cancel({ order_hash: "fixture", maker: wallet, signature: "fixture" })
+        : orders.cancelAll({ user_pubkey: wallet, orderbook_id: orderbook, signature: "fixture", timestamp: 0, salt: "fixture" });
+      await assert.rejects(call, (error: unknown) => {
+        assert(error instanceof SdkError);
+        assert.equal(error.apiRejectedDetails?.isPrivyVerificationUnavailable(), true);
+        assert.equal(error.apiRejectedDetails?.retryAfterMs, 60000);
+        return true;
+      });
+      assert.equal(attempts(), operation === "submit" ? 2 : 1);
+    });
+  });
+}

@@ -30,6 +30,8 @@ export class ApiRejectedDetails {
    * (e.g. `isUnauthorized`) without matching on backend error strings.
    */
   readonly httpStatus?: number;
+  /** Server delay in milliseconds from response receipt; absent/malformed means undefined. */
+  readonly retryAfterMs?: number;
 
   constructor(params: {
     reason: string;
@@ -39,6 +41,7 @@ export class ApiRejectedDetails {
     errorLogId?: string;
     requestId?: string;
     httpStatus?: number;
+    retryAfterMs?: number;
   }) {
     this.reason = params.reason;
     this.rejectionCode = params.rejectionCode;
@@ -47,12 +50,14 @@ export class ApiRejectedDetails {
     this.errorLogId = params.errorLogId;
     this.requestId = params.requestId;
     this.httpStatus = params.httpStatus;
+    this.retryAfterMs = params.retryAfterMs;
   }
 
   static fromWire(
     wire: ApiRejectedDetailsWire,
     requestId?: string,
     httpStatus?: number,
+    retryAfterMs?: number,
   ): ApiRejectedDetails {
     return new ApiRejectedDetails({
       reason: wire.reason,
@@ -64,7 +69,13 @@ export class ApiRejectedDetails {
       errorLogId: wire.error_log_id,
       requestId,
       httpStatus,
+      retryAfterMs,
     });
+  }
+
+  /** Exact pre-execution authority failure; retain credentials and require manual retry. */
+  isPrivyVerificationUnavailable(): boolean {
+    return this.httpStatus === 503 && this.errorCode === "PRIVY_VERIFICATION_UNAVAILABLE";
   }
 
   toString(): string {
