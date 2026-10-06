@@ -108,7 +108,10 @@ enum ApiRequestError {
         status: u16,
         body: String,
         request_id: String,
+        /// Optional caller guidance measured when response headers arrive.
         headers_retry_after_ms: Option<u64>,
+        /// Remaining generic wait after reading the error body.
+        retry_delay_ms: Option<u64>,
     },
     Http(HttpError),
 }
@@ -126,12 +129,9 @@ impl From<reqwest::Error> for ApiRequestError {
 }
 
 impl ApiRequestError {
-    fn headers_retry_after_ms(&self) -> Option<u64> {
+    fn retry_delay_ms(&self) -> Option<u64> {
         match self {
-            Self::NonSuccessStatus {
-                headers_retry_after_ms,
-                ..
-            } => *headers_retry_after_ms,
+            Self::NonSuccessStatus { retry_delay_ms, .. } => *retry_delay_ms,
             Self::Http(HttpError::RateLimited { retry_after_ms }) => *retry_after_ms,
             _ => None,
         }
@@ -752,7 +752,7 @@ impl LightconeHttp {
 
                     if should_retry && attempt < config.max_retries {
                         let delay = e
-                            .headers_retry_after_ms()
+                            .retry_delay_ms()
                             .map(Duration::from_millis)
                             .unwrap_or_else(|| config.delay_for_attempt(attempt));
                         tracing::debug!(
@@ -938,20 +938,36 @@ impl LightconeHttp {
         }
 
         let status_code = status.as_u16();
-        let headers_retry_after_ms = Self::retry_after_ms(resp.headers());
+        let headers = resp.headers().clone();
+        let headers_retry_after_ms = Self::retry_after_ms(&headers);
         let body_text = resp.text().await.unwrap_or_default();
+        // Surfaced guidance uses receipt time; generic date retries wait only
+        // until the original deadline, excluding time spent consuming the body.
+        let retry_delay_ms = Self::retry_after_ms(&headers);
 
         Err(ApiRequestError::NonSuccessStatus {
             status: status_code,
             body: body_text,
             request_id: request_id.to_string(),
             headers_retry_after_ms,
+            retry_delay_ms,
         })
     }
 
+    /// Privy authority failures bypass generic retry policies, including custom policies.
+    /// The rejection and its delay must reach the caller for a manual retry decision.
     fn should_retry_request_error(error: &ApiRequestError, retryable_statuses: &[u16]) -> bool {
         match error {
-            ApiRequestError::NonSuccessStatus { status, .. } => retryable_statuses.contains(status),
+            ApiRequestError::NonSuccessStatus { status, body, .. } => {
+                let manual_retry = *status == 503
+                    && Self::parse_http_rejection::<serde_json::Value>(
+                        body,
+                        String::new(),
+                        *status,
+                    )
+                    .is_some_and(|error| error.is_privy_verification_unavailable());
+                !manual_retry && retryable_statuses.contains(status)
+            }
             ApiRequestError::Http(HttpError::ServerError { status, .. }) => {
                 retryable_statuses.contains(status)
             }
@@ -978,9 +994,13 @@ impl LightconeHttp {
                 body,
                 request_id,
                 headers_retry_after_ms,
+                ..
             } => {
-                if let Some(error) = Self::parse_http_rejection::<T>(&body, request_id, status) {
-                    return error;
+                if let Some(SdkError::ApiRejected(mut details)) =
+                    Self::parse_http_rejection::<T>(&body, request_id, status)
+                {
+                    details.retry_after_ms = headers_retry_after_ms;
+                    return SdkError::ApiRejected(details);
                 }
                 Self::http_error_for_status(status, body, headers_retry_after_ms).into()
             }
@@ -999,22 +1019,96 @@ impl LightconeHttp {
                 details.http_status = Some(http_status);
                 Some(SdkError::ApiRejected(details))
             }
-            _ => None,
+            _ => {
+                // A malformed optional field cannot authorize replay of a known outage.
+                let payload: serde_json::Value = serde_json::from_str(body_text).ok()?;
+                let wire = payload.get("error_details")?;
+                if http_status != 503
+                    || payload.get("status")?.as_str()? != "error"
+                    || wire.get("error_code")?.as_str()? != "PRIVY_VERIFICATION_UNAVAILABLE"
+                {
+                    return None;
+                }
+                let details = serde_json::json!({
+                    "reason": wire.get("reason").and_then(|v| v.as_str()).unwrap_or("Authentication verification is temporarily unavailable"),
+                    "error_code": "PRIVY_VERIFICATION_UNAVAILABLE",
+                });
+                let mut details: crate::shared::ApiRejectedDetails =
+                    serde_json::from_value(details).ok()?;
+                details.request_id = Some(request_id);
+                details.http_status = Some(http_status);
+                Some(SdkError::ApiRejected(details))
+            }
         }
     }
 
+    /// Reads bounded numeric or HTTP-date guidance; invalid values remain absent.
+    /// Milliseconds round upward so a countdown cannot permit an early retry.
     fn retry_after_ms(headers: &reqwest::header::HeaderMap) -> Option<u64> {
-        headers
-            .get("retry-after-ms")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse::<u64>().ok())
-            .or_else(|| {
-                headers
-                    .get("retry-after")
-                    .and_then(|value| value.to_str().ok())
-                    .and_then(|value| value.parse::<f64>().ok())
-                    .map(|seconds| (seconds * 1000.0).round().max(0.0) as u64)
-            })
+        Self::retry_after_ms_at(headers, chrono::Utc::now().timestamp_millis())
+    }
+
+    /// Resolve absolute dates against response time; expired dates have no remaining delay.
+    fn retry_after_ms_at(headers: &reqwest::header::HeaderMap, now_ms: i64) -> Option<u64> {
+        for (name, scale) in [("retry-after-ms", 1.0), ("retry-after", 1000.0)] {
+            let Some(value) = headers.get(name).and_then(|value| value.to_str().ok()) else {
+                continue;
+            };
+            let value = value.trim();
+            let mut parts = value.split('.');
+            let whole = parts.next().unwrap_or_default();
+            let fraction = parts.next();
+            let digits = |part: &str| !part.is_empty() && part.bytes().all(|c| c.is_ascii_digit());
+            if !digits(whole)
+                || fraction.is_some_and(|part| !digits(part))
+                || parts.next().is_some()
+            {
+                continue;
+            }
+            if let Ok(number) = value.parse::<f64>() {
+                let delay = number * scale;
+                if delay.is_finite() && delay <= 9_007_199_254_740_991.0 {
+                    return Some(delay.ceil() as u64);
+                }
+            }
+        }
+        let value = headers.get("retry-after")?.to_str().ok()?.trim();
+        // Round-trip the three HTTP-date productions so email-only time zones,
+        // loose spacing, and inconsistent weekdays are not accepted as guidance.
+        let deadline = [
+            "%a, %d %b %Y %H:%M:%S GMT",
+            "%A, %d-%b-%y %H:%M:%S GMT",
+            "%a %b %e %H:%M:%S %Y",
+            "%a %b %d %H:%M:%S %Y",
+        ]
+        .iter()
+        .find_map(|format| {
+            let date = if format.contains("%y") {
+                use chrono::Datelike;
+                let (weekday, rest) = value.split_once(", ")?;
+                let (date, clock) = rest.split_once(' ')?;
+                let parts: Vec<_> = date.split('-').collect();
+                if parts.len() != 3 || parts[2].len() != 2 {
+                    return None;
+                }
+                let short_year: i32 = parts[2].parse().ok()?;
+                let upper_year = chrono::DateTime::from_timestamp_millis(now_ms)?.year() + 50;
+                let mut year = upper_year / 100 * 100 + short_year;
+                if year > upper_year {
+                    year -= 100;
+                }
+                let expanded = format!("{weekday}, {}-{}-{year:04} {clock}", parts[0], parts[1]);
+                chrono::NaiveDateTime::parse_from_str(&expanded, "%A, %d-%b-%Y %H:%M:%S GMT")
+                    .ok()?
+            } else {
+                chrono::NaiveDateTime::parse_from_str(value, format).ok()?
+            };
+            (date.format(format).to_string() == value).then_some(date)
+        })?
+        .and_utc()
+        .timestamp_millis();
+        let delay = deadline.saturating_sub(now_ms).max(0) as u64;
+        (delay <= 9_007_199_254_740_991).then_some(delay)
     }
 
     fn http_error_for_status(
@@ -1066,6 +1160,13 @@ mod tests {
     }
 
     async fn spawn_server(responses: Vec<TestResponse>) -> (String, Arc<AtomicUsize>) {
+        spawn_server_with_headers(responses, "").await
+    }
+
+    async fn spawn_server_with_headers(
+        responses: Vec<TestResponse>,
+        headers: &'static str,
+    ) -> (String, Arc<AtomicUsize>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let responses = Arc::new(Mutex::new(VecDeque::from(responses)));
@@ -1102,7 +1203,7 @@ mod tests {
                         _ => "Error",
                     };
                     let raw_response = format!(
-                        "HTTP/1.1 {} {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                        "HTTP/1.1 {} {}\r\n{headers}content-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
                         response.status,
                         status_text,
                         response.body.len(),
@@ -1114,6 +1215,242 @@ mod tests {
         });
 
         (format!("http://{addr}"), attempts)
+    }
+
+    #[test]
+    fn surfaced_guidance_and_generic_sleep_have_separate_clocks(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let error = super::ApiRequestError::NonSuccessStatus {
+            status: 503,
+            body: r#"{"status":"error","error_details":{"reason":"busy"}}"#.into(),
+            request_id: "clock-test".into(),
+            headers_retry_after_ms: Some(5000),
+            retry_delay_ms: Some(3000),
+        };
+        assert_eq!(error.retry_delay_ms(), Some(3000));
+        let super::SdkError::ApiRejected(details) =
+            LightconeHttp::request_error_to_sdk::<serde_json::Value>(error)
+        else {
+            return Err("expected structured rejection".into());
+        };
+        assert_eq!(details.retry_after_ms, Some(5000));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn privy_unavailable_is_one_attempt_for_reads_and_mutations_with_guidance(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for policy in [
+            RetryPolicy::Idempotent,
+            fast_retry(vec![503]),
+            RetryPolicy::None,
+        ] {
+            for post in [false, true] {
+                let (base, attempts) = spawn_server_with_headers(vec![TestResponse {
+                    status: 503,
+                    body: r#"{"status":"error","error_details":{"reason":"Unavailable","error_code":"PRIVY_VERIFICATION_UNAVAILABLE"}}"#,
+                }], "Retry-After: 60\r\n").await;
+                let (http, restores) = http_with_restorer(&base, true).await;
+                let request = async {
+                    if post {
+                        http.post::<serde_json::Value, _>(
+                            &base,
+                            &serde_json::json!({"signature":"original"}),
+                            policy.clone(),
+                        )
+                        .await
+                    } else {
+                        http.get::<serde_json::Value>(&base, policy.clone()).await
+                    }
+                };
+                let error = tokio::time::timeout(Duration::from_secs(2), request)
+                    .await?
+                    .err()
+                    .ok_or("Privy rejection unexpectedly succeeded")?;
+                assert!(error.is_privy_verification_unavailable());
+                let SdkError::ApiRejected(details) = error else {
+                    return Err("metadata lost".into());
+                };
+                assert_eq!(details.retry_after_ms, Some(60_000));
+                assert_eq!(attempts.load(Ordering::SeqCst), 1);
+                assert_eq!(restores.load(Ordering::SeqCst), 0);
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn public_trading_calls_surface_one_privy_rejection(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::domain::order::{CancelAllBody, CancelBody};
+        use crate::shared::SubmitOrderRequest;
+        for operation in ["submit", "cancel", "cancel-all"] {
+            let mut responses = Vec::new();
+            if operation == "submit" {
+                responses.push(TestResponse { status: 200, body: r#"{"status":"success","body":{"orderbook_id":"11111111111111111111111111111111","base_decimals":8,"quote_decimals":6,"price_decimals":4,"trading_rules":{"base_size_decimals":5,"max_price_decimals":1,"max_price_significant_figures":5,"integer_prices_always_allowed":true,"price_quantum":"0.1000","price_quantum_raw":"1000","base_size_quantum":"0.00001000","base_size_quantum_raw":"1000"}}}"# });
+            }
+            responses.push(TestResponse { status: 503, body: r#"{"status":"error","error_details":{"reason":"Unavailable","error_code":"PRIVY_VERIFICATION_UNAVAILABLE"}}"# });
+            let (base, attempts) =
+                spawn_server_with_headers(responses, "Retry-After: 60\r\n").await;
+            let client = crate::client::LightconeClient::builder()
+                .base_url(&base)
+                .build()?;
+            let restores = Arc::new(AtomicUsize::new(0));
+            client
+                .set_credential_restorer(Arc::new(StubRestorer {
+                    calls: Arc::clone(&restores),
+                    restored: true,
+                }))
+                .await;
+            let wallet = "11111111111111111111111111111111";
+            let request = SubmitOrderRequest {
+                maker: wallet.into(),
+                nonce: 0,
+                salt: 0,
+                market_pubkey: wallet.into(),
+                base_token: wallet.into(),
+                quote_token: wallet.into(),
+                side: 0,
+                amount_in: 15_185_088,
+                amount_out: 123_456_000,
+                expiration: 0,
+                signature: "fixture".into(),
+                orderbook_id: wallet.into(),
+                time_in_force: None,
+                deposit_source: None,
+            };
+            let error = match operation {
+                "submit" => client.orders().submit(&request).await.err(),
+                "cancel" => client
+                    .orders()
+                    .cancel(&CancelBody {
+                        order_hash: "fixture".into(),
+                        maker: wallet.into(),
+                        signature: "fixture".into(),
+                    })
+                    .await
+                    .err(),
+                _ => client
+                    .orders()
+                    .cancel_all(&CancelAllBody {
+                        user_pubkey: wallet.into(),
+                        orderbook_id: wallet.into(),
+                        signature: "fixture".into(),
+                        timestamp: 0,
+                        salt: "fixture".into(),
+                    })
+                    .await
+                    .err(),
+            }
+            .ok_or("expected rejection")?;
+            assert!(
+                error.is_privy_verification_unavailable(),
+                "{operation}: {error:?}"
+            );
+            let SdkError::ApiRejected(details) = error else {
+                return Err("metadata lost".into());
+            };
+            assert_eq!(details.retry_after_ms, Some(60_000));
+            assert_eq!(
+                attempts.load(Ordering::SeqCst),
+                if operation == "submit" { 2 } else { 1 }
+            );
+            assert_eq!(restores.load(Ordering::SeqCst), 0);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn retry_guidance_never_invents_a_delay_from_malformed_input(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for (value, expected) in [
+            ("5", Some(5000)),
+            ("0.0001", Some(1)),
+            ("0", Some(0)),
+            ("-1", None),
+            ("NaN", None),
+            ("inf", None),
+            ("5junk", None),
+            ("1e3", None),
+            ("", None),
+        ] {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert("retry-after", value.parse()?);
+            assert_eq!(LightconeHttp::retry_after_ms(&headers), expected, "{value}");
+        }
+        assert_eq!(
+            LightconeHttp::retry_after_ms(&reqwest::header::HeaderMap::new()),
+            None
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn http_date_guidance_uses_response_time() -> Result<(), Box<dyn std::error::Error>> {
+        for (value, expected) in [
+            ("Wed, 21 Oct 2015 07:28:05 GMT", Some(5000)),
+            ("Wed, 21 Oct 2015 07:27:00 GMT", Some(0)),
+            ("Wed, invalid", None),
+            ("Wednesday, 21-Oct-15 07:28:05 GMT", Some(5000)),
+            ("Wed Oct 21 07:28:05 2015", Some(5000)),
+            ("Thu Oct 01 07:28:05 2015", Some(0)),
+            ("Thu Oct  1 07:28:05 2015", Some(0)),
+            ("Wed, 31 Feb 2027 07:28:05 GMT", None),
+            ("Oct 21 2099", None),
+            ("Wed 1", None),
+            ("Wed, 21 Oct 2015 07:28:05 +0000", None),
+            ("Thu, 21 Oct 2015 07:28:05 GMT", None),
+        ] {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert("retry-after", value.parse()?);
+            assert_eq!(
+                LightconeHttp::retry_after_ms_at(&headers, 1_445_412_480_000),
+                expected
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn millisecond_guidance_and_relative_http_years() -> Result<(), Box<dyn std::error::Error>> {
+        for (value, expected) in [
+            ("1.1", 2),
+            ("0", 0),
+            ("bad", 5000),
+            ("9007199254740992", 5000),
+        ] {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert("retry-after-ms", value.parse()?);
+            headers.insert("retry-after", "5".parse()?);
+            assert_eq!(
+                LightconeHttp::retry_after_ms_at(&headers, 0),
+                Some(expected)
+            );
+        }
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("retry-after", "Wednesday, 01-Jan-70 00:00:00 GMT".parse()?);
+        let now = chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")?.timestamp_millis();
+        let deadline =
+            chrono::DateTime::parse_from_rfc3339("2070-01-01T00:00:00Z")?.timestamp_millis();
+        assert_eq!(
+            LightconeHttp::retry_after_ms_at(&headers, now),
+            Some((deadline - now) as u64)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn malformed_optional_fields_cannot_enable_privy_replay(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (base, attempts) = spawn_server(vec![TestResponse { status:503,body:r#"{"status":"error","error_details":{"reason":"Unavailable","error_code":"PRIVY_VERIFICATION_UNAVAILABLE","rejection_code":123}}"# }]).await;
+        let error = LightconeHttp::new(&base)
+            .get::<serde_json::Value>(&base, fast_retry(vec![503]))
+            .await
+            .err()
+            .ok_or("expected rejection")?;
+        assert!(error.is_privy_verification_unavailable());
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        Ok(())
     }
 
     fn fast_retry(statuses: Vec<u16>) -> RetryPolicy {

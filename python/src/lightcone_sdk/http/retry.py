@@ -2,7 +2,7 @@
 
 import random
 from dataclasses import dataclass, field
-from typing import Optional, Set
+from typing import Optional
 
 
 class RetryPolicy:
@@ -11,6 +11,7 @@ class RetryPolicy:
     Usage:
         RetryPolicy.NONE        — no retries
         RetryPolicy.IDEMPOTENT  — retry on transport errors + 429/502/503/504
+        Exact PRIVY_VERIFICATION_UNAVAILABLE 503 rejections always return immediately.
         RetryPolicy.custom(cfg) — user-provided retry config
     """
 
@@ -72,13 +73,13 @@ class RetryConfig:
     max_delay_ms: int = 10_000
     backoff_factor: float = 2.0
     jitter: bool = True
-    retryable_statuses: Set[int] = field(default_factory=lambda: {502, 503, 504})
+    retryable_statuses: set[int] = field(default_factory=lambda: {502, 503, 504})
 
     @staticmethod
     def default() -> "RetryConfig":
         """Default retry config: 3 retries, 200ms initial, 10s max.
 
-        Retries on 502/503/504 (gateway errors).
+        Retries on 502/503/504 (gateway errors), except exact Privy unavailability.
         """
         return RetryConfig()
 
@@ -91,7 +92,7 @@ class RetryConfig:
     def idempotent() -> "RetryConfig":
         """Idempotent retry config for requests that are safe to replay.
 
-        Retries on 429/502/503/504.
+        Retries on 429/502/503/504, except exact Privy unavailability.
         """
         return RetryConfig(
             max_retries=3,
@@ -116,7 +117,7 @@ def delay_for_attempt(attempt: int, config: RetryConfig) -> float:
     Returns:
         Delay in seconds
     """
-    delay_ms = config.initial_delay_ms * (config.backoff_factor ** attempt)
+    delay_ms = config.initial_delay_ms * (config.backoff_factor**attempt)
     delay_ms = min(delay_ms, config.max_delay_ms)
 
     if config.jitter:

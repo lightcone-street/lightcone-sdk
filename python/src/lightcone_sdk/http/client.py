@@ -15,13 +15,23 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
+import re
+import time
 import uuid
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from enum import Enum
 from typing import Any
 
 import aiohttp
 
-from ..error import ApiRejected, HttpError, HttpErrorKind
+from ..error import (
+    ApiRejected,
+    HttpError,
+    HttpErrorKind,
+    is_privy_verification_unavailable,
+)
 from ..shared.api_response import ApiRejectedDetails, ApiResponse
 from .credential_restorer import CredentialRestorer
 from .retry import RetryConfig, RetryPolicy, delay_for_attempt
@@ -40,12 +50,14 @@ class _HttpStatusError(Exception):
         body: str,
         headers: aiohttp.typedefs.LooseHeaders,
         request_id: str,
+        received_at_ms: float,
     ):
         super().__init__(f"HTTP status {status}: {body}")
         self.status = status
         self.body = body
         self.headers = headers
         self.request_id = request_id
+        self.received_at_ms = received_at_ms
 
 
 class _AuthMode(str, Enum):
@@ -480,6 +492,19 @@ class LightconeHttp:
                     **kwargs,
                 )
             except _HttpStatusError as error:
+                # Exclude this rejection before the generic 503 retry scheduler.
+                rejected = (
+                    self._parse_rejection_body(
+                        error.body,
+                        error.request_id,
+                        error.status,
+                        _retry_after_ms(error.headers, error.received_at_ms),
+                    )
+                    if error.status == 503
+                    else None
+                )
+                if is_privy_verification_unavailable(rejected):
+                    raise rejected from error
                 # On the first 401, give the host a chance to restore its
                 # credentials (e.g. refresh an auth session) — at most once
                 # per logical request, shared with any concurrent requests
@@ -671,9 +696,15 @@ class LightconeHttp:
                         f"Failed to parse response: {error}"
                     ) from error
 
+            # Anchor HTTP dates before waiting for the response body.
+            received_at_ms = time.time() * 1000
             body_text = await response.text()
             raise _HttpStatusError(
-                response.status, body_text or "", response.headers, request_id
+                response.status,
+                body_text or "",
+                response.headers,
+                request_id,
+                received_at_ms,
             )
 
     def _resolve_url(self, path: str) -> str:
@@ -734,6 +765,7 @@ class LightconeHttp:
         status: int,
         message: str,
         headers: aiohttp.typedefs.LooseHeaders | None = None,
+        received_at_ms: float | None = None,
     ) -> HttpError:
         """Map HTTP status to HttpError."""
         if status == 401:
@@ -743,21 +775,28 @@ class LightconeHttp:
         if status == 429:
             return HttpError.rate_limited(
                 message or "Rate limited",
-                retry_after_ms=_retry_after_ms(headers),
+                retry_after_ms=_retry_after_ms(headers, received_at_ms),
             )
         if 400 <= status <= 499:
             return HttpError.bad_request(message)
         return HttpError.server_error(message, status)
 
     def _raise_status_error(self, error: _HttpStatusError) -> None:
-        parsed = self._parse_rejection_body(error.body, error.request_id, error.status)
+        parsed = self._parse_rejection_body(
+            error.body,
+            error.request_id,
+            error.status,
+            _retry_after_ms(error.headers, error.received_at_ms),
+        )
         if parsed is not None:
             raise parsed
-        raise self._map_status_error(error.status, error.body, error.headers)
+        raise self._map_status_error(
+            error.status, error.body, error.headers, error.received_at_ms
+        )
 
     @staticmethod
     def _parse_rejection_body(
-        body: str, request_id: str, http_status: int
+        body: str, request_id: str, http_status: int, retry_after_ms: int | None = None
     ) -> ApiRejected | None:
         try:
             payload = json.loads(body)
@@ -765,14 +804,43 @@ class LightconeHttp:
             return None
         if not isinstance(payload, dict) or payload.get("status") != "error":
             return None
-        parsed = ApiResponse.from_dict(payload)
-        details = parsed.details or ApiRejectedDetails(reason="Unknown API rejection")
+        details_wire = payload.get("error_details")
+        if details_wire and not isinstance(details_wire, dict):
+            return None
+        try:
+            parsed = ApiResponse.from_dict(payload)
+        except (AttributeError, TypeError, ValueError):
+            # Optional fields cannot erase the authoritative no-replay code.
+            if (
+                http_status != 503
+                or not isinstance(details_wire, dict)
+                or details_wire.get("error_code") != "PRIVY_VERIFICATION_UNAVAILABLE"
+            ):
+                return None
+            reason = details_wire.get("reason")
+            details = ApiRejectedDetails(
+                reason=(
+                    reason
+                    if isinstance(reason, str)
+                    else "Authentication verification is temporarily unavailable"
+                ),
+                error_code="PRIVY_VERIFICATION_UNAVAILABLE",
+            )
+        else:
+            details = parsed.details or ApiRejectedDetails(
+                reason="Unknown API rejection"
+            )
         return ApiRejected(
-            details.with_request_id(request_id).with_http_status(http_status)
+            details.with_request_id(request_id)
+            .with_http_status(http_status)
+            .with_retry_after_ms(retry_after_ms)
         )
 
 
-def _retry_after_ms(headers: aiohttp.typedefs.LooseHeaders | None) -> int | None:
+def _retry_after_ms(
+    headers: aiohttp.typedefs.LooseHeaders | None, now_ms: float | None = None
+) -> int | None:
+    """Decode bounded numeric or HTTP-date guidance, clamping elapsed dates to zero."""
     if headers is None:
         return None
 
@@ -782,20 +850,60 @@ def _retry_after_ms(headers: aiohttp.typedefs.LooseHeaders | None) -> int | None
             return str(value) if value is not None else None
         return None
 
-    retry_after_ms = _header("retry-after-ms")
-    if retry_after_ms:
+    # Match the other SDKs: bounded numeric guidance, rounded up, never negative.
+    for name, scale in (("retry-after-ms", 1), ("retry-after", 1000)):
+        value = (_header(name) or "").strip()
+        if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", value):
+            continue
+        delay = float(value) * scale
+        if math.isfinite(delay) and 0 <= delay <= 9_007_199_254_740_991:
+            return math.ceil(delay)
+    value = (_header("retry-after") or "").strip()
+    # Accept only the three HTTP-date productions, not arbitrary email dates.
+    weekday = r"(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)"
+    month = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
+    clock = r"[0-9]{2}:[0-9]{2}:[0-9]{2}"
+    forms = (
+        rf"{weekday}, [0-9]{{2}} {month} [0-9]{{4}} {clock} GMT",
+        rf"(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), [0-9]{{2}}-{month}-[0-9]{{2}} {clock} GMT",
+        rf"{weekday} {month} [ 0-9][0-9] {clock} [0-9]{{4}}",
+    )
+    if any(re.fullmatch(form, value) for form in forms):
         try:
-            return int(retry_after_ms)
-        except ValueError:
-            return None
-
-    retry_after = _header("retry-after")
-    if retry_after:
-        try:
-            return int(float(retry_after) * 1000)
-        except ValueError:
-            return None
-
+            parsed_value = value
+            if re.fullmatch(forms[1], value):
+                # HTTP's obsolete two-digit year is relative to receipt, not 1970.
+                current = datetime.fromtimestamp(
+                    (time.time() * 1000 if now_ms is None else now_ms) / 1000, UTC
+                )
+                prefix, suffix = value.split(" ", 1)
+                date, clock_and_zone = suffix.split(" ", 1)
+                day, month_name, short_year = date.split("-")
+                upper_year = current.year + 50
+                year = upper_year // 100 * 100 + int(short_year)
+                if year > upper_year:
+                    year -= 100
+                parsed_value = (
+                    f"{prefix} {day}-{month_name}-{year:04d} {clock_and_zone}"
+                )
+            deadline = parsedate_to_datetime(parsed_value)
+            if ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[
+                deadline.weekday()
+            ] != value[:3]:
+                return None
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=UTC)
+            delay = max(
+                0,
+                math.ceil(
+                    deadline.timestamp() * 1000
+                    - (time.time() * 1000 if now_ms is None else now_ms)
+                ),
+            )
+            if delay <= 9_007_199_254_740_991:
+                return delay
+        except (TypeError, ValueError, OverflowError):
+            pass
     return None
 
 

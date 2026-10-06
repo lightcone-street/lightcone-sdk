@@ -230,3 +230,11 @@ Then use `cargo cooldown` in place of `cargo` when updating dependencies (e.g. `
 | Rust | [`cargo-cooldown`](https://crates.io/crates/cargo-cooldown) | `cooldown.toml` — `cooldown_minutes = 10080` |
 | TypeScript | npm `min-release-age` | `.npmrc` — `min-release-age=7` |
 | Python | uv `exclude-newer` | `pyproject.toml` — `exclude-newer = "7 days"` |
+
+## Manual recovery from temporary authentication failures
+
+See the [API response contract](https://github.com/lightcone-street/docs/blob/main/api-reference/rest-introduction.mdx#response-format) for the wire envelope. The SDK-specific recovery behavior is shared by Rust, TypeScript, and Python: the exact `503 PRIVY_VERIFICATION_UNAVAILABLE` rejection bypasses retry policies and credential restoration, and session checks retain cached credentials. Other failures retain their existing policies.
+
+Structured rejections expose `retry_after_ms` in Rust/Python and `retryAfterMs` in TypeScript, in milliseconds from response receipt. Numeric and HTTP-date guidance is supported, with fractional milliseconds rounded up and elapsed dates clamped to zero. Missing or malformed guidance remains absent. Applications own the countdown and manual retry action. Keep the retry action disabled until the delay ends. Expiry only enables the action and never sends a request. Without valid guidance, offer the manual retry at once. The shared delay parser also applies to generic retry delays and rate-limit errors.
+
+Rust consumers constructing `ApiRejectedDetails` directly must add `retry_after_ms: None` when no HTTP response supplied a delay. Exhaustive destructuring patterns must include the field or `..`. This optional transport field is skipped by Serde, so backend JSON remains unchanged. Existing error variants remain available.

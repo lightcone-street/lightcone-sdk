@@ -631,13 +631,13 @@ The SDK generates a UUID v4 `x-request-id` header on every HTTP request. On reje
 
 Status-to-error mapping order:
 
-1. While retry attempts remain, statuses configured as retryable by the active `RetryPolicy` are classified from their raw HTTP status before envelope parsing, so the retry loop can act on them. `429` is retried only when the active policy includes `429`.
+1. The exact `503 PRIVY_VERIFICATION_UNAVAILABLE` body is parsed before the retry decision and returned immediately. For other errors, while retry attempts remain, statuses configured as retryable by the active `RetryPolicy` are classified from their raw HTTP status before envelope parsing, so the retry loop can act on them. `429` is retried only when the active policy includes `429`.
 2. Once no retry will happen, any non-2xx response whose body parses as the structured rejection envelope surfaces as `SdkError::ApiRejected(details)`, preserving `error_code`, `rejection_code`, `error_log_id`, and the SDK request id. This includes envelope-bearing `429` or `5xx` responses after retry exhaustion or under a policy that does not retry them.
 3. Anything else, including envelope-less bodies and non-2xx success envelopes, falls back to the `HttpError` variants above.
 
 ## Retry Strategy
 
-- **Replay-safe requests**: GETs and idempotent set operations such as favorite-market updates use `RetryPolicy::Idempotent`, which retries transport failures and 502/503/504 and backs off on 429 with exponential backoff + jitter.
+- **Replay-safe requests**: GETs and idempotent set operations such as favorite-market updates use `RetryPolicy::Idempotent`, which retries transport failures and 502/503/504 and backs off on 429 with exponential backoff + jitter. The exact `503 PRIVY_VERIFICATION_UNAVAILABLE` rejection returns immediately.
 - **Non-idempotent requests** (order submit, cancel, auth): `RetryPolicy::None` - no automatic retry, which prevents duplicate side effects.
 - Customizable per-call with `RetryPolicy::Custom(RetryConfig { .. })`.
 
@@ -654,3 +654,7 @@ client.set_credential_restorer(std::sync::Arc::new(MyRestorer)).await;
 When a request to the API origin fails with HTTP 401 and a restorer is registered, the transport consults it **at most once per logical request**, with concurrent 401s sharing one restoration (bounded by a 30-second timeout). A successful restoration replays the request once **only if it declared itself retry-safe** (an idempotent/custom retry policy); `RetryPolicy::None` requests — mutations like orders and cancels — are never auto-replayed: the restoration still heals the session for the caller's next attempt, but the original 401 propagates. Restoration is skipped for credential-management endpoints (login, logout) and for cookie-override/custom-session requests, redirects are never followed on the API transport (on wasm the browser follows them itself; the transport refuses such responses best-effort as `HttpError::RedirectedOffOrigin` when the final URL is readable — a CORS-blocked redirect target instead surfaces as a plain network error, which retry policy may re-send), and without a registered restorer 401s propagate unchanged. A timed-out restoration is dropped — true cancellation on native targets; on wasm, JS work already started behind the dropped future keeps running, so restorers whose work is non-idempotent (refresh-token rotation) must serialize internally.
 
 The SDK stays credential-agnostic: what "restore" means belongs to the host. For classifying auth failures in your own code, use `SdkError::is_unauthorized()` — it covers both bare 401s (`HttpError::Unauthorized`) and 401s carrying a structured rejection envelope (`ApiRejectedDetails.http_status`).
+
+### Temporary Privy verification failures
+
+Use `SdkError::is_privy_verification_unavailable()` to identify the manual-retry rejection. Its `ApiRejectedDetails::retry_after_ms` preserves optional response timing in milliseconds. See the [SDK recovery contract](../README.md#manual-recovery-from-temporary-authentication-failures), including the struct-literal migration.

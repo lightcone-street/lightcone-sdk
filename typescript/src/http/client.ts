@@ -1,4 +1,4 @@
-import { HttpError, SdkError } from "../error";
+import { HttpError, SdkError, isPrivyVerificationUnavailable } from "../error";
 import {
   ApiRejectedDetails,
   isApiResponse,
@@ -24,14 +24,16 @@ class HttpStatusError extends Error {
   readonly body: string;
   readonly headers: Headers;
   readonly requestId: string;
+  readonly receivedAtMs: number;
 
-  constructor(status: number, body: string, headers: Headers, requestId: string) {
+  constructor(status: number, body: string, headers: Headers, requestId: string, receivedAtMs: number) {
     super(`HTTP status ${status}: ${body}`);
     this.name = "HttpStatusError";
     this.status = status;
     this.body = body;
     this.headers = headers;
     this.requestId = requestId;
+    this.receivedAtMs = receivedAtMs;
   }
 }
 
@@ -364,6 +366,13 @@ export class LightconeHttp {
         return parseApiResponse<T>(apiResponse, requestId);
       } catch (error) {
         if (error instanceof HttpStatusError) {
+          // Classify before the generic 503 policy so no retry is scheduled.
+          const surfaced = error.status === 503
+            ? parseRejectedBody(error.body, error.requestId, error.status, retryAfterMs(error.headers, error.receivedAtMs))
+            : undefined;
+          if (isPrivyVerificationUnavailable(surfaced)) {
+            throw surfaced;
+          }
           // On the first 401, give the host a chance to restore its
           // credentials (e.g. refresh an auth session) — at most once per
           // logical request, shared with any concurrent requests (see
@@ -525,8 +534,10 @@ export class LightconeHttp {
       return payload;
     }
 
+    // Anchor HTTP-date guidance before reading a potentially delayed body.
+    const receivedAtMs = Date.now();
     const errorBody = await response.text().catch(() => "");
-    throw new HttpStatusError(response.status, errorBody, response.headers, requestId);
+    throw new HttpStatusError(response.status, errorBody, response.headers, requestId, receivedAtMs);
   }
 
   private captureCookies(response: Response): void {
@@ -553,7 +564,7 @@ export class LightconeHttp {
     }
   }
 
-  private mapStatusError(statusCode: number, bodyText: string, headers: Headers): HttpError {
+  private mapStatusError(statusCode: number, bodyText: string, headers: Headers, receivedAtMs = Date.now()): HttpError {
     if (statusCode === 401) {
       return HttpError.unauthorized();
     }
@@ -561,7 +572,7 @@ export class LightconeHttp {
       return HttpError.notFound(bodyText);
     }
     if (statusCode === 429) {
-      return HttpError.rateLimited(retryAfterMs(headers));
+      return HttpError.rateLimited(retryAfterMs(headers, receivedAtMs));
     }
     if (statusCode >= 400 && statusCode < 500) {
       return HttpError.badRequest(bodyText);
@@ -570,18 +581,23 @@ export class LightconeHttp {
   }
 
   private statusErrorToSdk(error: HttpStatusError): Error {
-    const rejected = parseRejectedBody(error.body, error.requestId, error.status);
+    const rejected = parseRejectedBody(error.body, error.requestId, error.status, retryAfterMs(error.headers, error.receivedAtMs));
     if (rejected) {
       return rejected;
     }
-    return this.mapStatusError(error.status, error.body, error.headers);
+    return this.mapStatusError(error.status, error.body, error.headers, error.receivedAtMs);
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+async function sleep(ms: number): Promise<void> {
+  // Runtime timers overflow above signed 32-bit milliseconds. Keep long server
+  // delays intact without accidentally scheduling an immediate generic retry.
+  const maxTimerMs = 2_147_483_647;
+  while (ms > 0) {
+    const chunk = Math.min(ms, maxTimerMs);
+    await new Promise<void>((resolve) => setTimeout(resolve, chunk));
+    ms -= chunk;
+  }
 }
 
 function parseApiResponse<T>(payload: unknown, requestId: string): T {
@@ -601,7 +617,8 @@ function parseApiResponse<T>(payload: unknown, requestId: string): T {
 function parseRejectedBody(
   body: string,
   requestId: string,
-  httpStatus: number
+  httpStatus: number,
+  retryAfterMs?: number
 ): SdkError | undefined {
   let payload: unknown;
   try {
@@ -614,9 +631,22 @@ function parseRejectedBody(
     return undefined;
   }
 
-  return SdkError.apiRejected(
-    ApiRejectedDetails.fromWire(payload.error_details, requestId, httpStatus)
-  );
+  const details = payload.error_details;
+  if (!details || typeof details !== "object") return undefined;
+  try {
+    return SdkError.apiRejected(
+      ApiRejectedDetails.fromWire(details, requestId, httpStatus, retryAfterMs)
+    );
+  } catch {
+    // Optional metadata cannot turn a known pre-execution rejection into a replay.
+    if (httpStatus === 503 && details.error_code === "PRIVY_VERIFICATION_UNAVAILABLE") {
+      return SdkError.apiRejected(ApiRejectedDetails.fromWire({
+        reason: typeof details.reason === "string" ? details.reason : "Authentication verification is temporarily unavailable",
+        error_code: details.error_code,
+      }, requestId, httpStatus, retryAfterMs));
+    }
+    return undefined;
+  }
 }
 
 function generateRequestId(): string {
@@ -643,24 +673,47 @@ function getSetCookieHeaders(headers: Headers): string[] {
   return combined ? [combined] : [];
 }
 
-function retryAfterMs(headers: Headers): number | undefined {
-  const retryAfterMsValue = headers.get("retry-after-ms");
-  if (retryAfterMsValue) {
-    const parsed = Number.parseInt(retryAfterMsValue, 10);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
+/** Preserve numeric or HTTP-date guidance; elapsed dates permit an immediate manual retry. */
+function retryAfterMs(headers: Headers, receivedAtMs = Date.now()): number | undefined {
+  for (const [name, scale] of [["retry-after-ms", 1], ["retry-after", 1000]] as const) {
+    const value = headers.get(name)?.trim();
+    if (!value || !/^\d+(?:\.\d+)?$/.test(value)) continue;
+    const delay = Math.ceil(Number(value) * scale);
+    if (Number.isSafeInteger(delay) && delay >= 0) return delay;
   }
-
-  const retryAfterValue = headers.get("retry-after");
-  if (retryAfterValue) {
-    const parsed = Number.parseFloat(retryAfterValue);
-    if (Number.isFinite(parsed)) {
-      return Math.round(parsed * 1000);
-    }
+  const value = headers.get("retry-after")?.trim();
+  const deadline = value ? httpDateMs(value, receivedAtMs) : undefined;
+  if (deadline !== undefined) {
+    const delay = Math.max(0, Math.ceil(deadline - receivedAtMs));
+    if (Number.isSafeInteger(delay)) return delay;
   }
-
   return undefined;
+}
+
+
+/** Decode the three HTTP-date forms as UTC, rejecting normalized invalid dates. */
+function httpDateMs(value: string, receivedAtMs: number): number | undefined {
+  const modern = /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat), (\d{2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/.exec(value);
+  const obsolete = /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), (\d{2})-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-(\d{2}) (\d{2}):(\d{2}):(\d{2}) GMT$/.exec(value);
+  const ascii = /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([ \d]\d) (\d{2}):(\d{2}):(\d{2}) (\d{4})$/.exec(value);
+  const parts = modern ?? obsolete ?? (ascii && [ascii[0], ascii[1], ascii[3], ascii[2], ascii[7], ascii[4], ascii[5], ascii[6]]);
+  if (!parts) return undefined;
+  const [, weekday = "", day, month = "", year, hour, minute, second] = parts;
+  let fullYear = Number(year);
+  if (obsolete) {
+    const upperYear = new Date(receivedAtMs).getUTCFullYear() + 50;
+    fullYear += Math.floor(upperYear / 100) * 100;
+    if (fullYear > upperYear) fullYear -= 100;
+  }
+  const monthIndex = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].indexOf(month);
+  const date = new Date(0);
+  date.setUTCFullYear(fullYear, monthIndex, Number(day));
+  date.setUTCHours(Number(hour), Number(minute), Number(second), 0);
+  if (date.getUTCFullYear() !== fullYear || date.getUTCMonth() !== monthIndex ||
+      date.getUTCDate() !== Number(day) || date.getUTCHours() !== Number(hour) ||
+      date.getUTCMinutes() !== Number(minute) || date.getUTCSeconds() !== Number(second) ||
+      ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][date.getUTCDay()] !== weekday.slice(0, 3)) return undefined;
+  return date.getTime();
 }
 
 function extractCookieValue(header: string, name: string): string | undefined {
