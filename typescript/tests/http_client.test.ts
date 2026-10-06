@@ -1107,3 +1107,22 @@ it("chunks generic retry timers beyond the runtime limit", async context => {
   assert.deepEqual(await new LightconeHttp("http://localhost").get("/test",fastRetry([503])),{ok:true});
   assert.deepEqual(waits,[2147483647,1]);
 });
+
+it("generic HTTP-date retry subtracts time spent consuming the body", async context => {
+  let now = Date.parse("Wed, 21 Oct 2015 07:28:00 GMT");
+  const waits: number[] = [];
+  context.mock.method(Date, "now", () => now);
+  context.mock.method(globalThis, "setTimeout", (callback: () => void, ms: number) => {
+    if (ms !== 180000) { waits.push(ms); queueMicrotask(callback); }
+    return 0 as unknown as ReturnType<typeof setTimeout>;
+  });
+  const response = new Response("busy", { status: 503, headers: { "Retry-After": "Wed, 21 Oct 2015 07:28:05 GMT" } });
+  const readBody = response.text.bind(response);
+  context.mock.method(response, "text", async () => { now += 2000; return readBody(); });
+  let sends = 0;
+  context.mock.method(globalThis, "fetch", async () => ++sends === 1 ? response
+    : new Response(JSON.stringify({ status: "success", body: { ok: true } })));
+  await new LightconeHttp("http://localhost").get("/test", fastRetry([503]));
+  assert.equal(sends, 2);
+  assert.deepEqual(waits, [3000]);
+});

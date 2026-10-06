@@ -398,7 +398,7 @@ export class LightconeHttp {
             throw this.statusErrorToSdk(error);
           }
 
-          const retryAfter = retryAfterMs(error.headers, error.receivedAtMs);
+          const retryAfter = retryAfterMs(error.headers);
           const delay = retryAfter ?? delayForAttempt(config, attempt);
           attempt += 1;
 

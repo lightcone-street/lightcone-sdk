@@ -108,7 +108,10 @@ enum ApiRequestError {
         status: u16,
         body: String,
         request_id: String,
+        /// Optional caller guidance measured when response headers arrive.
         headers_retry_after_ms: Option<u64>,
+        /// Remaining generic wait after reading the error body.
+        retry_delay_ms: Option<u64>,
     },
     Http(HttpError),
 }
@@ -126,12 +129,9 @@ impl From<reqwest::Error> for ApiRequestError {
 }
 
 impl ApiRequestError {
-    fn headers_retry_after_ms(&self) -> Option<u64> {
+    fn retry_delay_ms(&self) -> Option<u64> {
         match self {
-            Self::NonSuccessStatus {
-                headers_retry_after_ms,
-                ..
-            } => *headers_retry_after_ms,
+            Self::NonSuccessStatus { retry_delay_ms, .. } => *retry_delay_ms,
             Self::Http(HttpError::RateLimited { retry_after_ms }) => *retry_after_ms,
             _ => None,
         }
@@ -752,7 +752,7 @@ impl LightconeHttp {
 
                     if should_retry && attempt < config.max_retries {
                         let delay = e
-                            .headers_retry_after_ms()
+                            .retry_delay_ms()
                             .map(Duration::from_millis)
                             .unwrap_or_else(|| config.delay_for_attempt(attempt));
                         tracing::debug!(
@@ -938,14 +938,19 @@ impl LightconeHttp {
         }
 
         let status_code = status.as_u16();
-        let headers_retry_after_ms = Self::retry_after_ms(resp.headers());
+        let headers = resp.headers().clone();
+        let headers_retry_after_ms = Self::retry_after_ms(&headers);
         let body_text = resp.text().await.unwrap_or_default();
+        // Surfaced guidance uses receipt time; generic date retries wait only
+        // until the original deadline, excluding time spent consuming the body.
+        let retry_delay_ms = Self::retry_after_ms(&headers);
 
         Err(ApiRequestError::NonSuccessStatus {
             status: status_code,
             body: body_text,
             request_id: request_id.to_string(),
             headers_retry_after_ms,
+            retry_delay_ms,
         })
     }
 
@@ -989,6 +994,7 @@ impl LightconeHttp {
                 body,
                 request_id,
                 headers_retry_after_ms,
+                ..
             } => {
                 if let Some(SdkError::ApiRejected(mut details)) =
                     Self::parse_http_rejection::<T>(&body, request_id, status)
@@ -1209,6 +1215,26 @@ mod tests {
         });
 
         (format!("http://{addr}"), attempts)
+    }
+
+    #[test]
+    fn surfaced_guidance_and_generic_sleep_have_separate_clocks(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let error = super::ApiRequestError::NonSuccessStatus {
+            status: 503,
+            body: r#"{"status":"error","error_details":{"reason":"busy"}}"#.into(),
+            request_id: "clock-test".into(),
+            headers_retry_after_ms: Some(5000),
+            retry_delay_ms: Some(3000),
+        };
+        assert_eq!(error.retry_delay_ms(), Some(3000));
+        let super::SdkError::ApiRejected(details) =
+            LightconeHttp::request_error_to_sdk::<serde_json::Value>(error)
+        else {
+            return Err("expected structured rejection".into());
+        };
+        assert_eq!(details.retry_after_ms, Some(5000));
+        Ok(())
     }
 
     #[tokio::test]

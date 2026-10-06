@@ -185,7 +185,7 @@ Set `use_embedded_wallet` to `Some(true)` to provision a Privy embedded wallet d
 async fn check_session(&self) -> Result<SessionResponse, SdkError>
 ```
 
-Validate the current session and return the session envelope. Works on both WASM (browser sends cookie) and native (SDK injects cookie header). Clears credentials on failure except `503 PRIVY_VERIFICATION_UNAVAILABLE`, which preserves the cached session and returns retry guidance for an explicit caller decision.
+Validate the current session and return the session envelope. Works on both WASM (browser sends cookie) and native (SDK injects cookie header). Clears credentials on failure except `503 PRIVY_VERIFICATION_UNAVAILABLE`, which preserves the cached session and includes retry timing when valid metadata is supplied, for an explicit caller decision.
 
 ### `check_session_with_cookies`
 

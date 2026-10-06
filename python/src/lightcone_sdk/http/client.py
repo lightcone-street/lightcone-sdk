@@ -529,7 +529,7 @@ class LightconeHttp:
 
                 should_retry = error.status in config.retryable_statuses
                 if should_retry and attempt < config.max_retries:
-                    delay_ms = _retry_after_ms(error.headers, error.received_at_ms)
+                    delay_ms = _retry_after_ms(error.headers)
                     delay = (
                         delay_ms / 1000.0
                         if delay_ms is not None

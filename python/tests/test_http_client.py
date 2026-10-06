@@ -1270,3 +1270,50 @@ async def test_malformed_optional_fields_cannot_enable_privy_replay():
     finally:
         await http.close()
         await cleanup()
+
+
+@pytest.mark.asyncio
+async def test_generic_http_date_retry_subtracts_error_body_read_time(monkeypatch):
+    import aiohttp
+
+    import lightcone_sdk.http.client as transport
+
+    now = 1445412480.0
+    attempts = 0
+    delays = []
+    monkeypatch.setattr(transport.time, "time", lambda: now)
+    original_text = aiohttp.ClientResponse.text
+    original_sleep = asyncio.sleep
+
+    async def delayed_text(response, *args, **kwargs):
+        nonlocal now
+        now += 2
+        return await original_text(response, *args, **kwargs)
+
+    async def record_sleep(delay):
+        delays.append(delay)
+        await original_sleep(0)
+
+    monkeypatch.setattr(aiohttp.ClientResponse, "text", delayed_text)
+    monkeypatch.setattr(transport.asyncio, "sleep", record_sleep)
+
+    async def handler(request):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return web.json_response(
+                {"status": "error", "error_details": {"reason": "busy"}},
+                status=503,
+                headers={"Retry-After": "Wed, 21 Oct 2015 07:28:05 GMT"},
+            )
+        return web.json_response({"status": "success", "body": {"ok": True}})
+
+    base, cleanup = await _start_server(handler)
+    http = LightconeHttp(base)
+    try:
+        await http.get("/test", RetryPolicy.IDEMPOTENT)
+        assert attempts == 2
+        assert delays == [3.0]
+    finally:
+        await http.close()
+        await cleanup()
