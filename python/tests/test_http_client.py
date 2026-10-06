@@ -1083,9 +1083,13 @@ async def test_malformed_unrelated_503_keeps_generic_retry(details):
         ("Wed, invalid", None),
         ("Wednesday, 21-Oct-15 07:28:05 GMT", 5000),
         ("Wed Oct 21 07:28:05 2015", 5000),
+        ("Thu Oct 01 07:28:05 2015", 0),
+        ("Thu Oct  1 07:28:05 2015", 0),
         ("Wed, 31 Feb 2027 07:28:05 GMT", None),
         ("Oct 21 2099", None),
         ("Wed 1", None),
+        ("Wed, 21 Oct 2015 07:28:05 +0000", None),
+        ("Thu, 21 Oct 2015 07:28:05 GMT", None),
     ],
 )
 def test_http_date_retry_guidance_uses_response_time(header, expected):
@@ -1177,4 +1181,92 @@ async def test_public_order_operations_surface_one_privy_rejection(operation):
         assert attempts == 1
     finally:
         await client.close()
+        await cleanup()
+
+
+@pytest.mark.asyncio
+async def test_http_date_is_anchored_before_delayed_body(monkeypatch):
+    import aiohttp
+
+    import lightcone_sdk.http.client as transport
+
+    now = 1445412480.0
+    monkeypatch.setattr(transport.time, "time", lambda: now)
+    original_text = aiohttp.ClientResponse.text
+
+    async def delayed_text(response, *args, **kwargs):
+        nonlocal now
+        now += 2
+        return await original_text(response, *args, **kwargs)
+
+    monkeypatch.setattr(aiohttp.ClientResponse, "text", delayed_text)
+
+    async def handler(request):
+        return web.json_response(
+            {
+                "status": "error",
+                "error_details": {
+                    "reason": "Unavailable",
+                    "error_code": "PRIVY_VERIFICATION_UNAVAILABLE",
+                },
+            },
+            status=503,
+            headers={"Retry-After": "Wed, 21 Oct 2015 07:28:05 GMT"},
+        )
+
+    base, cleanup = await _start_server(handler)
+    http = LightconeHttp(base)
+    try:
+        with pytest.raises(ApiRejected) as caught:
+            await http.get("/test", RetryPolicy.NONE)
+        assert caught.value.details.retry_after_ms == 5000
+    finally:
+        await http.close()
+        await cleanup()
+
+
+@pytest.mark.parametrize(
+    "milliseconds,expected",
+    [("1.1", 2), ("0", 0), ("bad", 5000), ("9007199254740992", 5000)],
+)
+def test_millisecond_guidance_precedence(milliseconds, expected):
+    from lightcone_sdk.http.client import _retry_after_ms
+
+    assert (
+        _retry_after_ms({"retry-after-ms": milliseconds, "retry-after": "5"})
+        == expected
+    )
+
+
+def test_obsolete_http_year_uses_receipt_year():
+    from datetime import UTC, datetime
+
+    from lightcone_sdk.http.client import _retry_after_ms
+
+    now = datetime(2026, 1, 1, tzinfo=UTC).timestamp() * 1000
+    expected = int(datetime(2070, 1, 1, tzinfo=UTC).timestamp() * 1000 - now)
+    assert (
+        _retry_after_ms({"retry-after": "Wednesday, 01-Jan-70 00:00:00 GMT"}, now)
+        == expected
+    )
+
+
+@pytest.mark.asyncio
+async def test_malformed_optional_fields_cannot_enable_privy_replay():
+    base, attempts, cleanup = await _server(
+        [
+            (
+                503,
+                '{"status":"error","error_details":{"reason":"Unavailable","error_code":"PRIVY_VERIFICATION_UNAVAILABLE","rejection_code":123}}',
+            )
+        ]
+    )
+    http = LightconeHttp(base)
+    try:
+        with pytest.raises(ApiRejected) as caught:
+            await http.get("/test", _fast_retry({503}))
+        assert caught.value.details.is_privy_verification_unavailable()
+        assert attempts() == 1
+    finally:
+        await http.close()
         await cleanup()

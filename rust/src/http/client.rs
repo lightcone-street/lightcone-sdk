@@ -1013,7 +1013,26 @@ impl LightconeHttp {
                 details.http_status = Some(http_status);
                 Some(SdkError::ApiRejected(details))
             }
-            _ => None,
+            _ => {
+                // A malformed optional field cannot authorize replay of a known outage.
+                let payload: serde_json::Value = serde_json::from_str(body_text).ok()?;
+                let wire = payload.get("error_details")?;
+                if http_status != 503
+                    || payload.get("status")?.as_str()? != "error"
+                    || wire.get("error_code")?.as_str()? != "PRIVY_VERIFICATION_UNAVAILABLE"
+                {
+                    return None;
+                }
+                let details = serde_json::json!({
+                    "reason": wire.get("reason").and_then(|v| v.as_str()).unwrap_or("Authentication verification is temporarily unavailable"),
+                    "error_code": "PRIVY_VERIFICATION_UNAVAILABLE",
+                });
+                let mut details: crate::shared::ApiRejectedDetails =
+                    serde_json::from_value(details).ok()?;
+                details.request_id = Some(request_id);
+                details.http_status = Some(http_status);
+                Some(SdkError::ApiRejected(details))
+            }
         }
     }
 
@@ -1048,16 +1067,40 @@ impl LightconeHttp {
             }
         }
         let value = headers.get("retry-after")?.to_str().ok()?.trim();
-        let deadline = chrono::DateTime::parse_from_rfc2822(value)
-            .map(|date| date.timestamp_millis())
-            .ok()
-            .or_else(|| {
-                // HTTP recipients also accept the two obsolete HTTP-date spellings.
-                ["%A, %d-%b-%y %H:%M:%S GMT", "%a %b %e %H:%M:%S %Y"]
-                    .iter()
-                    .find_map(|format| chrono::NaiveDateTime::parse_from_str(value, format).ok())
-                    .map(|date| date.and_utc().timestamp_millis())
-            })?;
+        // Round-trip the three HTTP-date productions so email-only time zones,
+        // loose spacing, and inconsistent weekdays are not accepted as guidance.
+        let deadline = [
+            "%a, %d %b %Y %H:%M:%S GMT",
+            "%A, %d-%b-%y %H:%M:%S GMT",
+            "%a %b %e %H:%M:%S %Y",
+            "%a %b %d %H:%M:%S %Y",
+        ]
+        .iter()
+        .find_map(|format| {
+            let date = if format.contains("%y") {
+                use chrono::Datelike;
+                let (weekday, rest) = value.split_once(", ")?;
+                let (date, clock) = rest.split_once(' ')?;
+                let parts: Vec<_> = date.split('-').collect();
+                if parts.len() != 3 || parts[2].len() != 2 {
+                    return None;
+                }
+                let short_year: i32 = parts[2].parse().ok()?;
+                let upper_year = chrono::DateTime::from_timestamp_millis(now_ms)?.year() + 50;
+                let mut year = upper_year / 100 * 100 + short_year;
+                if year > upper_year {
+                    year -= 100;
+                }
+                let expanded = format!("{weekday}, {}-{}-{year:04} {clock}", parts[0], parts[1]);
+                chrono::NaiveDateTime::parse_from_str(&expanded, "%A, %d-%b-%Y %H:%M:%S GMT")
+                    .ok()?
+            } else {
+                chrono::NaiveDateTime::parse_from_str(value, format).ok()?
+            };
+            (date.format(format).to_string() == value).then_some(date)
+        })?
+        .and_utc()
+        .timestamp_millis();
         let delay = deadline.saturating_sub(now_ms).max(0) as u64;
         (delay <= 9_007_199_254_740_991).then_some(delay)
     }
@@ -1210,6 +1253,87 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn public_trading_calls_surface_one_privy_rejection(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::domain::order::{CancelAllBody, CancelBody};
+        use crate::shared::SubmitOrderRequest;
+        for operation in ["submit", "cancel", "cancel-all"] {
+            let mut responses = Vec::new();
+            if operation == "submit" {
+                responses.push(TestResponse { status: 200, body: r#"{"status":"success","body":{"orderbook_id":"11111111111111111111111111111111","base_decimals":8,"quote_decimals":6,"price_decimals":4,"trading_rules":{"base_size_decimals":5,"max_price_decimals":1,"max_price_significant_figures":5,"integer_prices_always_allowed":true,"price_quantum":"0.1000","price_quantum_raw":"1000","base_size_quantum":"0.00001000","base_size_quantum_raw":"1000"}}}"# });
+            }
+            responses.push(TestResponse { status: 503, body: r#"{"status":"error","error_details":{"reason":"Unavailable","error_code":"PRIVY_VERIFICATION_UNAVAILABLE"}}"# });
+            let (base, attempts) =
+                spawn_server_with_headers(responses, "Retry-After: 60\r\n").await;
+            let client = crate::client::LightconeClient::builder()
+                .base_url(&base)
+                .build()?;
+            let restores = Arc::new(AtomicUsize::new(0));
+            client
+                .set_credential_restorer(Arc::new(StubRestorer {
+                    calls: Arc::clone(&restores),
+                    restored: true,
+                }))
+                .await;
+            let wallet = "11111111111111111111111111111111";
+            let request = SubmitOrderRequest {
+                maker: wallet.into(),
+                nonce: 0,
+                salt: 0,
+                market_pubkey: wallet.into(),
+                base_token: wallet.into(),
+                quote_token: wallet.into(),
+                side: 0,
+                amount_in: 15_185_088,
+                amount_out: 123_456_000,
+                expiration: 0,
+                signature: "fixture".into(),
+                orderbook_id: wallet.into(),
+                time_in_force: None,
+                deposit_source: None,
+            };
+            let error = match operation {
+                "submit" => client.orders().submit(&request).await.err(),
+                "cancel" => client
+                    .orders()
+                    .cancel(&CancelBody {
+                        order_hash: "fixture".into(),
+                        maker: wallet.into(),
+                        signature: "fixture".into(),
+                    })
+                    .await
+                    .err(),
+                _ => client
+                    .orders()
+                    .cancel_all(&CancelAllBody {
+                        user_pubkey: wallet.into(),
+                        orderbook_id: wallet.into(),
+                        signature: "fixture".into(),
+                        timestamp: 0,
+                        salt: "fixture".into(),
+                    })
+                    .await
+                    .err(),
+            }
+            .ok_or("expected rejection")?;
+            assert!(
+                error.is_privy_verification_unavailable(),
+                "{operation}: {error:?}"
+            );
+            let SdkError::ApiRejected(details) = error else {
+                return Err("metadata lost".into());
+            };
+            assert_eq!(details.retry_after_ms, Some(60_000));
+            assert_eq!(
+                attempts.load(Ordering::SeqCst),
+                if operation == "submit" { 2 } else { 1 }
+            );
+            assert_eq!(restores.load(Ordering::SeqCst), 0);
+        }
+        Ok(())
+    }
+
     #[test]
     fn retry_guidance_never_invents_a_delay_from_malformed_input(
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1243,9 +1367,13 @@ mod tests {
             ("Wed, invalid", None),
             ("Wednesday, 21-Oct-15 07:28:05 GMT", Some(5000)),
             ("Wed Oct 21 07:28:05 2015", Some(5000)),
+            ("Thu Oct 01 07:28:05 2015", Some(0)),
+            ("Thu Oct  1 07:28:05 2015", Some(0)),
             ("Wed, 31 Feb 2027 07:28:05 GMT", None),
             ("Oct 21 2099", None),
             ("Wed 1", None),
+            ("Wed, 21 Oct 2015 07:28:05 +0000", None),
+            ("Thu, 21 Oct 2015 07:28:05 GMT", None),
         ] {
             let mut headers = reqwest::header::HeaderMap::new();
             headers.insert("retry-after", value.parse()?);
@@ -1254,6 +1382,48 @@ mod tests {
                 expected
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn millisecond_guidance_and_relative_http_years() -> Result<(), Box<dyn std::error::Error>> {
+        for (value, expected) in [
+            ("1.1", 2),
+            ("0", 0),
+            ("bad", 5000),
+            ("9007199254740992", 5000),
+        ] {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert("retry-after-ms", value.parse()?);
+            headers.insert("retry-after", "5".parse()?);
+            assert_eq!(
+                LightconeHttp::retry_after_ms_at(&headers, 0),
+                Some(expected)
+            );
+        }
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("retry-after", "Wednesday, 01-Jan-70 00:00:00 GMT".parse()?);
+        let now = chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")?.timestamp_millis();
+        let deadline =
+            chrono::DateTime::parse_from_rfc3339("2070-01-01T00:00:00Z")?.timestamp_millis();
+        assert_eq!(
+            LightconeHttp::retry_after_ms_at(&headers, now),
+            Some((deadline - now) as u64)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn malformed_optional_fields_cannot_enable_privy_replay(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (base, attempts) = spawn_server(vec![TestResponse { status:503,body:r#"{"status":"error","error_details":{"reason":"Unavailable","error_code":"PRIVY_VERIFICATION_UNAVAILABLE","rejection_code":123}}"# }]).await;
+        let error = LightconeHttp::new(&base)
+            .get::<serde_json::Value>(&base, fast_retry(vec![503]))
+            .await
+            .err()
+            .ok_or("expected rejection")?;
+        assert!(error.is_privy_verification_unavailable());
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
         Ok(())
     }
 

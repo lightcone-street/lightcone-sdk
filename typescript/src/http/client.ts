@@ -24,14 +24,16 @@ class HttpStatusError extends Error {
   readonly body: string;
   readonly headers: Headers;
   readonly requestId: string;
+  readonly receivedAtMs: number;
 
-  constructor(status: number, body: string, headers: Headers, requestId: string) {
+  constructor(status: number, body: string, headers: Headers, requestId: string, receivedAtMs: number) {
     super(`HTTP status ${status}: ${body}`);
     this.name = "HttpStatusError";
     this.status = status;
     this.body = body;
     this.headers = headers;
     this.requestId = requestId;
+    this.receivedAtMs = receivedAtMs;
   }
 }
 
@@ -366,7 +368,7 @@ export class LightconeHttp {
         if (error instanceof HttpStatusError) {
           // Classify before the generic 503 policy so no retry is scheduled.
           const surfaced = error.status === 503
-            ? parseRejectedBody(error.body, error.requestId, error.status, retryAfterMs(error.headers))
+            ? parseRejectedBody(error.body, error.requestId, error.status, retryAfterMs(error.headers, error.receivedAtMs))
             : undefined;
           if (isPrivyVerificationUnavailable(surfaced)) {
             throw surfaced;
@@ -396,7 +398,7 @@ export class LightconeHttp {
             throw this.statusErrorToSdk(error);
           }
 
-          const retryAfter = retryAfterMs(error.headers);
+          const retryAfter = retryAfterMs(error.headers, error.receivedAtMs);
           const delay = retryAfter ?? delayForAttempt(config, attempt);
           attempt += 1;
 
@@ -532,8 +534,10 @@ export class LightconeHttp {
       return payload;
     }
 
+    // Anchor HTTP-date guidance before reading a potentially delayed body.
+    const receivedAtMs = Date.now();
     const errorBody = await response.text().catch(() => "");
-    throw new HttpStatusError(response.status, errorBody, response.headers, requestId);
+    throw new HttpStatusError(response.status, errorBody, response.headers, requestId, receivedAtMs);
   }
 
   private captureCookies(response: Response): void {
@@ -560,7 +564,7 @@ export class LightconeHttp {
     }
   }
 
-  private mapStatusError(statusCode: number, bodyText: string, headers: Headers): HttpError {
+  private mapStatusError(statusCode: number, bodyText: string, headers: Headers, receivedAtMs = Date.now()): HttpError {
     if (statusCode === 401) {
       return HttpError.unauthorized();
     }
@@ -568,7 +572,7 @@ export class LightconeHttp {
       return HttpError.notFound(bodyText);
     }
     if (statusCode === 429) {
-      return HttpError.rateLimited(retryAfterMs(headers));
+      return HttpError.rateLimited(retryAfterMs(headers, receivedAtMs));
     }
     if (statusCode >= 400 && statusCode < 500) {
       return HttpError.badRequest(bodyText);
@@ -577,18 +581,23 @@ export class LightconeHttp {
   }
 
   private statusErrorToSdk(error: HttpStatusError): Error {
-    const rejected = parseRejectedBody(error.body, error.requestId, error.status, retryAfterMs(error.headers));
+    const rejected = parseRejectedBody(error.body, error.requestId, error.status, retryAfterMs(error.headers, error.receivedAtMs));
     if (rejected) {
       return rejected;
     }
-    return this.mapStatusError(error.status, error.body, error.headers);
+    return this.mapStatusError(error.status, error.body, error.headers, error.receivedAtMs);
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+async function sleep(ms: number): Promise<void> {
+  // Runtime timers overflow above signed 32-bit milliseconds. Keep long server
+  // delays intact without accidentally scheduling an immediate generic retry.
+  const maxTimerMs = 2_147_483_647;
+  while (ms > 0) {
+    const chunk = Math.min(ms, maxTimerMs);
+    await new Promise<void>((resolve) => setTimeout(resolve, chunk));
+    ms -= chunk;
+  }
 }
 
 function parseApiResponse<T>(payload: unknown, requestId: string): T {
@@ -629,7 +638,13 @@ function parseRejectedBody(
       ApiRejectedDetails.fromWire(details, requestId, httpStatus, retryAfterMs)
     );
   } catch {
-    // Malformed optional wire fields must not abort an unrelated 503 retry.
+    // Optional metadata cannot turn a known pre-execution rejection into a replay.
+    if (httpStatus === 503 && details.error_code === "PRIVY_VERIFICATION_UNAVAILABLE") {
+      return SdkError.apiRejected(ApiRejectedDetails.fromWire({
+        reason: typeof details.reason === "string" ? details.reason : "Authentication verification is temporarily unavailable",
+        error_code: details.error_code,
+      }, requestId, httpStatus, retryAfterMs));
+    }
     return undefined;
   }
 }
@@ -659,7 +674,7 @@ function getSetCookieHeaders(headers: Headers): string[] {
 }
 
 /** Preserve numeric or HTTP-date guidance; elapsed dates permit an immediate manual retry. */
-function retryAfterMs(headers: Headers): number | undefined {
+function retryAfterMs(headers: Headers, receivedAtMs = Date.now()): number | undefined {
   for (const [name, scale] of [["retry-after-ms", 1], ["retry-after", 1000]] as const) {
     const value = headers.get(name)?.trim();
     if (!value || !/^\d+(?:\.\d+)?$/.test(value)) continue;
@@ -667,9 +682,9 @@ function retryAfterMs(headers: Headers): number | undefined {
     if (Number.isSafeInteger(delay) && delay >= 0) return delay;
   }
   const value = headers.get("retry-after")?.trim();
-  const deadline = value ? httpDateMs(value) : undefined;
+  const deadline = value ? httpDateMs(value, receivedAtMs) : undefined;
   if (deadline !== undefined) {
-    const delay = Math.max(0, Math.ceil(deadline - Date.now()));
+    const delay = Math.max(0, Math.ceil(deadline - receivedAtMs));
     if (Number.isSafeInteger(delay)) return delay;
   }
   return undefined;
@@ -677,7 +692,7 @@ function retryAfterMs(headers: Headers): number | undefined {
 
 
 /** Decode the three HTTP-date forms as UTC, rejecting normalized invalid dates. */
-function httpDateMs(value: string): number | undefined {
+function httpDateMs(value: string, receivedAtMs: number): number | undefined {
   const modern = /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat), (\d{2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/.exec(value);
   const obsolete = /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), (\d{2})-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-(\d{2}) (\d{2}):(\d{2}):(\d{2}) GMT$/.exec(value);
   const ascii = /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([ \d]\d) (\d{2}):(\d{2}):(\d{2}) (\d{4})$/.exec(value);
@@ -685,7 +700,11 @@ function httpDateMs(value: string): number | undefined {
   if (!parts) return undefined;
   const [, weekday = "", day, month = "", year, hour, minute, second] = parts;
   let fullYear = Number(year);
-  if (obsolete) fullYear += fullYear < 70 ? 2000 : 1900;
+  if (obsolete) {
+    const upperYear = new Date(receivedAtMs).getUTCFullYear() + 50;
+    fullYear += Math.floor(upperYear / 100) * 100;
+    if (fullYear > upperYear) fullYear -= 100;
+  }
   const monthIndex = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].indexOf(month);
   const date = new Date(0);
   date.setUTCFullYear(fullYear, monthIndex, Number(day));

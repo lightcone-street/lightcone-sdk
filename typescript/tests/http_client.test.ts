@@ -16,6 +16,7 @@ type TestResponse = {
   /** Optional Location header, for redirect responses. */
   location?: string;
   retryAfter?: string;
+  retryAfterMs?: string;
 };
 
 async function withServer(
@@ -38,6 +39,7 @@ async function withServer(
       body: '{"status":"error","error_details":{"reason":"unexpected extra request"}}',
     };
     const headers: Record<string, string> = { "content-type": "application/json" };
+    if (next.retryAfterMs !== undefined) headers["retry-after-ms"] = next.retryAfterMs;
     if (next.retryAfter !== undefined) headers["retry-after"] = next.retryAfter;
     if (next.setCookie) {
       headers["set-cookie"] = next.setCookie;
@@ -996,9 +998,13 @@ describe("Privy policy and malformed-response regressions", () => {
     ["Wed, invalid", undefined],
     ["Wednesday, 21-Oct-15 07:28:05 GMT", 5000],
     ["Wed Oct 21 07:28:05 2015", 5000],
+    ["Thu Oct 01 07:28:05 2015", 0],
+    ["Thu Oct  1 07:28:05 2015", 0],
     ["Wed, 31 Feb 2027 07:28:05 GMT", undefined],
     ["Oct 21 2099", undefined],
     ["Wed 1", undefined],
+    ["Wed, 21 Oct 2015 07:28:05 +0000", undefined],
+    ["Thu, 21 Oct 2015 07:28:05 GMT", undefined],
   ] as const) {
     it(`retains HTTP-date guidance ${header}`, async (context) => {
       context.mock.method(Date, "now", () => Date.parse("Wed, 21 Oct 2015 07:28:00 GMT"));
@@ -1045,3 +1051,59 @@ for (const operation of ["submit", "cancel", "cancelAll"] as const) {
     });
   });
 }
+
+
+it("anchors HTTP-date guidance before consuming a delayed error body", async (context) => {
+  let now = Date.parse("Wed, 21 Oct 2015 07:28:00 GMT");
+  context.mock.method(Date, "now", () => now);
+  const response = new Response(JSON.stringify({ status: "error", error_details: {
+    reason: "Unavailable", error_code: "PRIVY_VERIFICATION_UNAVAILABLE",
+  } }), { status: 503, headers: { "Retry-After": "Wed, 21 Oct 2015 07:28:05 GMT" } });
+  const readBody = response.text.bind(response);
+  context.mock.method(response, "text", async () => { now += 2000; return readBody(); });
+  context.mock.method(globalThis, "fetch", async () => response);
+  await assert.rejects(() => new LightconeHttp("http://localhost").get("/test", RetryPolicy.None), (error: unknown) => {
+    assert(error instanceof SdkError);
+    assert.equal(error.apiRejectedDetails?.retryAfterMs, 5000);
+    return true;
+  });
+});
+
+for (const [milliseconds, expected] of [["1.1", 2], ["0", 0], ["bad", 5000], ["9007199254740992", 5000]] as const) {
+  it(`preserves millisecond guidance precedence ${milliseconds}`, async () => {
+    await withServer([{ status: 503, retryAfterMs: milliseconds, retryAfter: "5", body: JSON.stringify({status:"error", error_details:{reason:"Unavailable", error_code:"PRIVY_VERIFICATION_UNAVAILABLE"}}) }], async base => {
+      await assert.rejects(() => new LightconeHttp(base).get(base, fastRetry([503])), (error: unknown) => {
+        assert(error instanceof SdkError); assert.equal(error.apiRejectedDetails?.retryAfterMs, expected); return true;
+      });
+    });
+  });
+}
+it("malformed optional fields cannot enable Privy replay", async () => {
+  await withServer([{status:503, body:JSON.stringify({status:"error",error_details:{reason:"Unavailable",error_code:"PRIVY_VERIFICATION_UNAVAILABLE",rejection_code:123}})}], async (base, attempts) => {
+    await assert.rejects(() => new LightconeHttp(base).get(base, fastRetry([503])), (error:unknown) => {
+      assert(error instanceof SdkError); assert.equal(error.apiRejectedDetails?.isPrivyVerificationUnavailable(), true); return true;
+    });
+    assert.equal(attempts(),1);
+  });
+});
+it("obsolete HTTP years use the receipt year", async context => {
+  context.mock.method(Date,"now",() => Date.UTC(2026,0,1));
+  await withServer([{status:503,retryAfter:"Wednesday, 01-Jan-70 00:00:00 GMT",body:JSON.stringify({status:"error",error_details:{reason:"Unavailable",error_code:"PRIVY_VERIFICATION_UNAVAILABLE"}})}],async base => {
+    await assert.rejects(() => new LightconeHttp(base).get(base,RetryPolicy.None),(error:unknown) => {
+      assert(error instanceof SdkError); assert.equal(error.apiRejectedDetails?.retryAfterMs,Date.UTC(2070,0,1)-Date.UTC(2026,0,1));return true;
+    });
+  });
+});
+it("chunks generic retry timers beyond the runtime limit", async context => {
+  const waits:number[]=[];
+  context.mock.method(globalThis,"setTimeout",(callback:()=>void,ms:number)=>{
+    if(ms!==180000) {waits.push(ms);queueMicrotask(callback);}
+    return 0 as unknown as ReturnType<typeof setTimeout>;
+  });
+  let calls=0;
+  context.mock.method(globalThis,"fetch",async()=>++calls===1
+    ? new Response("unavailable",{status:503,headers:{"Retry-After-MS":"2147483648"}})
+    : new Response(JSON.stringify({status:"success",body:{ok:true}})));
+  assert.deepEqual(await new LightconeHttp("http://localhost").get("/test",fastRetry([503])),{ok:true});
+  assert.deepEqual(waits,[2147483647,1]);
+});
