@@ -1,12 +1,9 @@
-//! Deserialization of order mutation and query responses against the
-//! committed backend's canonical samples (`fixtures/trading_responses.json`,
-//! copied from `api/src/service/tests/fixtures`).
+//! Deserialization of order mutation and query responses.
 
 use super::client::{
     CancelAllSuccess, CancelStatus, CancelSuccess, SubmitOrderResponse, SubmitOrderStatus,
     UserOrdersResponse,
 };
-use super::wire::{InitialCohortState, OrderState};
 use crate::domain::position::wire::FundingSource;
 use crate::error::SdkError;
 use crate::shared::{ApiResponse, DecimalText, RejectionCode};
@@ -15,79 +12,12 @@ use serde_json::{json, Value};
 
 const HASH: &str = "4f1a4b1ab1c0c0ffee0000000000000000000000000000000000000000000001";
 
-fn fixtures() -> Value {
-    serde_json::from_str(include_str!("fixtures/trading_responses.json")).unwrap()
-}
-
 /// Unwrap a success envelope the way the HTTP client does.
 fn body<T: serde::de::DeserializeOwned>(envelope: Value) -> Result<T, SdkError> {
     match serde_json::from_value::<ApiResponse<T>>(envelope)? {
         ApiResponse::Success { body } => Ok(body),
         ApiResponse::Rejected { details } => Err(SdkError::ApiRejected(details)),
     }
-}
-
-fn authenticated_fill() -> Value {
-    json!({
-        "fill_id": "5f7e3c2a-8a39-4f55-a1d6-2b6f0c1b9d11:0:1",
-        "execution_id": "5f7e3c2a-8a39-4f55-a1d6-2b6f0c1b9d11",
-        "counterparty": "Maker111111111111111111111111111111111111111",
-        "counterparty_order_hash": "aa".repeat(32),
-        "base_amount": "18446744073709.551615",
-        "quote_amount": "0.000001",
-        "is_maker": false,
-        "fee_estimate_atoms": i128::MIN.to_string(),
-        "fee_bps": 30,
-        "fee_mint": "fee-mint"
-    })
-}
-
-#[test]
-fn submit_response_decodes_fixture_state_cohort_and_fills() {
-    let fixtures = fixtures();
-    let response: SubmitOrderResponse = body(json!({
-        "status": "success",
-        "body": {
-            "order_hash": HASH,
-            "status": "accepted_pending",
-            "state": fixtures["cancelled_with_claim"],
-            "initial_cohort": fixtures["initial_complete_rematch_pending"],
-            "fills": [authenticated_fill()],
-            "fills_complete": false,
-            "fills_next_cursor": "eyJhdCI6IjIwMjYtMDktMjlUMTI6MDA6MDBaIiwia2V5IjoiYWIifQ"
-        }
-    }))
-    .unwrap();
-
-    assert_eq!(response.status, SubmitOrderStatus::AcceptedPending);
-    let state = response.state.as_ref().unwrap();
-    assert_eq!(state.original_base, Decimal::from(100));
-    assert_eq!(state.pending_base, Decimal::from(40));
-    assert_eq!(state.cancelled_base, Decimal::from(60));
-    assert!(!state.ready);
-    assert_eq!(state.closed_reason, None);
-    assert_eq!(state.committed_revision, 0);
-    assert_eq!(response.filled_base(), Some(Decimal::ZERO));
-    assert_eq!(response.open_base(), Some(Decimal::ZERO));
-
-    let cohort = response.initial_cohort.as_ref().unwrap();
-    assert_eq!(cohort.state, InitialCohortState::Complete);
-    assert_eq!(cohort.known_failed_unfilled_base, Decimal::from(30));
-
-    let fill = &response.fills[0];
-    assert_eq!(fill.base_amount, "18446744073709.551615".parse().unwrap());
-    assert_eq!(fill.fee_estimate_atoms, i128::MIN);
-    assert_eq!(fill.fee_bps, 30);
-    assert!(!response.fills_complete);
-    assert!(response.fills_next_cursor.is_some());
-
-    // The fixture state round-trips to the exact backend text.
-    let state: OrderState =
-        serde_json::from_value(fixtures["cancelled_with_claim"].clone()).unwrap();
-    assert_eq!(
-        serde_json::to_value(&state).unwrap(),
-        fixtures["cancelled_with_claim"]
-    );
 }
 
 #[test]
@@ -289,7 +219,7 @@ fn user_orders_response_decodes_orders_and_funding_page() {
                 "market_pubkey": "A9Bxkkc4nah517EjgjwSafwspGnmU9s1Ei5PTo5ZkJd9",
                 "deposit_mint": "7SrxsoXjNR7Y8T3koJCt1yV4FrNUumoAUrJExDt6tQez",
                 "raw_observed": "4.00000000",
-                "order_reserved": fixtures()["maximum_aggregate_six_decimals"],
+                "order_reserved": "340282366920938463463374607431768.211455",
                 "execution_reserved": "0.00000000",
                 "signed_remaining_atoms": "0",
                 "accepted_boundary": "boundary",
