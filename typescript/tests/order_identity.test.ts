@@ -20,11 +20,13 @@ import {
 import { orderbookRulesFromWire } from "../src/domain/orderbook/wire";
 import type { OrderBookPair } from "../src/domain/orderbook";
 import { ORDER_SIZE } from "../src/program/constants";
+import { OrderBuilder } from "../src/program/builder";
 import { LimitOrderEnvelope } from "../src/program/envelope";
 import { ProgramSdkError } from "../src/program/error";
 import { buildCloseOrderStatusIx } from "../src/program/instructions";
 import {
   calculateTakerFill,
+  cancelAllMessage,
   deserializeOrder,
   deserializeSignedOrder,
   generateSalt,
@@ -35,6 +37,7 @@ import {
   orderToSigned,
   serializeOrder,
   serializeSignedOrder,
+  signCancelAll,
   signOrderFull,
   signedOrderToOrder,
   toSubmitRequest,
@@ -235,6 +238,24 @@ describe("nonce-free order identity", () => {
     );
   });
 
+  it("encodes and decodes only bid or ask sides", () => {
+    const badSide = serializeSignedOrder({ ...unsignedOrder(), signature: Buffer.alloc(64, 1) });
+    badSide[136] = 2;
+    assert.throws(
+      () => deserializeSignedOrder(badSide),
+      (error) => error instanceof ProgramSdkError && error.variant === "InvalidSide",
+    );
+    const wrapping = unsignedOrder({ side: 256 as OrderSide });
+    assert.throws(
+      () => orderPreimage(wrapping),
+      (error) => error instanceof ProgramSdkError && error.variant === "InvalidSide",
+    );
+    assert.throws(
+      () => serializeOrder(signedOrderToOrder({ ...wrapping, signature: Buffer.alloc(64) })),
+      (error) => error instanceof ProgramSdkError && error.variant === "InvalidSide",
+    );
+  });
+
   it("preflights signed amounts against rules before signing", () => {
     const keypair = Keypair.generate();
     const order = unsignedOrder({ maker: keypair.publicKey, salt: U64_MAX, amountIn: 1n, amountOut: 3_000n });
@@ -277,6 +298,12 @@ describe("nonce-free order identity", () => {
       () => calculateTakerFill({ ...maker, amountIn: 1n, amountOut: U64_MAX }, 2n),
       (error) => error instanceof ProgramSdkError && error.variant === "Overflow",
     );
+    for (const fill of [-5n, U64_MAX + 1n]) {
+      assert.throws(
+        () => calculateTakerFill(maker, fill),
+        (error) => error instanceof ProgramSdkError && error.variant === "Overflow",
+      );
+    }
   });
 
   it("expires an order only after its expiration second", () => {
@@ -403,10 +430,57 @@ describe("order envelope", () => {
 
   it("rejects a malformed external signature", () => {
     const keypair = Keypair.generate();
+    for (const signature of ["1111", "0x" + "ab".repeat(64)]) {
+      assert.throws(
+        () => envelope(keypair.publicKey).finalize(signature, testOrderbook(), unitRules()),
+        (error) => error instanceof ProgramSdkError && error.variant === "InvalidSignature",
+      );
+    }
+  });
+
+  it("rejects an unencodable salt or expiration before submission", () => {
+    const signature = bs58.encode(Buffer.alloc(64, 1));
+    const maker = Keypair.generate().publicKey;
     assert.throws(
-      () => envelope(keypair.publicKey).finalize("1111", testOrderbook(), unitRules()),
-      (error) => error instanceof ProgramSdkError && error.variant === "InvalidSignature",
+      () => envelope(maker).salt(-1n).finalize(signature, testOrderbook(), unitRules()),
+      /u64 value out of range/,
     );
+    assert.throws(
+      () => envelope(maker).expiration(I64_MAX + 1n).finalize(signature, testOrderbook(), unitRules()),
+      /i64 value out of range/,
+    );
+  });
+
+  it("reports zero amounts as missing, as the Rust SDK does", () => {
+    const maker = Keypair.generate().publicKey;
+    assert.throws(
+      () => envelope(maker).amountIn(0n).amountOut(5n).payload(),
+      (error) =>
+        error instanceof ProgramSdkError &&
+        error.variant === "MissingField" &&
+        /amount_in must be greater than 0/.test(error.message),
+    );
+    assert.throws(
+      () => envelope(maker).amountIn(5n).amountOut(0n).payload(),
+      (error) => error instanceof ProgramSdkError && /amount_out must be greater than 0/.test(error.message),
+    );
+  });
+
+  it("derives price and size again on every build", () => {
+    const keypair = Keypair.generate();
+    const order = LimitOrderEnvelope.new().maker(keypair.publicKey).bid().price("0.5").size("10");
+    const first = order.sign(keypair, testOrderbook(), unitRules());
+    assert.deepEqual([first.amount_in, first.amount_out], [5n, 10n]);
+    // Signing again unchanged resubmits the identical order.
+    assert.deepEqual(order.sign(keypair, testOrderbook(), unitRules()), first);
+    const repriced = order.price("0.6").sign(keypair, testOrderbook(), unitRules());
+    assert.deepEqual([repriced.amount_in, repriced.amount_out], [6n, 10n]);
+    const ask = order.ask().sign(keypair, testOrderbook(), unitRules());
+    assert.deepEqual([ask.amount_in, ask.amount_out], [10n, 6n]);
+    // Raw amounts replace derived ones and are kept as supplied.
+    const raw = order.amountIn(7n).amountOut(14n).sign(keypair, testOrderbook(), unitRules());
+    assert.deepEqual([raw.amount_in, raw.amount_out], [7n, 14n]);
+    assert.equal(raw.salt, first.salt);
   });
 
   it("serializes the conditional deposit source", () => {
@@ -421,6 +495,55 @@ describe("order envelope", () => {
     assert.equal(json.tif, "FOK");
     assert.equal(json.nonce, undefined);
     assert.ok(isSigned({ ...envelope(keypair.publicKey).salt(0n).payload(), signature: Buffer.from(request.signature, "hex") }));
+  });
+});
+
+describe("OrderBuilder", () => {
+  function builder(maker: PublicKey): OrderBuilder {
+    return new OrderBuilder()
+      .maker(maker)
+      .market(new PublicKey(Buffer.alloc(32, 4)))
+      .baseMint(new PublicKey(Buffer.alloc(32, 5)))
+      .quoteMint(new PublicKey(Buffer.alloc(32, 6)));
+  }
+
+  it("prices with the side set at build time", () => {
+    const maker = Keypair.generate().publicKey;
+    const priceFirst = builder(maker).salt(1n).price("0.5", "10", unitRules()).ask().build();
+    const sideFirst = builder(maker).salt(1n).ask().price("0.5", "10", unitRules()).build();
+    assert.deepEqual([priceFirst.amountIn, priceFirst.amountOut], [10n, 5n]);
+    assert.equal(hashOrderHex(priceFirst), hashOrderHex(sideFirst));
+  });
+
+  it("fixes its salt on the first build", () => {
+    const keypair = Keypair.generate();
+    const order = builder(keypair.publicKey).bid().price("0.5", "10", unitRules());
+    const unsigned = order.build();
+    const signed = order.buildAndSign(keypair);
+    assert.equal(signed.salt, unsigned.salt);
+    assert.equal(hashOrderHex(signed), hashOrderHex(unsigned));
+    assert.ok(verifyOrderSignature(signed));
+  });
+
+  it("lets raw amounts replace price and size", () => {
+    const order = builder(Keypair.generate().publicKey)
+      .price("0.5", "10", unitRules())
+      .amountIn(6n)
+      .amountOut(10n)
+      .build();
+    assert.deepEqual([order.amountIn, order.amountOut], [6n, 10n]);
+  });
+});
+
+describe("cancel-all signing", () => {
+  it("signs the UTF-8 message the backend verifies", () => {
+    const keypair = Keypair.generate();
+    const wallet = keypair.publicKey.toBase58();
+    for (const salt of ["0b9f6c1e-1d3a-4c55-9a7e-2f4d8e6b1c3a", "salt-\u00e9", "\u65e5\u672c"]) {
+      const signature = signCancelAll(wallet, "ob", 1_700_000_000, salt, keypair);
+      const message = new TextEncoder().encode(cancelAllMessage(wallet, "ob", 1_700_000_000, salt));
+      assert.ok(sign.detached.verify(message, Buffer.from(signature, "hex"), keypair.publicKey.toBytes()));
+    }
   });
 });
 

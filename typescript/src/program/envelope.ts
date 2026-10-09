@@ -44,6 +44,11 @@ interface OrderFields {
   side?: OrderSide;
   amountIn?: bigint;
   amountOut?: bigint;
+  /**
+   * Whether `amountIn`/`amountOut` were derived from price and size, so the
+   * next build derives them again from the current price, size, and side.
+   */
+  amountsDerived?: boolean;
   expiration: bigint;
   priceRaw?: string;
   sizeRaw?: string;
@@ -64,6 +69,8 @@ function toUnsignedOrder(fields: OrderFields): Omit<SignedOrder, "signature"> {
   if (fields.side === undefined) throw ProgramSdkError.missingField("side");
   if (fields.amountIn === undefined) throw ProgramSdkError.missingField("amount_in");
   if (fields.amountOut === undefined) throw ProgramSdkError.missingField("amount_out");
+  if (fields.amountIn === 0n) throw ProgramSdkError.missingField("amount_in must be greater than 0");
+  if (fields.amountOut === 0n) throw ProgramSdkError.missingField("amount_out must be greater than 0");
 
   validateSignedFields(fields.amountIn, fields.amountOut);
   const salt = fields.salt ?? generateSalt();
@@ -150,11 +157,13 @@ class BaseEnvelope {
   }
 
   amountIn(value: bigint): this {
+    this.clearDerivedAmounts();
     this.fields.amountIn = value;
     return this;
   }
 
   amountOut(value: bigint): this {
+    this.clearDerivedAmounts();
     this.fields.amountOut = value;
     return this;
   }
@@ -243,7 +252,20 @@ class BaseEnvelope {
     }
   }
 
-  /** Construct or preflight the signed ratio using fetched immutable rules. */
+  /** Forget amounts derived from price and size by an earlier build. */
+  private clearDerivedAmounts(): void {
+    if (this.fields.amountsDerived) {
+      this.fields.amountIn = undefined;
+      this.fields.amountOut = undefined;
+      this.fields.amountsDerived = false;
+    }
+  }
+
+  /**
+   * Construct or preflight the signed ratio using fetched immutable rules.
+   * Amounts derived from price and size are derived again on every build, so
+   * a later price, size, or side change is never ignored.
+   */
   protected applyRules(rules: OrderbookRules, orderbookId: string): void {
     if (rules.orderbookId !== orderbookId) {
       throw new ScalingError(
@@ -251,6 +273,7 @@ class BaseEnvelope {
       );
     }
     if (this.fields.side === undefined) throw ProgramSdkError.missingField("side");
+    this.clearDerivedAmounts();
     if (this.fields.amountIn !== undefined && this.fields.amountOut !== undefined) {
       validateRawAmounts(this.fields.amountIn, this.fields.amountOut, this.fields.side, rules);
       return;
@@ -263,6 +286,7 @@ class BaseEnvelope {
     const scaled = scalePriceSize(this.fields.priceRaw, this.fields.sizeRaw, this.fields.side, rules);
     this.fields.amountIn = scaled.amountIn;
     this.fields.amountOut = scaled.amountOut;
+    this.fields.amountsDerived = true;
   }
 
 }

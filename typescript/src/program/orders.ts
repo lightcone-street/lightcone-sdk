@@ -46,6 +46,11 @@ function decodeSide(value: number): OrderSide {
   throw ProgramSdkError.invalidSide(value);
 }
 
+/** Encode a side byte, rejecting anything but BID or ASK. */
+function encodeSide(value: OrderSide): Buffer {
+  return toU8(decodeSide(value));
+}
+
 
 // ============================================================================
 // ORDER HASHING
@@ -64,7 +69,7 @@ export function orderPreimage(order: SignedOrder | Omit<SignedOrder, "signature"
     order.market.toBuffer(),
     order.baseMint.toBuffer(),
     order.quoteMint.toBuffer(),
-    toU8(order.side),
+    encodeSide(order.side),
     toU64Le(order.amountIn),
     toU64Le(order.amountOut),
     toI64Le(order.expiration),
@@ -212,7 +217,7 @@ export function deserializeSignedOrder(data: Buffer): SignedOrder {
 export function serializeOrder(order: Order): Buffer {
   return Buffer.concat([
     toU64Le(order.salt),
-    toU8(order.side),
+    encodeSide(order.side),
     toU64Le(order.amountIn),
     toU64Le(order.amountOut),
     toI64Le(order.expiration),
@@ -405,6 +410,9 @@ export function calculateTakerFill(
   if (makerOrder.amountIn === 0n) {
     throw ProgramSdkError.divisionByZero();
   }
+  if (makerFillAmount < 0n || makerFillAmount > U64_MAX) {
+    throw ProgramSdkError.overflow("Maker fill amount is outside the u64 range");
+  }
 
   const numerator = makerFillAmount * makerOrder.amountOut;
   const result = (numerator + makerOrder.amountIn - 1n) / makerOrder.amountIn;
@@ -445,7 +453,14 @@ export function applySignature(
 ): SignedOrder {
   validateSignedFields(order.amountIn, order.amountOut);
   validateRawAmounts(order.amountIn, order.amountOut, order.side, rules);
-  const sigBytes = bs58.decode(signatureBs58);
+  // The order must be encodable: u64 salt, i64 expiration, BID or ASK.
+  orderPreimage(order);
+  let sigBytes: Uint8Array;
+  try {
+    sigBytes = bs58.decode(signatureBs58);
+  } catch {
+    throw ProgramSdkError.invalidSignature();
+  }
   if (sigBytes.length !== 64) {
     throw ProgramSdkError.invalidSignature();
   }
@@ -467,7 +482,7 @@ export { deriveOrderbookId } from "../shared/types";
  * The message is the order hash hex string as UTF-8 bytes (same protocol as order signing).
  */
 export function cancelOrderMessage(orderHash: string): Uint8Array {
-  return Buffer.from(orderHash, "ascii");
+  return Buffer.from(orderHash, "utf8");
 }
 
 /**
@@ -512,8 +527,9 @@ export function signCancelAll(
   salt: string,
   signer: Keypair
 ): string {
+  // The backend verifies the message's UTF-8 bytes; the salt may be any text.
   const message = cancelAllMessage(userPubkey, orderbookId, timestamp, salt);
-  const messageBytes = Buffer.from(message, "ascii");
+  const messageBytes = Buffer.from(message, "utf8");
   const signature = sign.detached(messageBytes, signer.secretKey);
   return Buffer.from(signature).toString("hex");
 }
@@ -543,6 +559,9 @@ export function toSubmitRequest(
     throw ProgramSdkError.unsignedOrder();
   }
   validateSignedFields(order.amountIn, order.amountOut);
+  // The request must describe an encodable order: u64 salt, i64 expiration,
+  // BID or ASK.
+  orderPreimage(order);
   return {
     maker: order.maker.toBase58(),
     salt: order.salt,

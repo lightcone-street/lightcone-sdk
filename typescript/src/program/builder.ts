@@ -40,6 +40,8 @@ export class OrderBuilder {
   private _expiration: bigint = 0n;
   private _depositSource?: DepositSource;
   private _rules?: OrderbookRules;
+  /** Price and size to scale at build time with the final side and rules. */
+  private _priceSize: { price: string; size: string } | null = null;
 
   /**
    * Set the order's identity salt (any u64). When omitted, the first
@@ -93,14 +95,16 @@ export class OrderBuilder {
     return this;
   }
 
-  /** Set amount in (what maker gives) */
+  /** Set amount in (what maker gives). Replaces any price and size. */
   amountIn(value: bigint): this {
+    this._priceSize = null;
     this._amountIn = value;
     return this;
   }
 
-  /** Set amount out (what maker receives) */
+  /** Set amount out (what maker receives). Replaces any price and size. */
   amountOut(value: bigint): this {
+    this._priceSize = null;
     this._amountOut = value;
     return this;
   }
@@ -123,23 +127,19 @@ export class OrderBuilder {
   }
 
   /**
-   * Set price and size, constructing amountIn and amountOut exactly under the
-   * fetched immutable trading rules. Invalid values are rejected, never rounded.
+   * Set price and size. Every build constructs amountIn and amountOut exactly
+   * from them under the trading rules and the side set at build time, so
+   * `.price(...).ask()` and `.ask().price(...)` describe the same order.
+   * Invalid values are rejected here and at build, never rounded.
    *
    * @param price - Price as a decimal string (e.g., "0.75")
    * @param size - Size as a decimal string (e.g., "100")
    * @param rules - Rules returned by the orderbook decimals endpoint
    */
   price(priceStr: string, sizeStr: string, rules: OrderbookRules): this {
+    scalePriceSize(priceStr, sizeStr, this._side, rules);
     this._rules = rules;
-    const { amountIn, amountOut } = scalePriceSize(
-      priceStr,
-      sizeStr,
-      this._side,
-      rules
-    );
-    this._amountIn = amountIn;
-    this._amountOut = amountOut;
+    this._priceSize = { price: priceStr, size: sizeStr };
     return this;
   }
 
@@ -166,6 +166,16 @@ export class OrderBuilder {
 
     const resolvedRules = rules ?? this._rules;
     if (!resolvedRules) throw ProgramSdkError.missingField("trading_rules");
+    if (this._priceSize) {
+      const { amountIn, amountOut } = scalePriceSize(
+        this._priceSize.price,
+        this._priceSize.size,
+        this._side,
+        resolvedRules
+      );
+      this._amountIn = amountIn;
+      this._amountOut = amountOut;
+    }
     validateSignedFields(this._amountIn, this._amountOut);
     validateRawAmounts(this._amountIn, this._amountOut, this._side, resolvedRules);
     const salt = this._salt ?? generateSalt();
