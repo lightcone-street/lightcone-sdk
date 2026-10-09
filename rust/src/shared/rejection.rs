@@ -53,6 +53,8 @@ pub enum RejectionCode {
     InternalError,
     /// The cancelled order hash was never accepted.
     OrderNotFound,
+    /// The engine does not know the orderbook.
+    OrderbookNotFound,
     Unknown(String),
 }
 
@@ -78,6 +80,7 @@ impl RejectionCode {
             Self::TradingNotReady => "Trading Not Ready".to_string(),
             Self::InternalError => "Internal Error".to_string(),
             Self::OrderNotFound => "Order Not Found".to_string(),
+            Self::OrderbookNotFound => "Orderbook Not Found".to_string(),
             Self::Unknown(code) => code.clone(),
         }
     }
@@ -114,6 +117,7 @@ impl RejectionCode {
             Self::TradingNotReady => "TRADING_NOT_READY".to_string(),
             Self::InternalError => "INTERNAL_ERROR".to_string(),
             Self::OrderNotFound => "ORDER_NOT_FOUND".to_string(),
+            Self::OrderbookNotFound => "ORDERBOOK_NOT_FOUND".to_string(),
             Self::Unknown(code) => code.clone(),
         }
     }
@@ -136,6 +140,7 @@ impl RejectionCode {
             "TRADING_NOT_READY" => Self::TradingNotReady,
             "INTERNAL_ERROR" => Self::InternalError,
             "ORDER_NOT_FOUND" => Self::OrderNotFound,
+            "ORDERBOOK_NOT_FOUND" => Self::OrderbookNotFound,
             _ => Self::Unknown(raw.to_string()),
         }
     }
@@ -175,7 +180,7 @@ pub enum ErrorCode {
     FailedPrecondition,
     /// 404.
     NotFound,
-    /// 403: mutation signature rejected or stale cancel-all timestamp.
+    /// 403: mutation signature rejected.
     Forbidden,
     /// 409: duplicate order identity or reused cancel-all salt.
     AlreadyExists,
@@ -191,7 +196,10 @@ pub enum ErrorCode {
     /// 500: engine failure without a public reason.
     EngineInternalError,
     /// 503: committed trading state (or orderbook metadata) is temporarily
-    /// unavailable; also returned for an unknown orderbook on submission.
+    /// unavailable. The submit route also returns it for an orderbook whose
+    /// decimals cannot be loaded, but `Orders::submit` fetches the orderbook
+    /// rules first, so an unknown orderbook fails there with
+    /// [`Self::OrderbookDecimalsNotFound`].
     TradingUnavailable,
     /// 401: an order mutation had no authenticated session.
     AuthRequired,
@@ -216,6 +224,14 @@ pub enum ErrorCode {
     InvalidLimit,
     /// 429: request rate limit exceeded.
     RateLimited,
+    /// 404: no decimals (and so no trading rules) exist for the orderbook,
+    /// e.g. an unknown orderbook id.
+    OrderbookDecimalsNotFound,
+    /// 500: the orderbook's stored trading rules are invalid.
+    OrderbookConfigurationError,
+    /// 400: the route does not accept percent-encoded unreserved characters.
+    NonCanonicalEncoding,
+    /// A code this SDK version does not know.
     Unknown(String),
 }
 
@@ -244,6 +260,9 @@ impl ErrorCode {
             Self::UnexpectedQuery => "UNEXPECTED_QUERY",
             Self::InvalidLimit => "INVALID_LIMIT",
             Self::RateLimited => "RATE_LIMITED",
+            Self::OrderbookDecimalsNotFound => "ORDERBOOK_DECIMALS_NOT_FOUND",
+            Self::OrderbookConfigurationError => "ORDERBOOK_CONFIGURATION_ERROR",
+            Self::NonCanonicalEncoding => "NON_CANONICAL_ENCODING",
             Self::Unknown(code) => code,
         }
     }
@@ -272,6 +291,9 @@ impl ErrorCode {
             "UNEXPECTED_QUERY" => Self::UnexpectedQuery,
             "INVALID_LIMIT" => Self::InvalidLimit,
             "RATE_LIMITED" => Self::RateLimited,
+            "ORDERBOOK_DECIMALS_NOT_FOUND" => Self::OrderbookDecimalsNotFound,
+            "ORDERBOOK_CONFIGURATION_ERROR" => Self::OrderbookConfigurationError,
+            "NON_CANONICAL_ENCODING" => Self::NonCanonicalEncoding,
             other => Self::Unknown(other.to_string()),
         }
     }
@@ -407,6 +429,7 @@ mod tests {
             RejectionCode::TradingNotReady,
             RejectionCode::InternalError,
             RejectionCode::OrderNotFound,
+            RejectionCode::OrderbookNotFound,
         ];
         for code in codes {
             let json = serde_json::to_string(&code).unwrap();
@@ -448,6 +471,9 @@ mod tests {
             ErrorCode::UnexpectedQuery,
             ErrorCode::InvalidLimit,
             ErrorCode::RateLimited,
+            ErrorCode::OrderbookDecimalsNotFound,
+            ErrorCode::OrderbookConfigurationError,
+            ErrorCode::NonCanonicalEncoding,
         ];
         for code in codes {
             let json = serde_json::to_string(&code).unwrap();

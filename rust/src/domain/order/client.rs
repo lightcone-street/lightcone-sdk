@@ -293,7 +293,9 @@ pub struct CancelQuantities {
 pub struct CancelSuccess {
     pub status: CancelStatus,
     pub order_hash: String,
-    /// `None` while the engine is rebuilding (never invented zeroes).
+    /// Present on every successful cancellation (an unknown hash is the
+    /// `ORDER_NOT_FOUND` rejection instead); `None` only if a backend omits
+    /// it, never invented zeroes.
     #[serde(default)]
     pub quantities: Option<CancelQuantities>,
     /// Unit of `quantities`: always `"base_atoms"`.

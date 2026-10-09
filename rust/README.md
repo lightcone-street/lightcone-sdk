@@ -578,6 +578,7 @@ Business outcomes of a trading mutation, delivered with HTTP 200 and a `rejectio
 | `TradingNotReady` | `TRADING_NOT_READY` | Committed trading state is not ready |
 | `InternalError` | `INTERNAL_ERROR` | Committed order state could not be read |
 | `OrderNotFound` | `ORDER_NOT_FOUND` | Cancel of an order hash that was never accepted |
+| `OrderbookNotFound` | `ORDERBOOK_NOT_FOUND` | The engine does not know the orderbook |
 | `Unknown(String)` | *(raw code)* | Unrecognized code |
 
 #### `ErrorCode`
@@ -588,17 +589,20 @@ Transport, validation, authorization, and availability failures carry an `error_
 |---------|------|------|
 | `InvalidArgument` | 400 | Malformed field, bad side, zero amount, non-canonical key, bad cancel-all salt or timestamp |
 | `FailedPrecondition` | 400 | Engine precondition failed outside the business-rejection path |
-| `Forbidden` | 403 | Mutation signature rejected |
+| `Forbidden` | 403 | Mutation signature rejected (a stale cancel-all timestamp is `InvalidArgument`) |
 | `AuthRequired` | 401 | Order mutation without a session |
 | `AuthWalletMismatch` | 403 | Session wallet differs from the order maker / cancellation wallet |
 | `AlreadyExists` | 409 | Duplicate order identity or reused cancel-all salt |
 | `Aborted` | 409 | Trading state changed; retry |
 | `ResourceExhausted` | 429 | Engine admission queue or capacity exhausted |
 | `EngineUnavailable` | 503 | Engine unavailable. For submission the outcome is unknown: resubmit the identical signed request, where `DUPLICATE_ORDER` or `ALREADY_EXISTS` proves the first was accepted; never re-sign with a new salt |
-| `TradingUnavailable` | 503 | Committed trading state or orderbook metadata unavailable (also an unknown orderbook on submit) |
+| `TradingUnavailable` | 503 | Committed trading state or orderbook metadata unavailable |
 | `EngineInternalError` | 500 | Engine failure without a public reason |
 | `InvalidTif`, `InvalidDepositSource`, `InvalidSignature`, `InvalidPubkey`, `InvalidCursor`, `InvalidOrderHash`, `UnexpectedQuery`, `InvalidLimit` | 400 | Request validation |
 | `NotFound` | 404 | Resource not found |
+| `OrderbookDecimalsNotFound` | 404 | No decimals or trading rules for the orderbook. `Orders::submit` fetches these first, so an unknown orderbook fails here before reaching the submit route |
+| `OrderbookConfigurationError` | 500 | The orderbook's stored trading rules are invalid |
+| `NonCanonicalEncoding` | 400 | Percent-encoded unreserved characters on a route that rejects them |
 | `RateLimited` | 429 | Request rate limit |
 | `Unknown(String)` | — | Unrecognized code |
 
