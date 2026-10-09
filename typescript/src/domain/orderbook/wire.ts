@@ -61,6 +61,11 @@ export interface OrderbookDepthResponse {
   asks: RestBookLevel[];
   /** Required display decimals; size is base-token on-chain precision. */
   decimals: OrderbookDepthDecimals;
+  /**
+   * Whether the engine's committed book is ready (matching live). A book that
+   * is not ready may show stale or empty depth.
+   */
+  ready: boolean;
 }
 
 /**
@@ -148,12 +153,19 @@ export interface WsBookLevel {
  *
  * The stream is snapshot-only: every data frame carries the full top-20
  * levels per side and replaces the previous book wholesale. `seq` is the
- * engine depth revision and is monotonic only within one subscription generation.
+ * engine depth revision and is monotonic only within one subscription
+ * generation: drop frames with `seq <=` the last applied one. Resync frames
+ * (`resync: true`) carry no `seq` and read as `0n`.
  */
 export interface OrderBook {
   orderbook_id: OrderBookId;
   is_snapshot?: boolean;
   seq: bigint;
+  /**
+   * Whether the engine's committed book is ready (matching live). Absent
+   * (`false`) on resync frames.
+   */
+  ready: boolean;
   resync?: boolean;
   timestamp?: string;
   bids: WsBookLevel[];

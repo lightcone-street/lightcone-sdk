@@ -386,18 +386,24 @@ export function parseMessageIn(input: string): MessageIn {
   let message = parsed as MessageIn;
   if (message.type === "book_update") {
     const data = message.data as unknown as Record<string, unknown>;
-    const seq = data.seq;
+    // Resync frames carry no `seq`, `ready`, or levels; they read as 0, false, and [].
+    const seq = data.seq ?? 0;
     if ((typeof seq !== "number" && typeof seq !== "bigint") ||
         (typeof seq === "number" && (!Number.isSafeInteger(seq) || seq < 0)) ||
         (typeof seq === "bigint" && seq < 0n)) {
       throw new WsErrorClass("ProtocolError", "Invalid book_update seq");
     }
-    // Validate only populated level arrays so existing empty/resync frame
-    // tolerance is unchanged while exact quote liquidity cannot be omitted.
+    const ready = data.ready ?? false;
+    if (typeof ready !== "boolean") {
+      throw new WsErrorClass("ProtocolError", "Invalid book_update ready");
+    }
+    const levels: Record<"bids" | "asks", unknown[]> = { bids: [], asks: [] };
     for (const side of ["bids", "asks"] as const) {
-      const levels = data[side];
-      if (!Array.isArray(levels)) continue;
-      for (const level of levels) {
+      const sideLevels = data[side] ?? [];
+      if (!Array.isArray(sideLevels)) {
+        throw new WsErrorClass("ProtocolError", `Invalid book_update ${side}: expected array`);
+      }
+      for (const level of sideLevels) {
         if (
           typeof level !== "object" ||
           level === null ||
@@ -410,10 +416,17 @@ export function parseMessageIn(input: string): MessageIn {
           );
         }
       }
+      levels[side] = sideLevels;
     }
     message = {
       ...message,
-      data: { ...message.data, seq: BigInt(seq) },
+      data: {
+        ...message.data,
+        seq: BigInt(seq),
+        ready,
+        bids: levels.bids as OrderBook["bids"],
+        asks: levels.asks as OrderBook["asks"],
+      },
     };
   }
   if (message.type === "user") {

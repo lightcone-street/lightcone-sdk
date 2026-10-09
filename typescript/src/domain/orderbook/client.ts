@@ -76,6 +76,7 @@ export class Orderbooks {
         captured_at_ms: number | bigint | null;
         bids_truncated?: boolean;
         asks_truncated?: boolean;
+        ready?: boolean;
       }
     >(url, RetryPolicy.Idempotent);
     if (
@@ -88,6 +89,7 @@ export class Orderbooks {
       raw.decimals.size < 0 ||
       (raw.bids_truncated !== undefined && typeof raw.bids_truncated !== "boolean") ||
       (raw.asks_truncated !== undefined && typeof raw.asks_truncated !== "boolean") ||
+      (raw.ready !== undefined && raw.ready !== null && typeof raw.ready !== "boolean") ||
       raw.revision === undefined ||
       raw.revision === null ||
       raw.captured_at_ms === undefined ||
@@ -111,6 +113,7 @@ export class Orderbooks {
       captured_at_ms: capturedAtMs,
       bids_truncated: raw.bids_truncated ?? false,
       asks_truncated: raw.asks_truncated ?? false,
+      ready: raw.ready ?? false,
     };
   }
 

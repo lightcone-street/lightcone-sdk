@@ -6,7 +6,9 @@ async function main() {
 
   const response = await client.metrics().orderbookTickers(depositAsset);
 
-  console.log(`orderbooks with tickers: ${response.tickers.length}`);
+  console.log(
+    `orderbooks with tickers: ${response.tickers.length}${response.has_more ? ` (truncated; resume at ${response.next_cursor})` : ""}`,
+  );
   for (const entry of response.tickers.slice(0, 10)) {
     const mid = entry.midpoint ?? "—";
     console.log(

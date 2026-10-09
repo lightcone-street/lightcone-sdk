@@ -6,8 +6,9 @@ import type { OrderBookId, PubkeyStr, Resolution } from "../../shared";
 
 /**
  * One entry in `GET /api/metrics/orderbooks/tickers`. Same shape (BBO +
- * midpoint) as the WS `Ticker` stream, delivered in batch over REST.
- * Price fields are undefined when the orderbook has no liquidity yet.
+ * midpoint) as the WS `Ticker` stream, delivered in batch over REST. Only
+ * ready orderbooks are listed. Price fields are undefined when the orderbook
+ * has no liquidity yet (the backend omits them).
  */
 export interface OrderbookTickerEntry {
   orderbook_id: string;
@@ -23,9 +24,15 @@ export interface OrderbookTickerEntry {
   computed_at?: string;
 }
 
-/** Response of `GET /api/metrics/orderbooks/tickers`. */
+/**
+ * `GET /api/metrics/orderbooks/tickers` response: one page of at most 8
+ * tickers. A page can be empty while `has_more` is true.
+ */
 export interface OrderbookTickersResponse {
   tickers: OrderbookTickerEntry[];
+  /** Orderbook pubkey to pass as `cursor` for the next page. */
+  next_cursor?: string;
+  has_more: boolean;
 }
 
 /** Response of `GET /api/metrics/platform`. */

@@ -25,6 +25,7 @@ function orderBook(
     orderbook_id: "ob1" as OrderBookId,
     is_snapshot: isSnapshot,
     seq,
+    ready: true,
     resync,
     bids,
     asks,
@@ -144,6 +145,24 @@ describe("OrderbookState", () => {
     );
     assert.equal(snapshot.midPrice(), "51");
     assert.equal(snapshot.spread(), "2");
+  });
+
+  it("ready flag follows accepted frames", () => {
+    const snapshot = new OrderbookState("ob1" as OrderBookId);
+    assert.equal(snapshot.ready, false);
+    assert.deepStrictEqual(snapshot.apply(orderBook(true, 1n, [], [])), { kind: "applied" });
+    assert.equal(snapshot.ready, true);
+    assert.deepStrictEqual(
+      snapshot.apply({ ...orderBook(true, 2n, [], []), ready: false }),
+      { kind: "applied" },
+    );
+    assert.equal(snapshot.ready, false);
+    // A stale frame does not change readiness.
+    assert.deepStrictEqual(snapshot.apply(orderBook(true, 2n, [], [])), { kind: "discarded_stale" });
+    assert.equal(snapshot.ready, false);
+    snapshot.apply(orderBook(true, 3n, [], []));
+    snapshot.clear();
+    assert.equal(snapshot.ready, false);
   });
 
   it("clear resets state", () => {
