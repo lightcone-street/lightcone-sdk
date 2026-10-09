@@ -144,9 +144,50 @@ export enum OrderUpdateType {
   Cancellation = "CANCELLATION",
 }
 
+/**
+ * Where collateral should be sourced when matching an order. Omit it for the
+ * backend's default (`"auto"`) funding.
+ */
 export enum DepositSource {
+  /** Always use the user's global deposit balance. */
   Global = "global",
-  Market = "market",
+  /**
+   * Only use conditional tokens already held in the market position (no
+   * global fallback). The wire value is `"conditional"`; the backend still
+   * accepts the older `"market"`.
+   */
+  Market = "conditional",
+}
+
+/**
+ * Which custody account backs a recorded order or holds a balance: the
+ * response-side counterpart of the {@link DepositSource} request option.
+ */
+export enum FundingSource {
+  /** The wallet's global deposit account for a deposit mint. */
+  Global = "global",
+  /** A conditional-token account of one market position. */
+  Conditional = "conditional",
+  /** A source this SDK version does not know. */
+  Unknown = "unknown",
+}
+
+/**
+ * Commit metadata carried by every live committed fact on the WS `user` and
+ * `trades` channels (flattened into the payload on the wire).
+ */
+export interface CommitInfo {
+  /** Durable publication id (`"<revision>:<index>"`). */
+  effect_id: string;
+  /** Committed database revision that produced this fact. */
+  committed_revision: bigint;
+  /** Projection generation; a change means state was rebuilt. */
+  projection_generation: bigint;
+  /**
+   * False when the fact was replayed after it stopped being live (readiness
+   * fields are then forced off).
+   */
+  actionable: boolean;
 }
 
 export enum Resolution {

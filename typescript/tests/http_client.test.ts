@@ -105,6 +105,23 @@ describe("LightconeHttp", () => {
     );
   });
 
+  it("surfaces a non-JSON 2xx body as Serde without retrying it", async () => {
+    await withServer(
+      [
+        { status: 200, body: "<html>not json</html>" },
+        { status: 200, body: '{"status":"success","body":{}}' },
+      ],
+      async (baseUrl, attempts) => {
+        const client = new LightconeHttp(baseUrl);
+        await assert.rejects(
+          () => client.get(`${baseUrl}/test`, RetryPolicy.Idempotent),
+          (error) => error instanceof SdkError && error.variant === "Serde",
+        );
+        assert.equal(attempts(), 1);
+      },
+    );
+  });
+
   it("returns structured 500 rejection details", async () => {
     await withServer(
       [

@@ -10,6 +10,7 @@ export {
   denominatorToken,
   DepositSource,
   deriveOrderbookId,
+  FundingSource,
   parseResolution,
   parseSide,
   receiveDenominator,
@@ -22,6 +23,7 @@ export {
   Side,
   TimeInForce,
   type Branded,
+  type CommitInfo,
   type OrderBookId,
   type PubkeyStr,
   type SubmitOrderRequest,
@@ -36,7 +38,13 @@ export {
 
 export { RejectionCode } from "./rejection";
 
-export { formatDecimal, isZero, parseDecimal } from "./price";
+export { formatDecimal, isZero, parseDecimal, quotePerBase } from "./price";
+export {
+  decimalTextIsNegative,
+  decimalTextToDecimal,
+  parseDecimalText,
+  type DecimalText,
+} from "./decimal_text";
 export { parseJsonExact, stringifyJsonExact } from "./json";
 
 export {
