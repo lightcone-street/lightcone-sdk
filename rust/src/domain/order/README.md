@@ -504,7 +504,7 @@ pub enum AnyOrder {
 
 ### `UserOpenLimitOrders`
 
-Tracks a wallet's live limit orders (resting, or with fills awaiting confirmation) grouped by market pubkey and orderbook ID. Seed it with `convert_snapshot_orders(snapshot.orders)`, then apply every live `order` fact: each fact carries the complete order state, so application is a revision-guarded replace.
+Tracks a wallet's live limit orders (resting, or with fills awaiting confirmation) grouped by market pubkey and orderbook ID. Seed it with `convert_snapshot_orders(snapshot.orders)`, then apply every live `order` fact: each fact carries the complete order state, so application is a revision-guarded replace. The tracker remembers the revision at which each order stopped being live, and every applied closure, so older state (a REST page or snapshot racing live facts) cannot reopen a closed order.
 
 | Method | Description |
 |--------|-------------|
@@ -516,8 +516,8 @@ Tracks a wallet's live limit orders (resting, or with fills awaiting confirmatio
 | `apply_order(limit_order)` | Same for converted snapshot or REST orders |
 | `apply_closure(&closure_update)` | Close orders in scope up to the cutoff; `None` when the scope needs a refetch |
 | `upsert(&order_update)` | Alias of `apply` |
-| `remove(order_hash)` | Remove an order |
-| `clear()` | Remove all tracked orders |
+| `remove(order_hash)` | Stop tracking an order; older state can add it again |
+| `clear()` | Forget all orders, retired revisions, and closures (before reseeding) |
 
 ### `UserTriggerOrders`
 

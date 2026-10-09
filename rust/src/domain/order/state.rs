@@ -32,16 +32,24 @@ pub enum ApplyOutcome {
 /// Seed it from the WS `user` snapshot ([`convert_snapshot_orders`](super::convert_snapshot_orders))
 /// or REST pages, then [`apply`](Self::apply) every live `order` fact. Each
 /// fact carries the order's complete state, so application is a
-/// revision-guarded replace.
+/// revision-guarded replace. The container remembers the revision at which
+/// each order stopped being live, and every applied closure, so older state
+/// (a REST page or snapshot racing live facts) cannot reopen a closed order.
 #[derive(Debug, Clone)]
 pub struct UserOpenLimitOrders {
     pub orders: HashMap<PubkeyStr, HashMap<OrderBookId, Vec<LimitOrder>>>,
+    /// Committed revision at which each untracked order stopped being live.
+    retired: HashMap<String, u64>,
+    /// Applied closures, re-applied to older state inserted later.
+    closures: Vec<(ClosureScope, wire::ClosureUpdate)>,
 }
 
 impl UserOpenLimitOrders {
     pub fn new() -> Self {
         Self {
             orders: HashMap::new(),
+            retired: HashMap::new(),
+            closures: Vec::new(),
         }
     }
 
@@ -81,22 +89,37 @@ impl UserOpenLimitOrders {
 
     /// Apply converted committed order state (live fact, snapshot, or REST).
     ///
-    /// State older than the tracked `committed_revision` is ignored. A live
-    /// order replaces the tracked copy; one that is no longer live is removed.
-    pub fn apply_order(&mut self, order: LimitOrder) -> ApplyOutcome {
+    /// State older than the tracked `committed_revision`, or not newer than
+    /// the revision at which the order stopped being live, is ignored. A
+    /// closure committed after the state still closes it. A live order
+    /// replaces the tracked copy; one that is no longer live is removed.
+    pub fn apply_order(&mut self, mut order: LimitOrder) -> ApplyOutcome {
         if let Some(existing) = self.get_by_hash(&order.order_hash) {
             if order.committed_revision < existing.committed_revision {
                 return ApplyOutcome::Stale;
             }
+        } else if self
+            .retired
+            .get(&order.order_hash)
+            .is_some_and(|&revision| order.committed_revision <= revision)
+        {
+            return ApplyOutcome::Stale;
+        }
+        for (scope, closure) in &self.closures {
+            if closure.commit.committed_revision > order.committed_revision {
+                close_covered(&mut order, closure, *scope);
+            }
         }
         let was_tracked = self.take(&order.order_hash).is_some();
         if !order.is_live() {
+            retire(&mut self.retired, &order);
             return if was_tracked {
                 ApplyOutcome::Removed
             } else {
                 ApplyOutcome::Ignored
             };
         }
+        self.retired.remove(&order.order_hash);
         self.orders
             .entry(order.market_pubkey.clone())
             .or_default()
@@ -127,41 +150,29 @@ impl UserOpenLimitOrders {
         ) {
             return None;
         }
-        let key = closure.scope_key.as_str();
-        let in_scope = |order: &LimitOrder| match scope {
-            ClosureScope::Market => order.market_pubkey.as_str() == key,
-            ClosureScope::Book => order.orderbook_id.as_str() == key,
-            ClosureScope::WalletBook => key
-                .split_once(':')
-                .is_some_and(|(_, book)| order.orderbook_id.as_str() == book),
-            _ => true,
-        };
-        let cutoff = closure.accepted_seq;
         let mut closed = 0;
         for by_orderbook in self.orders.values_mut() {
             for orders in by_orderbook.values_mut() {
                 for order in orders.iter_mut() {
-                    let covered = i64::try_from(order.accepted_seq).is_ok_and(|seq| seq <= cutoff);
-                    if covered && in_scope(order) && order.remaining_size > Decimal::ZERO {
-                        order.cancelled_size += order.remaining_size;
-                        order.remaining_size = Decimal::ZERO;
-                        order
-                            .closed_reason
-                            .get_or_insert_with(|| closure.reason.clone());
-                        order.status = OrderStatus::Closed;
-                        // Older order facts must not reopen the closed order.
-                        order.committed_revision = order
-                            .committed_revision
-                            .max(closure.commit.committed_revision);
+                    if close_covered(order, closure, scope) {
                         closed += 1;
                     }
                 }
-                orders.retain(LimitOrder::is_live);
+                orders.retain(|order| {
+                    let live = order.is_live();
+                    if !live {
+                        retire(&mut self.retired, order);
+                    }
+                    live
+                });
             }
         }
+        self.closures.push((scope, closure.clone()));
         Some(closed)
     }
 
+    /// Stop tracking an order without recording why; older state can add it
+    /// again.
     pub fn remove(&mut self, order_hash: &str) {
         self.take(order_hash);
     }
@@ -180,8 +191,12 @@ impl UserOpenLimitOrders {
         None
     }
 
+    /// Forget every order, retired revision, and closure (e.g. before
+    /// reseeding from a new snapshot).
     pub fn clear(&mut self) {
         self.orders.clear();
+        self.retired.clear();
+        self.closures.clear();
     }
 
     pub fn is_empty(&self) -> bool {
@@ -189,6 +204,45 @@ impl UserOpenLimitOrders {
             .values()
             .all(|by_orderbook| by_orderbook.values().all(|orders| orders.is_empty()))
     }
+}
+
+/// Close `order` locally when `closure` covers it: in scope, accepted at or
+/// before the cutoff, and still resting. Returns whether it was closed.
+fn close_covered(
+    order: &mut LimitOrder,
+    closure: &wire::ClosureUpdate,
+    scope: ClosureScope,
+) -> bool {
+    let key = closure.scope_key.as_str();
+    let in_scope = match scope {
+        ClosureScope::Market => order.market_pubkey.as_str() == key,
+        ClosureScope::Book => order.orderbook_id.as_str() == key,
+        ClosureScope::WalletBook => key
+            .split_once(':')
+            .is_some_and(|(_, book)| order.orderbook_id.as_str() == book),
+        _ => true,
+    };
+    let covered = i64::try_from(order.accepted_seq).is_ok_and(|seq| seq <= closure.accepted_seq);
+    if !(covered && in_scope && order.remaining_size > Decimal::ZERO) {
+        return false;
+    }
+    order.cancelled_size += order.remaining_size;
+    order.remaining_size = Decimal::ZERO;
+    order
+        .closed_reason
+        .get_or_insert_with(|| closure.reason.clone());
+    order.status = OrderStatus::Closed;
+    // Older order facts must not reopen the closed order.
+    order.committed_revision = order
+        .committed_revision
+        .max(closure.commit.committed_revision);
+    true
+}
+
+/// Record the revision at which `order` stopped being live.
+fn retire(retired: &mut HashMap<String, u64>, order: &LimitOrder) {
+    let revision = retired.entry(order.order_hash.clone()).or_default();
+    *revision = (*revision).max(order.committed_revision);
 }
 
 impl Default for UserOpenLimitOrders {
@@ -414,6 +468,99 @@ mod tests {
         assert_eq!(
             container.apply(&live_order(11, "5.00000000", "3.00000000", None)),
             ApplyOutcome::Stale
+        );
+    }
+
+    #[test]
+    fn older_state_cannot_reopen_an_order_a_closure_removed() {
+        let mut container = UserOpenLimitOrders::new();
+        container.apply(&live_order(10, "8.00000000", "0.00000000", None));
+        assert_eq!(container.apply_closure(&closure(4, "wallet", 50)), Some(1));
+        assert!(container.is_empty());
+        // A REST page or snapshot captured before the closure arrives late.
+        assert_eq!(
+            container.apply(&live_order(11, "8.00000000", "0.00000000", None)),
+            ApplyOutcome::Stale
+        );
+        assert!(container.is_empty());
+    }
+
+    #[test]
+    fn older_state_cannot_reopen_a_removed_order() {
+        let mut container = UserOpenLimitOrders::new();
+        container.apply(&live_order(10, "8.00000000", "0.00000000", None));
+        assert_eq!(
+            container.apply(&live_order(
+                12,
+                "0.00000000",
+                "0.00000000",
+                Some("cancelled")
+            )),
+            ApplyOutcome::Removed
+        );
+        assert_eq!(
+            container.apply(&live_order(11, "8.00000000", "0.00000000", None)),
+            ApplyOutcome::Stale
+        );
+        assert_eq!(
+            container.apply(&live_order(12, "8.00000000", "0.00000000", None)),
+            ApplyOutcome::Stale
+        );
+        assert!(container.is_empty());
+        // Newer committed state stays authoritative.
+        assert_eq!(
+            container.apply(&live_order(13, "8.00000000", "0.00000000", None)),
+            ApplyOutcome::Inserted
+        );
+    }
+
+    #[test]
+    fn closure_applies_to_older_state_seeded_after_it() {
+        let mut container = UserOpenLimitOrders::new();
+        assert_eq!(container.apply_closure(&closure(4, "wallet", 50)), Some(0));
+        assert_eq!(
+            container.apply(&live_order(11, "8.00000000", "0.00000000", None)),
+            ApplyOutcome::Ignored
+        );
+        assert!(container.is_empty());
+
+        // Pending fills keep the closed order visible, as with a tracked order.
+        container.clear();
+        container.apply_closure(&closure(4, "wallet", 50));
+        assert_eq!(
+            container.apply(&live_order(11, "5.00000000", "3.00000000", None)),
+            ApplyOutcome::Inserted
+        );
+        let order = tracked(&container)[0];
+        assert_eq!(order.remaining_size, Decimal::ZERO);
+        assert_eq!(order.cancelled_size, Decimal::from(5));
+        assert_eq!(order.status, OrderStatus::Closed);
+        assert_eq!(order.committed_revision, 900);
+
+        // Orders accepted after the cutoff, and newer state, are unaffected.
+        container.clear();
+        container.apply_closure(&closure(4, "wallet", 43));
+        assert_eq!(
+            container.apply(&live_order(11, "8.00000000", "0.00000000", None)),
+            ApplyOutcome::Inserted
+        );
+        container.clear();
+        container.apply_closure(&closure(4, "wallet", 50));
+        assert_eq!(
+            container.apply(&live_order(901, "8.00000000", "0.00000000", None)),
+            ApplyOutcome::Inserted
+        );
+    }
+
+    #[test]
+    fn clear_forgets_retired_orders_and_closures() {
+        let mut container = UserOpenLimitOrders::new();
+        container.apply(&live_order(10, "8.00000000", "0.00000000", None));
+        container.apply_closure(&closure(4, "wallet", 50));
+        container.clear();
+        assert_eq!(
+            container.apply(&live_order(11, "8.00000000", "0.00000000", None)),
+            ApplyOutcome::Inserted
         );
     }
 
