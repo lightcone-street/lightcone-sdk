@@ -484,6 +484,25 @@ mod tests {
             status.kind,
             Kind::WalletDepositBalances(WalletDepositBalancesEvent::Status { .. })
         ));
+
+        let unknown: MessageIn = serde_json::from_value(serde_json::json!({
+            "type": "wallet_deposit_balances",
+            "version": 0.1,
+            "data": {
+                "event_type": "wallet_deposit_balance_status",
+                "wallet_address": "WalletA",
+                "status": "throttled",
+                "code": "THROTTLED"
+            }
+        }))
+        .unwrap();
+        assert!(matches!(
+            unknown.kind,
+            Kind::WalletDepositBalances(WalletDepositBalancesEvent::Status {
+                status: crate::domain::position::WalletDepositBalanceStatus::Unknown,
+                ..
+            })
+        ));
     }
 
     #[test]

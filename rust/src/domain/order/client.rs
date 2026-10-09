@@ -181,6 +181,9 @@ pub enum SubmitOrderStatus {
     AcceptedPending,
     /// The whole original base is confirmed filled.
     Filled,
+    /// An accepted status this SDK version does not know.
+    #[serde(other)]
+    Unknown,
 }
 
 /// An authenticated fill captured with a submission response.
@@ -262,6 +265,9 @@ pub enum CancelStatus {
     AlreadyClosed,
     /// The order was already completely filled.
     AlreadyFilled,
+    /// A disposition this SDK version does not know.
+    #[serde(other)]
+    Unknown,
 }
 
 /// Cancellation quantities in raw base-token atoms (`quantity_unit` is

@@ -46,8 +46,8 @@ A limit order's committed state, built from the WS `user` snapshot, live `order`
 | `pending_size` | `Decimal` | Base matched but awaiting on-chain confirmation |
 | `remaining_size` | `Decimal` | Base still resting on the book |
 | `cancelled_size` | `Decimal` | Base cancelled (explicitly, by expiry, IOC/FOK remainder, or closure) |
-| `time_in_force` | `TimeInForce` | `Gtc`, `Ioc`, or `Fok` |
-| `funding_source` | `FundingSource` | `Global` or `Conditional` custody account |
+| `time_in_force` | `Option<TimeInForce>` | `Gtc`, `Ioc`, or `Fok`; `None` when the backend reports a policy this SDK version does not know |
+| `funding_source` | `FundingSource` | `Global` or `Conditional` custody account (`Unknown` for a source this SDK version does not know) |
 | `closed_reason` | `Option<String>` | Why the order stopped resting |
 | `status` | `OrderStatus` | Derived committed status |
 | `accepted_seq` | `u64` | Engine acceptance sequence (closure cutoffs compare against it) |
@@ -86,6 +86,7 @@ Serialized lowercase, as in `GET /api/users/order-fills`. `OrderStatus::derive` 
 | `Pending` | Some matched base awaits on-chain confirmation |
 | `Filled` | The whole original base is confirmed filled |
 | `Closed` | Stopped resting (cancelled, expired, closure cutoff, IOC/FOK remainder) |
+| `Unknown` | A status this SDK version does not know (decoded only, never derived) |
 
 ### `OrderType`
 
@@ -138,7 +139,7 @@ An order the wallet participated in (as maker or taker) with its oldest-first pa
 |-------|------|-------------|
 | `fill_id` | `String` | `"<execution_id>:<leg_index>:<projection_generation>"` (same as REST `trade_id`) |
 | `counterparty` / `counterparty_order_hash` | | Other side of the fill |
-| `role` | `Role` | This order's role: `Maker` or `Taker` |
+| `role` | `Role` | This order's role: `Maker` or `Taker` (`Unknown` for a role this SDK version does not know) |
 | `base_amount` / `quote_amount` | `Decimal` | Filled size (base units) and notional (quote units); `price()` = quote / base |
 | `fee_estimate_atoms` | `i128` | Signed fee estimate in raw `fee_mint` atoms (negative = rebate) |
 | `fee_mint` | `PubkeyStr` | Fee token |
@@ -153,6 +154,7 @@ An order the wallet participated in (as maker or taker) with its oldest-first pa
 | `Accepted` | `"accepted"` | Accepted, no fill awaiting confirmation (IOC with no fill: `cancelled_base == original_base`) |
 | `AcceptedPending` | `"accepted_pending"` | Matched base awaits confirmation, or the committed view is not yet readable (`state`/`initial_cohort` are `None`) |
 | `Filled` | `"filled"` | The whole original base is confirmed filled |
+| `Unknown` | any other value | An accepted status this SDK version does not know; the order hash is still returned |
 
 ### `SubmitOrderResponse`
 
@@ -182,7 +184,7 @@ An order the wallet participated in (as maker or taker) with its oldest-first pa
 
 ### `CancelSuccess` / `CancelAllSuccess`
 
-`CancelSuccess` has `status` (`Cancelled`, `AlreadyClosed`, `AlreadyFilled`), `order_hash`, `quantities: Option<CancelQuantities>` (raw base atoms: `newly_cancelled_base`, `confirmed_base`, `pending_base`, `remaining_open_base`), `quantity_unit` (`"base_atoms"`), `revision`, and `closed_reason`. An unknown hash is rejected with `RejectionCode::OrderNotFound`.
+`CancelSuccess` has `status` (`Cancelled`, `AlreadyClosed`, `AlreadyFilled`, or `Unknown` for a disposition this SDK version does not know), `order_hash`, `quantities: Option<CancelQuantities>` (raw base atoms: `newly_cancelled_base`, `confirmed_base`, `pending_base`, `remaining_open_base`), `quantity_unit` (`"base_atoms"`), `revision`, and `closed_reason`. An unknown hash is rejected with `RejectionCode::OrderNotFound`.
 
 `CancelAllSuccess` has `status`, `user_pubkey`, `orderbook_id`, `message`, and `closure: Option<ClosureAck>` (`operation_id`, `committed_revision`, `scope` — `"Wallet:<w>"` or `"WalletBook:<w>:<book>"` — `accepted_seq_cutoff`, `cleanup_pending`). It commits an accepted-order cutoff; per-order facts follow on the WS `user` channel.
 
@@ -677,7 +679,7 @@ async fn show_fill_history(
 
 ## Wire Types
 
-Raw types in `lightcone::domain::order::wire` include `OrderState`, `RecordedOrderState`, `InitialCohort`, `UserOrder`, `UserOrderFillsResponse`, `UserOrderFill`, `OrderFillEvent`, `Role`, and the WS `user` channel types `UserUpdate`, `UserSnapshot`, `UserSnapshotOrder`, `OrderUpdate`, `ClosureUpdate`, `RecoveryCompleted`, `NotificationUpdate`, `CommitInfo`, and `AuthUpdate`. Funding types (`FundingAccount`, `FundingUpdate`, `FundingSource`) live in `lightcone::domain::position::wire`. Integer revisions and sequences accept both the string (REST/snapshot) and number (live fact) encodings.
+Raw types in `lightcone::domain::order::wire` include `OrderState`, `RecordedOrderState`, `InitialCohort`, `UserOrder`, `UserOrderFillsResponse`, `UserOrderFill`, `OrderFillEvent`, `Role`, and the WS `user` channel types `UserUpdate`, `UserSnapshot`, `UserSnapshotOrder`, `OrderUpdate`, `ClosureUpdate`, `RecoveryCompleted`, `NotificationUpdate`, `CommitInfo`, and `AuthUpdate`. Funding types (`FundingAccount`, `FundingUpdate`, `FundingSource`) live in `lightcone::domain::position::wire`. Integer revisions and sequences accept both the string (REST/snapshot) and number (live fact) encodings. Response enums decode a value this SDK version does not know as `Unknown` (`UserOrder.tif` as `None`), so a new backend value never fails the surrounding page.
 
 ---
 

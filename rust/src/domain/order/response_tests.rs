@@ -50,7 +50,26 @@ fn submit_statuses_decode() {
         let decoded: SubmitOrderStatus = serde_json::from_value(json!(wire)).unwrap();
         assert_eq!(decoded, status);
     }
-    assert!(serde_json::from_value::<SubmitOrderStatus>(json!("partial_fill")).is_err());
+    // Retired or future statuses must not hide the accepted order hash.
+    assert_eq!(
+        serde_json::from_value::<SubmitOrderStatus>(json!("partial_fill")).unwrap(),
+        SubmitOrderStatus::Unknown
+    );
+    let response: SubmitOrderResponse = body(json!({
+        "status": "success",
+        "body": {
+            "order_hash": HASH,
+            "status": "accepted_partial",
+            "state": null,
+            "initial_cohort": null,
+            "fills": [],
+            "fills_complete": true,
+            "fills_next_cursor": null
+        }
+    }))
+    .unwrap();
+    assert_eq!(response.order_hash, HASH);
+    assert_eq!(response.status, SubmitOrderStatus::Unknown);
 }
 
 #[test]
@@ -115,6 +134,11 @@ fn cancel_response_decodes_raw_base_atoms() {
     assert_eq!(already.status, CancelStatus::AlreadyClosed);
     assert_eq!(already.quantities, None);
     assert_eq!(already.closed_reason.as_deref(), Some("expired"));
+
+    assert_eq!(
+        serde_json::from_value::<CancelStatus>(json!("superseded")).unwrap(),
+        CancelStatus::Unknown
+    );
 }
 
 #[test]

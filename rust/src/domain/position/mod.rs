@@ -201,6 +201,9 @@ pub enum WalletDepositBalanceStatus {
     Reconnecting,
     /// Balances remain usable, but token metadata could not be refreshed.
     MetadataUnavailable,
+    /// A status this SDK version does not know; balances are unchanged.
+    #[serde(other)]
+    Unknown,
 }
 
 /// Nested payload carried by the authenticated `wallet_deposit_balances` channel.

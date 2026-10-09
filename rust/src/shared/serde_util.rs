@@ -292,6 +292,24 @@ where
         .map(T::from))
 }
 
+/// Deserializes a string enum, mapping `null`, an omitted field (with
+/// `#[serde(default)]`), or a value this SDK version does not know (such as
+/// the backend's `"unsupported"`) to `None`.
+pub fn known_or_none<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    use serde::de::IntoDeserializer;
+    Ok(
+        Option::<String>::deserialize(deserializer)?.and_then(|raw| {
+            let raw: serde::de::value::StringDeserializer<serde::de::value::Error> =
+                raw.into_deserializer();
+            T::deserialize(raw).ok()
+        }),
+    )
+}
+
 #[cfg(test)]
 mod committed_encoding_tests {
     use super::*;

@@ -140,7 +140,10 @@ pub struct UserOrder {
     /// Recorded quantities; `None` if the engine omitted them.
     #[serde(default)]
     pub state: Option<RecordedOrderState>,
-    pub tif: TimeInForce,
+    /// `None` when the backend reports a policy this SDK version does not
+    /// know (it sends `"unsupported"`).
+    #[serde(default, deserialize_with = "serde_util::known_or_none")]
+    pub tif: Option<TimeInForce>,
     /// Custody source that funds the order.
     pub source: FundingSource,
     /// Always `"limit"`.
@@ -238,6 +241,9 @@ impl OrderFillEvent {
 pub enum Role {
     Maker,
     Taker,
+    /// A role this SDK version does not know.
+    #[serde(other)]
+    Unknown,
 }
 
 // ─── WS user channel ─────────────────────────────────────────────────────────
@@ -828,9 +834,8 @@ pub(crate) mod tests {
         assert_eq!(fill.price(), Some(Decimal::new(55, 2)));
     }
 
-    #[test]
-    fn rest_user_order_decodes_recorded_state() {
-        let order: UserOrder = serde_json::from_value(serde_json::json!({
+    fn rest_user_order_json() -> serde_json::Value {
+        serde_json::json!({
             "order_hash": HASH,
             "market_pubkey": "A9Bxkkc4nah517EjgjwSafwspGnmU9s1Ei5PTo5ZkJd9",
             "orderbook_id": "j749bQAbDsBAiyDs2Tj868heQj1b5KVp98ZrjiZd56a",
@@ -856,13 +861,42 @@ pub(crate) mod tests {
             "tif": "FOK",
             "source": "global",
             "order_type": "limit"
-        }))
-        .unwrap();
+        })
+    }
+
+    #[test]
+    fn rest_user_order_decodes_recorded_state() {
+        let order: UserOrder = serde_json::from_value(rest_user_order_json()).unwrap();
         let state = order.state.unwrap();
         assert_eq!(state.pending_base, Decimal::from(20));
         assert_eq!(state.committed_revision, 7);
-        assert_eq!(order.tif, TimeInForce::Fok);
+        assert_eq!(order.tif, Some(TimeInForce::Fok));
         assert_eq!(order.source, FundingSource::Global);
         assert_eq!(order.outcome_index, -1);
+    }
+
+    #[test]
+    fn unknown_wire_values_do_not_fail_the_surrounding_payload() {
+        let mut value = rest_user_order_json();
+        value["tif"] = "unsupported".into();
+        value["source"] = "vault".into();
+        let order: UserOrder = serde_json::from_value(value).unwrap();
+        assert_eq!(order.tif, None);
+        assert_eq!(order.source, FundingSource::Unknown);
+        assert_eq!(order.into_limit_order().unwrap().time_in_force, None);
+
+        let mut value = rest_user_order_json();
+        value.as_object_mut().unwrap().remove("tif");
+        let order: UserOrder = serde_json::from_value(value).unwrap();
+        assert_eq!(order.tif, None);
+
+        assert_eq!(
+            serde_json::from_value::<Role>(serde_json::json!("arbiter")).unwrap(),
+            Role::Unknown
+        );
+        assert_eq!(
+            serde_json::from_value::<OrderStatus>(serde_json::json!("settling")).unwrap(),
+            OrderStatus::Unknown
+        );
     }
 }

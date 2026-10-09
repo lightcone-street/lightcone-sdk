@@ -18,6 +18,9 @@ pub enum FundingSource {
     Global,
     /// A conditional-token account of one market position.
     Conditional,
+    /// A source this SDK version does not know.
+    #[serde(other)]
+    Unknown,
 }
 
 /// Evidence state of the last custody observation for a funding account.

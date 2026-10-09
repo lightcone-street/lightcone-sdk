@@ -129,6 +129,9 @@ pub enum OrderStatus {
     /// Stopped resting (cancelled, expired, closure cutoff, or remainder of
     /// an IOC/FOK order); see the closed reason.
     Closed,
+    /// A status this SDK version does not know (decoded only, never derived).
+    #[serde(other)]
+    Unknown,
 }
 
 impl OrderStatus {
@@ -175,7 +178,9 @@ pub struct LimitOrder {
     pub remaining_size: Decimal,
     /// Base cancelled (explicitly, by expiry, IOC/FOK remainder, or closure).
     pub cancelled_size: Decimal,
-    pub time_in_force: TimeInForce,
+    /// `None` when the backend reported a policy this SDK version does not
+    /// know.
+    pub time_in_force: Option<TimeInForce>,
     pub funding_source: FundingSource,
     pub closed_reason: Option<String>,
     pub status: OrderStatus,
