@@ -28,7 +28,6 @@ async function main() {
     }
     console.log("orderbook: not found on-chain");
   }
-  const nonce = await client.orders().currentNonce(keypair.publicKey);
   const position = await client.positions().getOnchain(keypair.publicKey, marketPubkey);
   const dMint = quoteDepositMint(orderbook);
 
@@ -43,7 +42,6 @@ async function main() {
       `orderbook: deposit_mint_a=${onchainOrderbook.depositMintA.toBase58()} deposit_mint_b=${onchainOrderbook.depositMintB.toBase58()} outcome_index=${onchainOrderbook.outcomeIndex} base_index=${onchainOrderbook.baseIndex} bump=${onchainOrderbook.bump}`
     );
   }
-  console.log(`user nonce: ${nonce}`);
   console.log(`position exists: ${position !== null}`);
 
   const rpc = client.rpc();

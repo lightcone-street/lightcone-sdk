@@ -52,7 +52,6 @@ export const INSTRUCTION = {
   MINT_COMPLETE_SET: 3,
   MERGE_COMPLETE_SET: 4,
   CANCEL_ORDER: 5,
-  INCREMENT_NONCE: 6,
   SETTLE_MARKET: 7,
   REDEEM_WINNINGS: 8,
   SET_PAUSED: 9,
@@ -97,7 +96,6 @@ export const DISCRIMINATOR = {
   EXCHANGE: Buffer.from([0x1e, 0xc8, 0xdc, 0x95, 0x03, 0x3d, 0x68, 0x32]),
   MARKET: Buffer.from([0xdb, 0xbe, 0xd5, 0x37, 0x00, 0xe3, 0xc6, 0x9a]),
   ORDER_STATUS: Buffer.from([0x2e, 0x5a, 0xf1, 0x49, 0xb2, 0x68, 0x41, 0x03]),
-  USER_NONCE: Buffer.from([0xeb, 0x85, 0x01, 0xf3, 0x12, 0x87, 0x58, 0xe0]),
   POSITION: Buffer.from([0xaa, 0xbc, 0x8f, 0xe4, 0x7a, 0x40, 0xf7, 0xd0]),
   ORDERBOOK: Buffer.from([0x2b, 0x22, 0x19, 0x71, 0xc3, 0x45, 0x48, 0x07]),
   GLOBAL_DEPOSIT_TOKEN: Buffer.from([0x25, 0xbe, 0xa1, 0xe8, 0x7b, 0x92, 0x2a, 0x57]),
@@ -110,18 +108,24 @@ export const ACCOUNT_SIZE = {
   EXCHANGE: 216,
   MARKET: 216,
   ORDER_STATUS: 32,
-  USER_NONCE: 16,
   POSITION: 80,
   ORDERBOOK: 176,
   GLOBAL_DEPOSIT_TOKEN: 47,
 } as const;
 
 /**
- * Order sizes in bytes
+ * Order sizes in bytes.
+ *
+ * `PREIMAGE` is the signed-order preimage: salt, maker, market, base mint,
+ * quote mint, side, amount in, amount out, expiration. Its Keccak-256 hash is
+ * the order hash and the order-status PDA seed. A signed order is the
+ * preimage followed by the signature; the compact order carries only the
+ * salt, side, amounts, and expiration.
  */
 export const ORDER_SIZE = {
-  SIGNED_ORDER: 233,
-  ORDER: 37,
+  PREIMAGE: 161,
+  SIGNED_ORDER: 225,
+  ORDER: 33,
   SIGNATURE: 64,
 } as const;
 
@@ -169,11 +173,9 @@ export const SEEDS = {
   CONDITIONAL_MINT: "conditional_mint",
   CONDITION: "condition",
   ORDER_STATUS: "order_status",
-  USER_NONCE: "user_nonce",
   POSITION: "position",
   ORDERBOOK: "orderbook",
   GLOBAL_DEPOSIT: "global_deposit",
-  FEE_RECEIVER: "fee_receiver",
   MPL_METADATA: "metadata",
   /**
    * Event-authority PDA seed. The program signs its event-batch self-CPI with

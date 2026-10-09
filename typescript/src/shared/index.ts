@@ -48,13 +48,12 @@ export {
 export { parseJsonExact, stringifyJsonExact } from "./json";
 
 export {
-  assertSignedRange,
   exactScaledInteger,
   I64_MAX,
   PRICE_SCALE,
   scalePriceSize,
   ScalingError,
-  U32_MAX,
+  U64_MAX,
   validateRawAmounts,
   validateSignedFields,
   type OrderbookRules,

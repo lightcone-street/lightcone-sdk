@@ -28,7 +28,6 @@ import {
   buildDepositAndSwapIx,
   buildDepositToGlobalIx,
   buildGlobalToMarketDepositIx,
-  buildIncrementNonceIx,
   buildInitPositionTokensIx,
   buildInitializeIx,
   buildMatchOrdersMultiIx,
@@ -67,7 +66,6 @@ import {
   getOrderStatusPda,
   getOrderbookPda,
   getPositionPda,
-  getUserNoncePda,
   getVaultPda,
   hashOrder,
   scalarToPayoutNumerators,
@@ -84,7 +82,6 @@ function pubkey(fill: number): PublicKey {
 
 function order(seed: number, market = pubkey(30), baseMint = pubkey(40), quoteMint = pubkey(50)): SignedOrder {
   return {
-    nonce: seed,
     salt: BigInt(seed + 1),
     maker: pubkey(seed + 10),
     market,
@@ -280,19 +277,6 @@ describe("program authority/account alignment", () => {
     assert.equal(ix.keys[7]!.pubkey.toBase58(), mintAuthority.toBase58());
     assert.equal(ix.keys[7]!.isWritable, false);
     assert.equal(ix.data[0], INSTRUCTION.MINT_COMPLETE_SET);
-  });
-
-  it("builds incrementNonce with exchange pause-validation account", () => {
-    const programId = pubkey(105);
-    const user = pubkey(1);
-    const [exchange] = getExchangePda(programId);
-
-    const ix = buildIncrementNonceIx(user, programId);
-
-    assert.equal(ix.keys.length, 6);
-    assert.equal(ix.keys[3]!.pubkey.toBase58(), exchange.toBase58());
-    assert.equal(ix.keys[3]!.isWritable, false);
-    assert.equal(ix.data[0], INSTRUCTION.INCREMENT_NONCE);
   });
 
   it("builds setManager as authority-only role rotation", () => {
@@ -572,7 +556,9 @@ describe("program authority/account alignment", () => {
     assert.equal(ix.keys[1]!.pubkey.toBase58(), exchange.toBase58());
     assert.equal(ix.keys[2]!.pubkey.toBase58(), market.toBase58());
     assert.equal(ix.keys[3]!.pubkey.toBase58(), orderStatus.toBase58());
-    assert.equal(ix.data.length, 266);
+    // Discriminator, 32-byte order hash, 225-byte signed order.
+    assert.equal(ix.data.length, 258);
+    assert.deepEqual(ix.data.subarray(1, 33), hashOrder(signedOrder));
   });
 
   it("canonicalizes createOrderbook account order while preserving supplied base side", () => {
@@ -632,12 +618,13 @@ describe("program authority/account alignment", () => {
 
     assert.equal(ix.keys[3]!.pubkey.toBase58(), orderbook.toBase58());
     assert.equal(
-      ix.keys[15]!.pubkey.toBase58(),
+      ix.keys[14]!.pubkey.toBase58(),
       getConditionalTokenAta(quoteMint, pubkey(6)).toBase58()
     );
-    assert.equal(ix.keys[16]!.pubkey.toBase58(), pubkey(6).toBase58());
-    assert.equal(ix.keys[17]!.pubkey.toBase58(), ASSOCIATED_TOKEN_PROGRAM_ID.toBase58());
-    assert.equal(ix.data.length, 222);
+    assert.equal(ix.keys[15]!.pubkey.toBase58(), pubkey(6).toBase58());
+    assert.equal(ix.keys[16]!.pubkey.toBase58(), ASSOCIATED_TOKEN_PROGRAM_ID.toBase58());
+    // 101 header bytes plus one 113-byte maker record.
+    assert.equal(ix.data.length, 214);
   });
 
   it("builds depositToGlobal with exactly eight business accounts and an integer amount", () => {
@@ -999,7 +986,14 @@ describe("program authority/account alignment", () => {
     const [eventAuthority] = getEventAuthorityPda(programId);
     const builders = allPublicBuilders(programId);
 
-    assert.equal(builders.length, 37, "register new builders in allPublicBuilders");
+    assert.equal(builders.length, 36, "register new builders in allPublicBuilders");
+
+    // Discriminator 6 (the retired IncrementNonce) is not a public instruction.
+    const actualIds = [...new Set(builders.map(([, ix]) => ix.data[0]!))].sort((a, b) => a - b);
+    const expectedIds = Array.from({ length: 39 }, (_, id) => id).filter(
+      (id) => ![6, 21, 23, 26, 34].includes(id)
+    );
+    assert.deepEqual(actualIds, expectedIds);
 
     for (const [name, ix] of builders) {
       assert.equal(ix.programId.toBase58(), programId.toBase58(), name);
@@ -1077,7 +1071,6 @@ function allPublicBuilders(programId: PublicKey): Array<[string, TransactionInst
     ["mintCompleteSet", buildDepositIx({ user: signer, market, depositMint, amount: 1n }, 2, programId)],
     ["mergeCompleteSet", buildMergeIx({ user: signer, market, depositMint, amount: 1n }, 2, programId)],
     ["cancelOrder", buildCancelOrderIx(signer, market, takerOrder, programId)],
-    ["incrementNonce", buildIncrementNonceIx(signer, programId)],
     ["settleMarket", buildSettleMarketIx({ oracle: signer, marketId: 0n, payoutNumerators: [1, 0] }, programId)],
     ["redeemWinnings", buildRedeemWinningsIx({ user: signer, market, depositMint, amount: 1n }, 0, programId)],
     ["setPaused", buildSetPausedIx(signer, true, programId)],

@@ -17,7 +17,6 @@ import type { DepositSource, SubmitOrderRequest } from "../shared";
  * @example
  * ```typescript
  * const order = new OrderBuilder()
- *   .nonce(1)
  *   .maker(makerPubkey)
  *   .market(marketPubkey)
  *   .baseMint(baseMintPubkey)
@@ -30,7 +29,6 @@ import type { DepositSource, SubmitOrderRequest } from "../shared";
  * ```
  */
 export class OrderBuilder {
-  private _nonce: number = 0;
   private _salt: bigint | null = null;
   private _maker: PublicKey | null = null;
   private _market: PublicKey | null = null;
@@ -43,13 +41,11 @@ export class OrderBuilder {
   private _depositSource?: DepositSource;
   private _rules?: OrderbookRules;
 
-  /** Set the order nonce (u32) */
-  nonce(value: number): this {
-    this._nonce = value;
-    return this;
-  }
-
-  /** Set the order salt (u64) for uniqueness. Auto-generated if not set. */
+  /**
+   * Set the order's identity salt (any u64). When omitted, the first
+   * `build()` draws one and every later build reuses it, so `build()` and
+   * `buildAndSign()` describe the same order.
+   */
   salt(value: bigint): this {
     this._salt = value;
     return this;
@@ -170,11 +166,11 @@ export class OrderBuilder {
 
     const resolvedRules = rules ?? this._rules;
     if (!resolvedRules) throw ProgramSdkError.missingField("trading_rules");
-    const salt = this._salt ?? generateSalt();
+    validateSignedFields(this._amountIn, this._amountOut);
     validateRawAmounts(this._amountIn, this._amountOut, this._side, resolvedRules);
-    validateSignedFields(this._amountIn, this._amountOut, salt, this._nonce);
+    const salt = this._salt ?? generateSalt();
+    this._salt = salt;
     return {
-      nonce: this._nonce,
       salt,
       maker: this._maker,
       market: this._market,
@@ -197,7 +193,6 @@ export class OrderBuilder {
     const unsigned = this.build(resolvedRules);
     return signOrderFull(
       {
-        nonce: unsigned.nonce,
         salt: unsigned.salt,
         maker: unsigned.maker,
         market: unsigned.market,

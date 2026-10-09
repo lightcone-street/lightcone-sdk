@@ -171,20 +171,6 @@ export function getOrderStatusPda(
 }
 
 /**
- * Derive User Nonce PDA
- * Seeds: ["user_nonce", user (32 bytes)]
- */
-export function getUserNoncePda(
-  user: PublicKey,
-  programId: PublicKey = PROGRAM_ID
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from(SEEDS.USER_NONCE), user.toBuffer()],
-    programId
-  );
-}
-
-/**
  * Derive Position PDA
  * Seeds: ["position", owner (32 bytes), market (32 bytes)]
  */
@@ -274,7 +260,6 @@ export const pda = {
   getAllConditionalMintPdas,
   getMplMetadataPda,
   getOrderStatusPda,
-  getUserNoncePda,
   getPositionPda,
   canonicalMintPair,
   getOrderbookPda,

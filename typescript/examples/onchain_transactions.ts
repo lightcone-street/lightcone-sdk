@@ -41,7 +41,6 @@ async function main() {
         .amount(1_000_000n)
         .buildTx(context),
     ],
-    ["increment_nonce", client.orders().incrementNonceTx(keypair.publicKey, context)],
   ];
 
   for (const [name, tx] of transactions) {

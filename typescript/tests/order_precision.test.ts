@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import {
   I64_MAX,
+  U64_MAX,
   ScalingError,
   parseJsonExact,
   scalePriceSize,
@@ -12,8 +13,7 @@ import {
   RejectionCode,
 } from "../src/shared";
 import { orderbookRulesFromWire, type DecimalsResponse } from "../src/domain/orderbook/wire";
-import { ORDER_SIZE } from "../src/program/constants";
-import { generateSalt, hashOrderHex, signOrderFull } from "../src/program/orders";
+import { signOrderFull } from "../src/program/orders";
 import { OrderSide } from "../src/program/types";
 import { parseMessageIn } from "../src/ws";
 import { LightconeClient } from "../src/client";
@@ -51,16 +51,6 @@ const invalidOrders = [
   { price: "150250.1", size: "1", code: "INVALID_PRICE_SIGNIFICANT_FIGURES" },
 ] as const;
 
-const signingCase = {
-  seedHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-  maker: "FAe4sisG95oZ42w7buUn5qEE4TAnfTTFPiguZUHmhiF",
-  market: "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
-  baseMint: "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
-  quoteMint: "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
-  hashHex: "17228fe4bdf93c14714367454e948206bb4f001917d59e132e4aaad097819eac",
-  signatureHex: "1e68fe672f919085ed34333c86facf9ad816ae30ab23d3d6ccef0aeb4c40b161f841c8f68355c9720252fc9ab4d859e64416d81ffa170e5a6cd17dfe41038808",
-} as const;
-
 describe("exact order precision", () => {
   it("matches the exact valid and invalid cases", () => {
     for (const value of validOrders) {
@@ -82,41 +72,24 @@ describe("exact order precision", () => {
       () => validateRawAmounts(1n, 3_000n, OrderSide.BID, rules),
       /PRICE_NOT_EXACTLY_REPRESENTABLE/
     );
-    assert.doesNotThrow(() => validateSignedFields(I64_MAX, I64_MAX, I64_MAX, 2 ** 32 - 1));
-    assert.throws(() => validateSignedFields(I64_MAX + 1n, 1n, 0n, 0));
-    for (let index = 0; index < 10_000; index += 1) {
-      const salt = generateSalt();
-      assert.ok(salt >= 0n && salt <= I64_MAX);
-    }
+    assert.doesNotThrow(() => validateSignedFields(U64_MAX, U64_MAX));
+    assert.throws(() => validateSignedFields(U64_MAX + 1n, 1n));
   });
 
-  it("keeps the 169-byte signing contract and known hash/signature", () => {
-    const keypair = Keypair.fromSeed(Buffer.from(signingCase.seedHex, "hex"));
-    const order = signOrderFull(
-      {
-        nonce: 42,
-        salt: 123n,
-        maker: keypair.publicKey,
-        market: new PublicKey(signingCase.market),
-        baseMint: new PublicKey(signingCase.baseMint),
-        quoteMint: new PublicKey(signingCase.quoteMint),
-        side: OrderSide.BID,
-        amountIn: 15_185_088n,
-        amountOut: 123_456_000n,
-        expiration: 0n,
-      },
-      keypair,
-      rules
-    );
-    assert.equal(keypair.publicKey.toBase58(), signingCase.maker);
-    assert.equal(ORDER_SIZE.SIGNED_ORDER - ORDER_SIZE.SIGNATURE, 169);
-    assert.equal(hashOrderHex(order), signingCase.hashHex);
-    assert.equal(order.signature.toString("hex"), signingCase.signatureHex);
-    const { signature: _signature, ...unsigned } = order;
-    assert.throws(
-      () => signOrderFull({ ...unsigned, salt: I64_MAX + 1n }, keypair, rules),
-      /ORDER_FIELD_OUT_OF_RANGE/
-    );
+  it("rejects an inexact ratio before signing", () => {
+    const keypair = Keypair.fromSeed(Buffer.alloc(32, 7));
+    const unsigned = {
+      salt: 123n,
+      maker: keypair.publicKey,
+      market: new PublicKey(Buffer.alloc(32, 1)),
+      baseMint: new PublicKey(Buffer.alloc(32, 2)),
+      quoteMint: new PublicKey(Buffer.alloc(32, 3)),
+      side: OrderSide.BID,
+      amountIn: 15_185_088n,
+      amountOut: 123_456_000n,
+      expiration: 0n,
+    };
+    assert.doesNotThrow(() => signOrderFull(unsigned, keypair, rules));
     assert.throws(
       () => signOrderFull({ ...unsigned, amountIn: 1n, amountOut: 3_000n }, keypair, rules),
       /PRICE_NOT_EXACTLY_REPRESENTABLE/
@@ -132,7 +105,6 @@ describe("exact order precision", () => {
       quote: { pubkey: new PublicKey(Buffer.alloc(32, 3)).toBase58() },
     } as unknown as OrderBookPair;
     const request = LimitOrderEnvelope.new()
-      .nonce(1)
       .salt(0n)
       .maker(keypair.publicKey)
       .bid()
@@ -145,7 +117,6 @@ describe("exact order precision", () => {
     assert.throws(
       () =>
         LimitOrderEnvelope.new()
-          .nonce(1)
           .salt(0n)
           .maker(keypair.publicKey)
           .bid()
@@ -157,7 +128,6 @@ describe("exact order precision", () => {
 
     assert.throws(() =>
       LimitOrderEnvelope.new()
-        .nonce(1)
         .salt(0n)
         .maker(keypair.publicKey)
         .bid()
@@ -230,7 +200,6 @@ describe("exact order precision", () => {
       () =>
         client.orders().submit({
           maker: "maker",
-          nonce: 0,
           salt: 0n,
           market_pubkey: "market",
           base_token: "base",

@@ -89,9 +89,14 @@ export function toU16Le(value: number): Buffer {
 }
 
 /**
- * Convert a bigint to u64 little-endian buffer
+ * Convert a bigint to u64 little-endian buffer. Values outside the u64 range
+ * are rejected instead of wrapping, so an encoded order never covers a
+ * different value from the one sent in a request body.
  */
 export function toU64Le(value: bigint): Buffer {
+  if (value < 0n || value >= 1n << 64n) {
+    throw ProgramSdkError.serialization(`u64 value out of range: ${value}`);
+  }
   return toLeBytes(value, 8);
 }
 
@@ -120,6 +125,9 @@ export function toI16Le(value: number): Buffer {
  * Convert a bigint to i64 little-endian buffer (signed)
  */
 export function toI64Le(value: bigint): Buffer {
+  if (value < -(1n << 63n) || value >= 1n << 63n) {
+    throw ProgramSdkError.serialization(`i64 value out of range: ${value}`);
+  }
   // For negative values, we need to handle two's complement
   if (value < 0n) {
     // Add 2^64 to get two's complement representation

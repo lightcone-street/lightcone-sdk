@@ -154,13 +154,6 @@ export async function waitForGlobalBalance(
   );
 }
 
-export async function freshOrderNonce(
-  client: LightconeClient,
-  user: PublicKey
-): Promise<number> {
-  return client.orders().currentNonce(user);
-}
-
 export function unixTimestamp(): number {
   return Math.floor(Date.now() / 1000);
 }

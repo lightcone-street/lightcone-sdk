@@ -20,23 +20,30 @@ import {
   toU64Le,
   toI64Le,
   toU8,
-  toU32Le,
   fromLeBytes,
   fromI64Le,
   deriveConditionId,
 } from "./utils";
 import { ProgramSdkError } from "./error";
-import { I64_MAX, validateRawAmounts, validateSignedFields } from "../shared/scaling";
+import { validateRawAmounts, validateSignedFields } from "../shared/scaling";
+
+const U64_MAX = (1n << 64n) - 1n;
 
 /**
- * Generate a random salt for order uniqueness.
- * Uniform over the durable signed-64-bit persistence range.
+ * Generate a random salt for order identity.
+ *
+ * The salt is the order's only identity field, so it spans the full u64
+ * range.
  */
 export function generateSalt(): bigint {
   const buf = new Uint8Array(8);
   globalThis.crypto.getRandomValues(buf);
-  const raw = fromLeBytes(Buffer.from(buf));
-  return raw & I64_MAX;
+  return fromLeBytes(Buffer.from(buf));
+}
+
+function decodeSide(value: number): OrderSide {
+  if (value === OrderSide.BID || value === OrderSide.ASK) return value;
+  throw ProgramSdkError.invalidSide(value);
 }
 
 
@@ -45,16 +52,13 @@ export function generateSalt(): bigint {
 // ============================================================================
 
 /**
- * Hash an order using keccak256
- * Layout (169 bytes - order without signature):
- * nonce (8) || salt (8) || maker (32) || market (32) || baseMint (32) || quoteMint (32) ||
+ * Build the 161-byte signing preimage from the signed fields (integers
+ * little-endian):
+ * salt (8) || maker (32) || market (32) || baseMint (32) || quoteMint (32) ||
  * side (1) || amountIn (8) || amountOut (8) || expiration (8)
- *
- * @returns 32-byte keccak256 hash
  */
-export function hashOrder(order: SignedOrder): Buffer {
-  const data = Buffer.concat([
-    toU64Le(BigInt(order.nonce)),
+export function orderPreimage(order: SignedOrder | Omit<SignedOrder, "signature">): Buffer {
+  return Buffer.concat([
     toU64Le(order.salt),
     order.maker.toBuffer(),
     order.market.toBuffer(),
@@ -65,22 +69,31 @@ export function hashOrder(order: SignedOrder): Buffer {
     toU64Le(order.amountOut),
     toI64Le(order.expiration),
   ]);
-
-  return keccak256(data);
 }
 
 /**
- * Get the hex-encoded hash of an order
+ * Hash an order: Keccak-256 of its 161-byte preimage. This is the order ID
+ * and the order-status PDA seed.
+ *
+ * @returns 32-byte keccak256 hash
  */
-export function hashOrderHex(order: SignedOrder): string {
+export function hashOrder(order: SignedOrder | Omit<SignedOrder, "signature">): Buffer {
+  return keccak256(orderPreimage(order));
+}
+
+/**
+ * Get the hex-encoded hash of an order (lowercase, 64 characters)
+ */
+export function hashOrderHex(order: SignedOrder | Omit<SignedOrder, "signature">): string {
   return hashOrder(order).toString("hex");
 }
 
 /**
- * Get the message to sign for an order (the order hash)
+ * The bytes the maker signs: the 64 ASCII characters of the lowercase-hex
+ * order hash, not the raw 32-byte hash.
  */
-export function getOrderMessage(order: SignedOrder): Buffer {
-  return hashOrder(order);
+export function getOrderMessage(order: SignedOrder | Omit<SignedOrder, "signature">): Buffer {
+  return Buffer.from(hashOrderHex(order), "ascii");
 }
 
 // ============================================================================
@@ -97,12 +110,8 @@ export function signOrder(
   signer: Keypair,
   rules: OrderbookRules
 ): Buffer {
-  validateSignedFields(order.amountIn, order.amountOut, order.salt, order.nonce);
   validateRawAmounts(order.amountIn, order.amountOut, order.side, rules);
-  const hash = hashOrder(order);
-  const hexString = hash.toString("hex");
-  const messageBytes = Buffer.from(hexString, "ascii");
-  const signature = sign.detached(messageBytes, signer.secretKey);
+  const signature = sign.detached(getOrderMessage(order), signer.secretKey);
   return Buffer.from(signature);
 }
 
@@ -130,218 +139,108 @@ export function signOrderFull(
  * Verifies against the hex-encoded keccak hash.
  */
 export function verifyOrderSignature(order: SignedOrder): boolean {
-  const hash = hashOrder(order);
-  const hexString = hash.toString("hex");
-  const messageBytes = Buffer.from(hexString, "ascii");
   return sign.detached.verify(
-    messageBytes,
+    getOrderMessage(order),
     order.signature,
     order.maker.toBytes()
   );
 }
 
 // ============================================================================
-// SIGNED ORDER SERIALIZATION (233 bytes)
+// SIGNED ORDER SERIALIZATION (225 bytes)
 // ============================================================================
 
 /**
- * Serialize a signed order to bytes (233 bytes)
+ * Serialize a signed order to bytes (225 bytes): the 161-byte preimage
+ * followed by the signature.
  *
- * Layout:
- * [0..8]     nonce (u64)
- * [8..16]    salt (u64)
- * [16..48]   maker (Pubkey)
- * [48..80]   market (Pubkey)
- * [80..112]  baseMint (Pubkey)
- * [112..144] quoteMint (Pubkey)
- * [144]      side (u8)
- * [145..153] amountIn (u64)
- * [153..161] amountOut (u64)
- * [161..169] expiration (i64)
- * [169..233] signature (64 bytes)
+ * Layout (integers little-endian):
+ * [0..8]     salt (u64)
+ * [8..40]    maker (Pubkey)
+ * [40..72]   market (Pubkey)
+ * [72..104]  baseMint (Pubkey)
+ * [104..136] quoteMint (Pubkey)
+ * [136]      side (u8)
+ * [137..145] amountIn (u64)
+ * [145..153] amountOut (u64)
+ * [153..161] expiration (i64)
+ * [161..225] signature (64 bytes)
  */
 export function serializeSignedOrder(order: SignedOrder): Buffer {
-  const buffer = Buffer.alloc(ORDER_SIZE.SIGNED_ORDER);
-  let offset = 0;
-
-  toU64Le(BigInt(order.nonce)).copy(buffer, offset);
-  offset += 8;
-
-  toU64Le(order.salt).copy(buffer, offset);
-  offset += 8;
-
-  order.maker.toBuffer().copy(buffer, offset);
-  offset += 32;
-
-  order.market.toBuffer().copy(buffer, offset);
-  offset += 32;
-
-  order.baseMint.toBuffer().copy(buffer, offset);
-  offset += 32;
-
-  order.quoteMint.toBuffer().copy(buffer, offset);
-  offset += 32;
-
-  buffer[offset] = order.side;
-  offset += 1;
-
-  toU64Le(order.amountIn).copy(buffer, offset);
-  offset += 8;
-
-  toU64Le(order.amountOut).copy(buffer, offset);
-  offset += 8;
-
-  toI64Le(order.expiration).copy(buffer, offset);
-  offset += 8;
-
-  order.signature.copy(buffer, offset);
-
-  return buffer;
+  if (order.signature.length !== ORDER_SIZE.SIGNATURE) {
+    throw ProgramSdkError.invalidDataLength("signature", ORDER_SIZE.SIGNATURE, order.signature.length);
+  }
+  return Buffer.concat([orderPreimage(order), order.signature]);
 }
 
 /**
- * Deserialize a signed order from bytes
+ * Deserialize a signed order from exactly 225 bytes.
  */
 export function deserializeSignedOrder(data: Buffer): SignedOrder {
-  if (data.length < ORDER_SIZE.SIGNED_ORDER) {
+  if (data.length !== ORDER_SIZE.SIGNED_ORDER) {
     throw ProgramSdkError.invalidDataLength("SignedOrder", ORDER_SIZE.SIGNED_ORDER, data.length);
   }
 
-  let offset = 0;
-
-  const nonceU64 = fromLeBytes(data.subarray(offset, offset + 8));
-  if (nonceU64 > 0xFFFFFFFFn) {
-    throw ProgramSdkError.serialization(`Nonce exceeds u32 range: ${nonceU64}`);
-  }
-  const nonce = Number(nonceU64);
-  offset += 8;
-
-  const salt = fromLeBytes(data.subarray(offset, offset + 8));
-  offset += 8;
-
-  const maker = new PublicKey(data.subarray(offset, offset + 32));
-  offset += 32;
-
-  const market = new PublicKey(data.subarray(offset, offset + 32));
-  offset += 32;
-
-  const baseMint = new PublicKey(data.subarray(offset, offset + 32));
-  offset += 32;
-
-  const quoteMint = new PublicKey(data.subarray(offset, offset + 32));
-  offset += 32;
-
-  const side = data[offset] as OrderSide;
-  offset += 1;
-
-  const amountIn = fromLeBytes(data.subarray(offset, offset + 8));
-  offset += 8;
-
-  const amountOut = fromLeBytes(data.subarray(offset, offset + 8));
-  offset += 8;
-
-  const expiration = fromI64Le(data.subarray(offset, offset + 8));
-  offset += 8;
-
-  const signature = Buffer.from(data.subarray(offset, offset + 64));
-
   return {
-    nonce,
-    salt,
-    maker,
-    market,
-    baseMint,
-    quoteMint,
-    side,
-    amountIn,
-    amountOut,
-    expiration,
-    signature,
+    salt: fromLeBytes(data.subarray(0, 8)),
+    maker: new PublicKey(data.subarray(8, 40)),
+    market: new PublicKey(data.subarray(40, 72)),
+    baseMint: new PublicKey(data.subarray(72, 104)),
+    quoteMint: new PublicKey(data.subarray(104, 136)),
+    side: decodeSide(data[136]),
+    amountIn: fromLeBytes(data.subarray(137, 145)),
+    amountOut: fromLeBytes(data.subarray(145, 153)),
+    expiration: fromI64Le(data.subarray(153, 161)),
+    signature: Buffer.from(data.subarray(161, 225)),
   };
 }
 
 // ============================================================================
-// ORDER SERIALIZATION (37 bytes)
+// ORDER SERIALIZATION (33 bytes)
 // ============================================================================
 
 /**
- * Serialize a compact order to bytes (37 bytes)
+ * Serialize a compact order to bytes (33 bytes)
  *
- * Layout:
- * [0..4]    nonce (u32)
- * [4..12]   salt (u64)
- * [12]      side (u8)
- * [13..21]  amountIn (u64)
- * [21..29]  amountOut (u64)
- * [29..37]  expiration (i64)
+ * Layout (integers little-endian):
+ * [0..8]    salt (u64)
+ * [8]       side (u8)
+ * [9..17]   amountIn (u64)
+ * [17..25]  amountOut (u64)
+ * [25..33]  expiration (i64)
  */
 export function serializeOrder(order: Order): Buffer {
-  const buffer = Buffer.alloc(ORDER_SIZE.ORDER);
-  let offset = 0;
-
-  toU32Le(order.nonce).copy(buffer, offset);
-  offset += 4;
-
-  toU64Le(order.salt).copy(buffer, offset);
-  offset += 8;
-
-  buffer[offset] = order.side;
-  offset += 1;
-
-  toU64Le(order.amountIn).copy(buffer, offset);
-  offset += 8;
-
-  toU64Le(order.amountOut).copy(buffer, offset);
-  offset += 8;
-
-  toI64Le(order.expiration).copy(buffer, offset);
-
-  return buffer;
+  return Buffer.concat([
+    toU64Le(order.salt),
+    toU8(order.side),
+    toU64Le(order.amountIn),
+    toU64Le(order.amountOut),
+    toI64Le(order.expiration),
+  ]);
 }
 
 /**
- * Deserialize a compact order from bytes
+ * Deserialize a compact order from exactly 33 bytes.
  */
 export function deserializeOrder(data: Buffer): Order {
-  if (data.length < ORDER_SIZE.ORDER) {
+  if (data.length !== ORDER_SIZE.ORDER) {
     throw ProgramSdkError.invalidDataLength("Order", ORDER_SIZE.ORDER, data.length);
   }
 
-  let offset = 0;
-
-  const nonce = data.readUInt32LE(offset);
-  offset += 4;
-
-  const salt = fromLeBytes(data.subarray(offset, offset + 8));
-  offset += 8;
-
-  const side = data[offset] as OrderSide;
-  offset += 1;
-
-  const amountIn = fromLeBytes(data.subarray(offset, offset + 8));
-  offset += 8;
-
-  const amountOut = fromLeBytes(data.subarray(offset, offset + 8));
-  offset += 8;
-
-  const expiration = fromI64Le(data.subarray(offset, offset + 8));
-
   return {
-    nonce,
-    salt,
-    side,
-    amountIn,
-    amountOut,
-    expiration,
+    salt: fromLeBytes(data.subarray(0, 8)),
+    side: decodeSide(data[8]),
+    amountIn: fromLeBytes(data.subarray(9, 17)),
+    amountOut: fromLeBytes(data.subarray(17, 25)),
+    expiration: fromI64Le(data.subarray(25, 33)),
   };
 }
 
 /**
- * Convert a SignedOrder to a compact Order (drop maker)
+ * Convert a SignedOrder to a compact Order (drop maker, market, and mints)
  */
 export function signedOrderToOrder(order: SignedOrder): Order {
   return {
-    nonce: order.nonce,
     salt: order.salt,
     side: order.side,
     amountIn: order.amountIn,
@@ -363,7 +262,6 @@ export function orderToSigned(
   signature: Buffer
 ): SignedOrder {
   return {
-    nonce: order.nonce,
     salt: order.salt,
     maker,
     market,
@@ -388,7 +286,6 @@ export function createBidOrder(
   params: BidOrderParams
 ): Omit<SignedOrder, "signature"> {
   return {
-    nonce: params.nonce,
     salt: params.salt ?? generateSalt(),
     maker: params.maker,
     market: params.market,
@@ -408,7 +305,6 @@ export function createAskOrder(
   params: AskOrderParams
 ): Omit<SignedOrder, "signature"> {
   return {
-    nonce: params.nonce,
     salt: params.salt ?? generateSalt(),
     maker: params.maker,
     market: params.market,
@@ -450,7 +346,12 @@ export function createSignedAskOrder(
 // ============================================================================
 
 /**
- * Check if an order has expired
+ * Check if an order has expired at `currentTime` (Unix seconds; defaults to
+ * now).
+ *
+ * Matches the program: an order expires only when its expiration is nonzero
+ * and strictly earlier than the current time, so it is still valid during the
+ * second equal to its expiration.
  */
 export function isOrderExpired(
   order: SignedOrder | Order,
@@ -460,7 +361,7 @@ export function isOrderExpired(
     return false;
   }
   const now = currentTime ?? BigInt(Math.floor(Date.now() / 1000));
-  return order.expiration <= now;
+  return order.expiration < now;
 }
 
 /**
@@ -490,7 +391,12 @@ export function ordersCanCross(
 }
 
 /**
- * Calculate the fill amounts for a trade
+ * Calculate the minimum taker fill for a maker fill, in raw atoms.
+ *
+ * `makerFillAmount` is what the maker gives, in atoms of the maker's given
+ * mint. The result is the least the taker must give the maker, in atoms of
+ * the maker's received mint, rounded up as the program requires:
+ * `takerFill >= ceil(makerFill * maker.amountOut / maker.amountIn)`.
  */
 export function calculateTakerFill(
   makerOrder: SignedOrder,
@@ -500,9 +406,10 @@ export function calculateTakerFill(
     throw ProgramSdkError.divisionByZero();
   }
 
-  const result = (makerFillAmount * makerOrder.amountOut) / makerOrder.amountIn;
+  const numerator = makerFillAmount * makerOrder.amountOut;
+  const result = (numerator + makerOrder.amountIn - 1n) / makerOrder.amountIn;
 
-  if (result > BigInt("18446744073709551615")) {
+  if (result > U64_MAX) {
     throw ProgramSdkError.overflow("Taker fill exceeds u64 max");
   }
 
@@ -536,7 +443,7 @@ export function applySignature(
   signatureBs58: string,
   rules: OrderbookRules
 ): SignedOrder {
-  validateSignedFields(order.amountIn, order.amountOut, order.salt, order.nonce);
+  validateSignedFields(order.amountIn, order.amountOut);
   validateRawAmounts(order.amountIn, order.amountOut, order.side, rules);
   const sigBytes = bs58.decode(signatureBs58);
   if (sigBytes.length !== 64) {
@@ -623,16 +530,21 @@ export interface SubmitRequestOptions {
   depositSource?: DepositSource;
 }
 
-/** Encodes an ordinary signed order without changing its exact integer fields. */
+/**
+ * Encodes a signed order as the REST submission request without changing its
+ * exact integer fields. Rejects an unsigned order.
+ */
 export function toSubmitRequest(
   order: SignedOrder,
   orderbookId: string,
   options: SubmitRequestOptions = {}
 ): SubmitOrderRequest {
-  validateSignedFields(order.amountIn, order.amountOut, order.salt, order.nonce);
+  if (!isSigned(order)) {
+    throw ProgramSdkError.unsignedOrder();
+  }
+  validateSignedFields(order.amountIn, order.amountOut);
   return {
     maker: order.maker.toBase58(),
-    nonce: order.nonce,
     salt: order.salt,
     market_pubkey: order.market.toBase58(),
     base_token: order.baseMint.toBase58(),

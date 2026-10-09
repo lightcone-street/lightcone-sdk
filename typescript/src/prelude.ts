@@ -267,8 +267,6 @@ export {
 export type {
   ExportWalletRequest,
   ExportWalletResponse,
-  PrivyOrderEnvelope,
-  SignAndSendOrderRequest,
   SignAndSendTxRequest,
   SignAndSendTxResponse,
 } from "./privy";

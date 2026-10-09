@@ -3,7 +3,8 @@ import { OrderSide } from "../program/types";
 
 export const PRICE_SCALE = 1_000_000n;
 export const I64_MAX = (1n << 63n) - 1n;
-export const U32_MAX = (1n << 32n) - 1n;
+/** Largest raw atom amount; the program and engine accept the full u64 range. */
+export const U64_MAX = (1n << 64n) - 1n;
 
 /** Immutable engine admission rules. Quantum display strings are never arithmetic inputs. */
 export interface TradingRules {
@@ -104,7 +105,7 @@ function significantDigits(value: bigint): number {
 }
 
 function validatePriceRaw(priceRaw: bigint, rules: OrderbookRules): bigint {
-  if (priceRaw <= 0n || priceRaw > I64_MAX) {
+  if (priceRaw <= 0n || priceRaw > U64_MAX) {
     throw ScalingError.code("PRICE_OUT_OF_RANGE");
   }
   const humanScale = 10n ** BigInt(rules.priceDecimals);
@@ -131,7 +132,7 @@ function validateBaseAtoms(baseAtoms: bigint, rules: OrderbookRules): bigint {
   ) {
     throw ScalingError.code("INVALID_SIZE_DECIMALS");
   }
-  assertSignedRange(baseAtoms, "base amount", false);
+  assertAtomRange(baseAtoms, "base amount");
   return baseAtoms;
 }
 
@@ -155,7 +156,7 @@ export function scalePriceSize(
     throw ScalingError.code("PRICE_NOT_EXACTLY_REPRESENTABLE");
   }
   const quoteAtoms = quoteNumerator / PRICE_SCALE;
-  assertSignedRange(quoteAtoms, "quote amount", false);
+  assertAtomRange(quoteAtoms, "quote amount");
   const [amountIn, amountOut] =
     side === OrderSide.BID
       ? [quoteAtoms, baseAtoms]
@@ -165,14 +166,19 @@ export function scalePriceSize(
   return { amountIn, amountOut, priceRaw, baseAtoms, quoteAtoms };
 }
 
+/**
+ * Preflight caller-supplied signed amounts against the same engine rules.
+ *
+ * `amountIn` and `amountOut` are raw atoms of the given and received mints.
+ * Any nonzero u64 is in range.
+ */
 export function validateRawAmounts(
   amountIn: bigint,
   amountOut: bigint,
   side: OrderSide,
   rules: OrderbookRules
 ): ScaledAmounts {
-  assertSignedRange(amountIn, "amount_in", false);
-  assertSignedRange(amountOut, "amount_out", false);
+  validateSignedFields(amountIn, amountOut);
   const [baseAtoms, quoteAtoms] =
     side === OrderSide.BID
       ? [amountOut, amountIn]
@@ -189,26 +195,19 @@ export function validateRawAmounts(
   return { amountIn, amountOut, priceRaw, baseAtoms, quoteAtoms };
 }
 
-export function assertSignedRange(
-  value: bigint,
-  field: string,
-  zeroAllowed = true
-): void {
-  if (value < 0n || value > I64_MAX || (!zeroAllowed && value === 0n)) {
+/** A nonzero raw atom amount within the u64 range. */
+function assertAtomRange(value: bigint, field: string): void {
+  if (value <= 0n || value > U64_MAX) {
     throw ScalingError.code("ORDER_FIELD_OUT_OF_RANGE", field);
   }
 }
 
-export function validateSignedFields(
-  amountIn: bigint,
-  amountOut: bigint,
-  salt: bigint,
-  nonce: number
-): void {
-  assertSignedRange(amountIn, "amount_in", false);
-  assertSignedRange(amountOut, "amount_out", false);
-  assertSignedRange(salt, "salt", true);
-  if (!Number.isSafeInteger(nonce) || nonce < 0 || BigInt(nonce) > U32_MAX) {
-    throw ScalingError.code("ORDER_FIELD_OUT_OF_RANGE", "nonce");
-  }
+/**
+ * Check the signed amount fields that the program and engine reject
+ * outright. Amounts are raw token atoms and must be nonzero; the full u64
+ * range is accepted.
+ */
+export function validateSignedFields(amountIn: bigint, amountOut: bigint): void {
+  assertAtomRange(amountIn, "amount_in");
+  assertAtomRange(amountOut, "amount_out");
 }

@@ -6,12 +6,10 @@ import { requireConnection, requireSigningStrategy } from "../../context";
 import { SdkError } from "../../error";
 import { ProgramSdkError } from "../../program/error";
 import { RetryPolicy } from "../../http";
-import { Privy } from "../../privy";
 import { isUserCancellation } from "../../shared/signing";
 import {
   buildCancelOrderIx,
   buildCloseOrderStatusIx,
-  buildIncrementNonceIx,
 } from "../../program/instructions";
 import {
   hashOrder as programHashOrder,
@@ -27,14 +25,8 @@ import {
   cancelAllMessage,
   generateCancelAllSalt as programGenerateCancelAllSalt,
 } from "../../program/orders";
-import {
-  getOrderStatusPda,
-  getUserNoncePda,
-} from "../../program/pda";
-import {
-  deserializeOrderStatus,
-  deserializeUserNonce,
-} from "../../program/accounts";
+import { getOrderStatusPda } from "../../program/pda";
+import { deserializeOrderStatus } from "../../program/accounts";
 import type {
   SignedOrder,
   CloseOrderStatusParams,
@@ -44,10 +36,7 @@ import type {
 } from "../../program/types";
 import { OrderSide } from "../../program/types";
 import {
-  asOrderBookId,
-  asPubkeyStr,
   validateRawAmounts,
-  validateSignedFields,
   type OrderBookId,
   type OrderbookRules,
   type PubkeyStr,
@@ -178,10 +167,6 @@ export class Orders {
     return getOrderStatusPda(orderHash, this.client.programId)[0];
   }
 
-  noncePda(user: PublicKey): PublicKey {
-    return getUserNoncePda(user, this.client.programId)[0];
-  }
-
   // ── Envelope factories ────────────────────────────────────────────────
 
   limitOrder(): LimitOrderEnvelope {
@@ -227,7 +212,6 @@ export class Orders {
       throw ProgramSdkError.invalidSide(request.side);
     }
     validateRawAmounts(request.amount_in, request.amount_out, request.side, rules);
-    validateSignedFields(request.amount_in, request.amount_out, request.salt, request.nonce);
   }
 
   /**
@@ -351,18 +335,10 @@ export class Orders {
         const body = cancelBodyFromBase58(orderHash, maker, sigBs58);
         return this.cancel(body);
       }
-      case "privy": {
-        const privy = new Privy(this.client);
-        const result = await privy.signAndCancelOrder(
-          strategy.walletId,
-          orderHash,
-          maker as string
+      case "privy":
+        throw SdkError.validation(
+          "Privy order signing is not supported; configure a native signer or an ExternalSigner"
         );
-        return {
-          order_hash: result.order_hash,
-          remaining: result.remaining,
-        };
-      }
     }
   }
 
@@ -410,23 +386,10 @@ export class Orders {
         );
         return this.cancelAll(body);
       }
-      case "privy": {
-        const privy = new Privy(this.client);
-        const result = await privy.signAndCancelAllOrders(
-          strategy.walletId,
-          userPubkey as string,
-          resolvedOrderbookId as string,
-          timestamp,
-          salt
+      case "privy":
+        throw SdkError.validation(
+          "Privy order signing is not supported; configure a native signer or an ExternalSigner"
         );
-        return {
-          cancelled_order_hashes: result.cancelled_order_hashes,
-          count: result.count,
-          user_pubkey: asPubkeyStr(result.user_pubkey),
-          orderbook_id: asOrderBookId(result.orderbook_id),
-          message: result.message,
-        };
-      }
     }
   }
 
@@ -438,10 +401,6 @@ export class Orders {
     order: SignedOrder
   ): TransactionInstruction {
     return buildCancelOrderIx(operator, market, order, this.client.programId);
-  }
-
-  incrementNonceIx(user: PublicKey): TransactionInstruction {
-    return buildIncrementNonceIx(user, this.client.programId);
   }
 
   closeOrderStatusIx(params: CloseOrderStatusParams): TransactionInstruction {
@@ -458,14 +417,6 @@ export class Orders {
   ): V1Transaction {
     const ix = this.cancelOrderIx(operator, market, order);
     return V1Transaction.compile([ix], operator, context);
-  }
-
-  incrementNonceTx(
-    user: PublicKey,
-    context: V1TransactionContext
-  ): V1Transaction {
-    const ix = this.incrementNonceIx(user);
-    return V1Transaction.compile([ix], user, context);
   }
 
   closeOrderStatusTx(
@@ -532,25 +483,6 @@ export class Orders {
       return null;
     }
     return deserializeOrderStatus(accountInfo.data as Buffer);
-  }
-
-  async getNonce(user: PublicKey): Promise<bigint> {
-    const connection = requireConnection(this.client);
-    const pda = this.noncePda(user);
-    const accountInfo = await connection.getAccountInfo(pda);
-    if (!accountInfo) {
-      return 0n;
-    }
-    const userNonce = deserializeUserNonce(accountInfo.data as Buffer);
-    return userNonce.nonce;
-  }
-
-  async currentNonce(user: PublicKey): Promise<number> {
-    const nonce = await this.getNonce(user);
-    if (nonce > 0xFFFFFFFFn) {
-      throw ProgramSdkError.serialization(`Nonce exceeds u32 range: ${nonce}`);
-    }
-    return Number(nonce);
   }
 }
 

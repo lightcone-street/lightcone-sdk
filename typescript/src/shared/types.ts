@@ -131,11 +131,17 @@ export function convertDenomination(
     : amount.div(basePriceInQuote);
 }
 
+/**
+ * Time-in-force policy for order execution. The backend has no post-only
+ * (`"ALO"`) policy and rejects it.
+ */
 export enum TimeInForce {
+  /** Good-til-cancelled (the default when omitted). */
   Gtc = "GTC",
+  /** Immediate-or-cancel. */
   Ioc = "IOC",
+  /** Fill-or-kill. */
   Fok = "FOK",
-  Alo = "ALO",
 }
 
 export enum OrderUpdateType {
@@ -239,22 +245,34 @@ export function deriveOrderbookId(baseToken: string, quoteToken: string): OrderB
   return `${baseToken.slice(0, 8)}_${quoteToken.slice(0, 8)}` as OrderBookId;
 }
 
-/** Signed ordinary order submitted with exact integer amounts and an optional execution policy. */
+/**
+ * Request for submitting a signed limit order via REST. Serializes exactly
+ * the fields `POST /api/orders/submit` accepts; the backend rejects unknown
+ * fields.
+ */
 export interface SubmitOrderRequest {
+  /** Maker wallet (base58). Must match the authenticated session wallet. */
   maker: string;
-  nonce: number;
+  /** Order identity salt, serialized as a JSON number. Any u64 is valid. */
   salt: bigint;
   market_pubkey: string;
+  /** Base conditional mint (base58). */
   base_token: string;
+  /** Quote conditional mint (base58). */
   quote_token: string;
+  /** 0 = bid, 1 = ask. */
   side: number;
-  /** Positive durable signed-64-bit amount. */
+  /** Raw atoms the maker gives (quote for a bid, base for an ask); nonzero u64. */
   amount_in: bigint;
-  /** Positive durable signed-64-bit amount. */
+  /** Raw atoms the maker receives (base for a bid, quote for an ask); nonzero u64. */
   amount_out: bigint;
+  /** Expiration as Unix seconds (0 = no expiration). */
   expiration: bigint;
+  /** Ed25519 signature over the order hash hex, as 128 hex characters. */
   signature: string;
   orderbook_id: string;
+  /** Omitted means GTC. */
   tif?: TimeInForce;
+  /** Omitted means the backend's automatic funding. */
   deposit_source?: DepositSource;
 }

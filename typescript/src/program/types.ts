@@ -94,16 +94,6 @@ export interface OrderStatus {
 }
 
 /**
- * User nonce account - replay protection
- * PDA: ["user_nonce", user_pubkey (32 bytes)]
- * Size: 16 bytes
- */
-export interface UserNonce {
-  discriminator: Buffer; // 8 bytes
-  nonce: bigint; // u64 - incremented per order
-}
-
-/**
  * Position account - user's state in a market
  * PDA: ["position", owner (32 bytes), market (32 bytes)]
  * Size: 80 bytes
@@ -150,20 +140,21 @@ export interface GlobalDepositToken {
 // ============================================================================
 
 /**
- * Signed order format (233 bytes)
- * Full order with all fields for submission, cancellation, and hashing
+ * Signed order format (225 bytes): the 161-byte signing preimage followed by
+ * the 64-byte signature. There is no per-user nonce: the salt is the order's
+ * only identity field, so two orders with identical fields and salt have the
+ * same hash.
  */
 export interface SignedOrder {
-  nonce: number; // u32 - order ID + replay protection (serialized as u64 LE on wire)
-  salt: bigint; // u64 - random salt for order uniqueness
+  salt: bigint; // u64 - order identity salt; any u64, including 0, is valid
   maker: PublicKey; // 32 bytes - signer
   market: PublicKey; // 32 bytes
   baseMint: PublicKey; // 32 bytes - token being bought/sold
   quoteMint: PublicKey; // 32 bytes - payment token
   side: OrderSide; // u8 - 0=BID, 1=ASK
-  amountIn: bigint; // u64 - what maker gives
-  amountOut: bigint; // u64 - what maker receives
-  expiration: bigint; // i64 - unix timestamp, 0=no expiration
+  amountIn: bigint; // u64 - raw atoms the maker gives (the program's maker_amount)
+  amountOut: bigint; // u64 - raw atoms the maker receives (the program's taker_amount)
+  expiration: bigint; // i64 - Unix seconds, 0 = no expiration
   signature: Buffer; // 64 bytes - Ed25519 signature
 }
 
@@ -173,12 +164,12 @@ export interface SignedOrder {
 export type OrderPayload = SignedOrder;
 
 /**
- * Compact order format (37 bytes)
- * Transaction-optimized version: nonce is u32, no maker field (derived on-chain from Position PDA)
+ * Compact order format (33 bytes) for instruction data. No maker, market,
+ * or mint fields: the program reads them from the instruction's accounts
+ * when it rebuilds the signed preimage.
  */
 export interface Order {
-  nonce: number; // u32 (4 bytes) - truncated from SignedOrder's u64 nonce
-  salt: bigint; // u64 - random salt for order uniqueness
+  salt: bigint; // u64 - order identity salt
   side: OrderSide; // u8
   amountIn: bigint; // u64
   amountOut: bigint; // u64
@@ -243,13 +234,6 @@ export interface CancelOrderParams {
   operator: PublicKey;
   market: PublicKey;
   order: SignedOrder;
-}
-
-/**
- * Parameters for incrementNonce instruction
- */
-export interface IncrementNonceParams {
-  user: PublicKey;
 }
 
 /**
@@ -629,13 +613,6 @@ export interface CancelOrderAccounts {
 }
 
 /**
- * Accounts returned from incrementNonce
- */
-export interface IncrementNonceAccounts {
-  userNonce: PublicKey;
-}
-
-/**
  * Accounts returned from settleMarket
  */
 export interface SettleMarketAccounts {
@@ -679,7 +656,7 @@ export interface MatchOrdersMultiAccounts {
  * Parameters for creating a bid order
  */
 export interface BidOrderParams {
-  nonce: number;
+  /** Order identity salt; drawn from the full u64 range when omitted. */
   salt?: bigint;
   maker: PublicKey;
   market: PublicKey;
@@ -694,7 +671,7 @@ export interface BidOrderParams {
  * Parameters for creating an ask order
  */
 export interface AskOrderParams {
-  nonce: number;
+  /** Order identity salt; drawn from the full u64 range when omitted. */
   salt?: bigint;
   maker: PublicKey;
   market: PublicKey;
