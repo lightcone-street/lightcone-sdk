@@ -135,7 +135,20 @@ describe("quotePerBase", () => {
     assert.equal(quotePerBase("1", "3"), "0.3333333333333333333333333333");
   });
 
-  it("has no price for a zero base amount", () => {
+  // Known answers from rust_decimal 1.40 `checked_div(..).normalize()`.
+  it("matches the Rust SDK's 96-bit decimal division", () => {
+    assert.equal(quotePerBase("10", "3"), "3.3333333333333333333333333333");
+    assert.equal(quotePerBase("1", "3000000"), "0.0000003333333333333333333333");
+    assert.equal(quotePerBase("123456.789012", "7"), "17636.684144571428571428571429");
+    assert.equal(quotePerBase("0.150000", "3.00000001"), "0.049999999833333333888888887");
+    assert.equal(quotePerBase("12", "0.7"), "17.142857142857142857142857143");
+    assert.equal(quotePerBase("1", "81"), "0.012345679012345679012345679");
+    assert.equal(quotePerBase("-1", "3"), "-0.3333333333333333333333333333");
+  });
+
+  it("has no price for a zero base amount or an out-of-range quotient", () => {
     assert.equal(quotePerBase("1", "0"), undefined);
+    assert.equal(quotePerBase("0.5", "0.0000000000000000000000000001"), "5000000000000000000000000000");
+    assert.equal(quotePerBase("79228162514264337593543950335", "0.1"), undefined);
   });
 });

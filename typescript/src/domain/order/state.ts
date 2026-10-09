@@ -1,6 +1,7 @@
 import Decimal from "decimal.js";
 
 import type { OrderBookId, PubkeyStr } from "../../shared";
+import { addDecimals } from "../../shared/price";
 import { limitOrderFromUpdate } from "./convert";
 import { limitOrderIsLive, OrderStatus, type LimitOrder } from "./model";
 import { closureScope, ClosureScope, type ClosureUpdate, type OrderUpdate } from "./wire";
@@ -29,6 +30,10 @@ export enum ApplyOutcome {
  * remembers the revision at which each order stopped being live, and every
  * applied closure, so older state (a REST page or snapshot racing live facts)
  * cannot reopen a closed order.
+ *
+ * Stored orders and per-orderbook arrays are never changed in place: every
+ * change replaces them, so a reference returned earlier keeps the state it
+ * was read at.
  */
 export class UserOpenLimitOrders {
   readonly orders: Map<PubkeyStr, Map<OrderBookId, LimitOrder[]>>;
@@ -114,9 +119,7 @@ export class UserOpenLimitOrders {
       byOrderbook = new Map();
       this.orders.set(order.marketPubkey, byOrderbook);
     }
-    const orders = byOrderbook.get(order.orderbookId) ?? [];
-    orders.push(order);
-    byOrderbook.set(order.orderbookId, orders);
+    byOrderbook.set(order.orderbookId, [...(byOrderbook.get(order.orderbookId) ?? []), order]);
     return wasTracked ? ApplyOutcome.Updated : ApplyOutcome.Inserted;
   }
 
@@ -144,20 +147,21 @@ export class UserOpenLimitOrders {
     let closed = 0;
     for (const byOrderbook of this.orders.values()) {
       for (const [orderbookId, orders] of byOrderbook.entries()) {
+        const next: LimitOrder[] = [];
         for (const order of orders) {
-          if (closeCovered(order, closure, scope)) closed += 1;
+          const copy = { ...order };
+          if (!closeCovered(copy, closure, scope)) {
+            next.push(order);
+            continue;
+          }
+          closed += 1;
+          if (limitOrderIsLive(copy)) next.push(copy);
+          else this.retire(copy);
         }
-        byOrderbook.set(
-          orderbookId,
-          orders.filter((order) => {
-            const live = limitOrderIsLive(order);
-            if (!live) this.retire(order);
-            return live;
-          }),
-        );
+        byOrderbook.set(orderbookId, next);
       }
     }
-    this.closures.push([scope, closure]);
+    this.closures.push([scope, { ...closure }]);
     return closed;
   }
 
@@ -184,10 +188,11 @@ export class UserOpenLimitOrders {
 
   private take(orderHash: string): LimitOrder | undefined {
     for (const byOrderbook of this.orders.values()) {
-      for (const orders of byOrderbook.values()) {
+      for (const [orderbookId, orders] of byOrderbook.entries()) {
         const index = orders.findIndex((order) => order.orderHash === orderHash);
         if (index !== -1) {
-          return orders.splice(index, 1)[0];
+          byOrderbook.set(orderbookId, orders.filter((_, position) => position !== index));
+          return orders[index];
         }
       }
     }
@@ -229,7 +234,7 @@ function closeCovered(order: LimitOrder, closure: ClosureUpdate, scope: ClosureS
   if (!(order.acceptedSeq <= closure.accepted_seq && inScope && remaining.gt(0))) {
     return false;
   }
-  order.cancelledSize = new Decimal(order.cancelledSize).plus(remaining).toFixed();
+  order.cancelledSize = addDecimals(order.cancelledSize, order.remainingSize);
   order.remainingSize = "0";
   order.closedReason ??= closure.reason;
   order.status = OrderStatus.Closed;

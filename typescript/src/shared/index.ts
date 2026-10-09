@@ -43,7 +43,7 @@ export {
   type KnownRejectionCode,
 } from "./rejection";
 
-export { formatDecimal, isZero, parseDecimal, quotePerBase } from "./price";
+export { formatDecimal, isZero, parseDecimal } from "./price";
 export {
   decimalTextIsNegative,
   decimalTextToDecimal,

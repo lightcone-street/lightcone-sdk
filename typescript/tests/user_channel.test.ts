@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import Decimal from "decimal.js";
 
 import {
   ApplyOutcome,
@@ -429,12 +430,38 @@ describe("UserOpenLimitOrders", () => {
     assert.equal(container.applyClosure(closure(4, "wallet", 50)), 1);
     const order = tracked(container)[0]!;
     assert.equal(order.remainingSize, "0");
-    assert.equal(order.cancelledSize, "5");
+    assert.equal(order.cancelledSize, "5.00000000");
     assert.equal(order.status, OrderStatus.Closed);
     assert.equal(order.closedReason, "cancel_all");
     assert.equal(order.committedRevision, 900n);
     // A fact older than the closure cannot reopen the order.
     assert.equal(container.apply(liveOrder(11, "5.00000000", "3.00000000")), ApplyOutcome.Stale);
+  });
+
+  it("closes exactly, independent of the global decimal precision", () => {
+    const previous = Decimal.precision;
+    Decimal.set({ precision: 6 });
+    try {
+      const container = new UserOpenLimitOrders();
+      container.apply(liveOrder(10, "12344.678912345", "1.00000000"));
+      assert.equal(container.applyClosure(closure(4, "wallet", 50)), 1);
+      assert.equal(tracked(container)[0]!.cancelledSize, "12344.678912345");
+    } finally {
+      Decimal.set({ precision: previous });
+    }
+  });
+
+  it("replaces closed orders instead of changing held references", () => {
+    const container = new UserOpenLimitOrders();
+    container.apply(liveOrder(10, "5.00000000", "3.00000000"));
+    const heldArray = tracked(container);
+    const heldOrder = heldArray[0]!;
+    assert.equal(container.applyClosure(closure(4, "wallet", 50)), 1);
+    assert.equal(heldOrder.remainingSize, "5.00000000");
+    assert.equal(heldOrder.status, OrderStatus.Pending);
+    assert.equal(heldArray[0], heldOrder);
+    assert.notEqual(tracked(container)[0], heldOrder);
+    assert.equal(tracked(container)[0]!.status, OrderStatus.Closed);
   });
 
   it("does not let older state reopen an order a closure removed", () => {
@@ -473,7 +500,7 @@ describe("UserOpenLimitOrders", () => {
     assert.equal(container.apply(liveOrder(11, "5.00000000", "3.00000000")), ApplyOutcome.Inserted);
     const order = tracked(container)[0]!;
     assert.equal(order.remainingSize, "0");
-    assert.equal(order.cancelledSize, "5");
+    assert.equal(order.cancelledSize, "5.00000000");
     assert.equal(order.status, OrderStatus.Closed);
     assert.equal(order.committedRevision, 900n);
 

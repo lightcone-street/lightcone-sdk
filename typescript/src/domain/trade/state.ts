@@ -24,16 +24,18 @@ export class TradeHistory {
    * trades can be merged into REST history (a duplicate only fills in a
    * missing REST `cursorId`). Equal timestamps keep arrival order, newest
    * first. When full, a trade older than everything retained is dropped.
+   * The history stores a copy and never changes a pushed `Trade`.
    */
   push(trade: Trade): void {
     // Treat a zero-capacity history as disabled.
     if (this.maxSize === 0) {
       return;
     }
-    const existing = this.buffer.find((retained) => retained.tradeId === trade.tradeId);
-    if (existing) {
-      if (existing.cursorId === undefined) {
-        existing.cursorId = trade.cursorId;
+    const index = this.buffer.findIndex((retained) => retained.tradeId === trade.tradeId);
+    if (index !== -1) {
+      const existing = this.buffer[index];
+      if (existing.cursorId === undefined && trade.cursorId !== undefined) {
+        this.buffer[index] = { ...existing, cursorId: trade.cursorId };
       }
       return;
     }
@@ -44,7 +46,7 @@ export class TradeHistory {
     if (this.buffer.length >= this.maxSize && position === this.buffer.length) {
       return;
     }
-    this.buffer.splice(position, 0, trade);
+    this.buffer.splice(position, 0, { ...trade });
     if (this.buffer.length > this.maxSize) {
       this.buffer.pop();
     }

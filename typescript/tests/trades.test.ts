@@ -215,6 +215,18 @@ describe("TradeHistory", () => {
     assert.equal(history.latest()?.cursorId, 77n);
   });
 
+  it("never changes a pushed trade", () => {
+    const shared = makeTrade("exec:0:1", 50, 1, 1);
+    const first = new TradeHistory(asOrderBookId("ob1"), 10);
+    const second = new TradeHistory(asOrderBookId("ob1"), 10);
+    first.push(shared);
+    second.push(shared);
+    first.push({ ...shared, cursorId: 77n });
+    assert.equal(first.latest()?.cursorId, 77n);
+    assert.equal(second.latest()?.cursorId, undefined);
+    assert.equal(shared.cursorId, undefined);
+  });
+
   it("replaces all trades", () => {
     const history = new TradeHistory(asOrderBookId("ob1"), 10);
     history.push(makeTrade("t1", 50, 1, 1));
