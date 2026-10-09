@@ -1,58 +1,121 @@
-import Decimal from "decimal.js";
-import type { LimitOrder } from "./index";
-import type { OrderUpdate, UserSnapshotOrder, UserSnapshotOrderCommon } from "./wire";
+import { SdkError } from "../../error";
+import { deriveOrderStatus, type LimitOrder } from "./model";
 import { UserOpenLimitOrders } from "./state";
+import { orderUpdatePrice, type OrderUpdate, type UserOrder, type UserSnapshotOrder } from "./wire";
 
-export function orderFromUpdate(update: OrderUpdate): LimitOrder {
-  const size = new Decimal(update.order.filled).plus(update.order.remaining);
-
+/** Convert a live `order` fact. Fails when its signed amounts define no limit price. */
+export function limitOrderFromUpdate(update: OrderUpdate): LimitOrder {
+  const price = orderUpdatePrice(update);
+  if (price === undefined) {
+    throw SdkError.validation(`order ${update.order_hash}: signed amounts define no limit price`);
+  }
   return {
+    status: deriveOrderStatus(
+      update.closed_reason,
+      update.original_base,
+      update.confirmed_base,
+      update.pending_base,
+    ),
     marketPubkey: update.market_pubkey,
     orderbookId: update.orderbook_id,
-    baseMint: update.order.base_mint,
-    quoteMint: update.order.quote_mint,
-    orderHash: update.order.order_hash,
-    side: update.order.side,
-    size: size.toString(),
-    price: update.order.price,
-    filledSize: update.order.filled,
-    remainingSize: update.order.remaining,
-    createdAt: new Date(update.order.created_at),
-    txSignature: update.tx_signature,
-    status: update.order.status,
-    outcomeIndex: update.order.outcome_index,
+    baseMint: update.base_mint,
+    quoteMint: update.quote_mint,
+    orderHash: update.order_hash,
+    side: update.side,
+    price,
+    size: update.original_base,
+    filledSize: update.confirmed_base,
+    pendingSize: update.pending_base,
+    remainingSize: update.open_base,
+    cancelledSize: update.cancelled_base,
+    timeInForce: update.tif,
+    fundingSource: update.funding_source,
+    closedReason: update.closed_reason,
+    acceptedSeq: update.accepted_seq,
+    committedRevision: update.commit.committed_revision,
+    createdAt: update.accepted_at,
+    expiration: update.expiration,
   };
 }
 
-export function limitSnapshotToOrder(common: UserSnapshotOrderCommon, txSignature?: string): LimitOrder {
-  const size = new Decimal(common.filled).plus(common.remaining);
+/** Convert one order of the WS `user` snapshot. */
+export function limitOrderFromSnapshot(order: UserSnapshotOrder): LimitOrder {
   return {
-    marketPubkey: common.market_pubkey,
-    orderbookId: common.orderbook_id,
-    orderHash: common.order_hash,
-    baseMint: common.base_mint,
-    quoteMint: common.quote_mint,
-    side: common.side,
-    size: size.toString(),
-    price: common.price,
-    filledSize: common.filled,
-    remainingSize: common.remaining,
-    createdAt: new Date(common.created_at),
-    txSignature,
-    status: common.status,
-    outcomeIndex: common.outcome_index,
+    status: deriveOrderStatus(
+      order.closed_reason,
+      order.original_base,
+      order.confirmed_base,
+      order.pending_base,
+    ),
+    marketPubkey: order.market_pubkey,
+    orderbookId: order.orderbook_id,
+    baseMint: order.base_mint,
+    quoteMint: order.quote_mint,
+    orderHash: order.order_hash,
+    side: order.side,
+    price: order.price,
+    size: order.original_base,
+    filledSize: order.confirmed_base,
+    pendingSize: order.pending_base,
+    remainingSize: order.open_base,
+    cancelledSize: order.cancelled_base,
+    timeInForce: order.tif,
+    fundingSource: order.funding_source,
+    closedReason: order.closed_reason,
+    acceptedSeq: order.accepted_seq,
+    committedRevision: order.committed_revision,
+    createdAt: order.created_at,
+    expiration: order.expiration,
   };
 }
 
-/** Groups open limit orders from a decoded account snapshot. */
+/**
+ * Convert a REST order; `undefined` when the backend omitted the recorded
+ * quantities.
+ */
+export function limitOrderFromUserOrder(order: UserOrder): LimitOrder | undefined {
+  const state = order.state;
+  if (state === undefined) return undefined;
+  return {
+    status: deriveOrderStatus(
+      state.closed_reason,
+      state.original_base,
+      state.confirmed_base,
+      state.pending_base,
+    ),
+    marketPubkey: order.market_pubkey,
+    orderbookId: order.orderbook_id,
+    baseMint: order.base_mint,
+    quoteMint: order.quote_mint,
+    orderHash: order.order_hash,
+    side: order.side,
+    price: order.price,
+    size: state.original_base,
+    filledSize: state.confirmed_base,
+    pendingSize: state.pending_base,
+    remainingSize: state.open_base,
+    cancelledSize: state.cancelled_base,
+    timeInForce: order.tif,
+    fundingSource: order.source,
+    closedReason: state.closed_reason,
+    acceptedSeq: state.accepted_seq,
+    committedRevision: state.committed_revision,
+    createdAt: order.created_at,
+    expiration: order.expiration,
+  };
+}
+
+/**
+ * Build the open-order container from a WS `user` snapshot page.
+ *
+ * Orders that are neither resting nor awaiting fill confirmation are skipped.
+ * The snapshot is the first bounded page only; merge later REST pages with
+ * `UserOpenLimitOrders.applyOrder`.
+ */
 export function convertSnapshotOrders(orders: UserSnapshotOrder[]): UserOpenLimitOrders {
   const openOrders = new UserOpenLimitOrders();
-
-  for (const snapshot of orders) {
-    if (!new Decimal(snapshot.remaining).isZero()) {
-      openOrders.insert(limitSnapshotToOrder(snapshot, snapshot.tx_signature));
-    }
+  for (const order of orders) {
+    openOrders.applyOrder(limitOrderFromSnapshot(order));
   }
-
   return openOrders;
 }

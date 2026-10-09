@@ -1,5 +1,13 @@
 import { SdkError } from "../error";
-import { FundingSource, Side, type CommitInfo } from "./types";
+import {
+  asOrderBookId,
+  asPubkeyStr,
+  FundingSource,
+  Side,
+  type CommitInfo,
+  type OrderBookId,
+  type PubkeyStr,
+} from "./types";
 
 /**
  * Strict decoders for the committed trading backend's wire encodings.
@@ -22,6 +30,11 @@ const I128_MIN = -(1n << 127n);
 const I128_MAX = (1n << 127n) - 1n;
 const DIGITS = /^[0-9]+$/;
 const DECIMAL = /^-?[0-9]+(\.[0-9]+)?$/;
+
+/** True for plain decimal text (`"12.5"`, `"-0.000001"`); no exponent or padding. */
+export function isDecimalText(text: string): boolean {
+  return DECIMAL.test(text);
+}
 
 /** Decoding failure that names the offending field. */
 export function wireError(field: string, message: string): SdkError {
@@ -71,6 +84,21 @@ export function wireString(value: unknown, field: string): string {
 export function wireStringOr(value: unknown, field: string, fallback: string): string {
   if (value === undefined || value === null) return fallback;
   return wireString(value, field);
+}
+
+/** An optional string; `null` or absent is `undefined` (an empty string is kept). */
+export function wireOptString(value: unknown, field: string): string | undefined {
+  return value === undefined || value === null ? undefined : wireString(value, field);
+}
+
+/** A base58 public key string (not decoded; the backend owns canonical form). */
+export function wirePubkey(value: unknown, field: string): PubkeyStr {
+  return asPubkeyStr(wireString(value, field));
+}
+
+/** An orderbook id string. */
+export function wireOrderBookId(value: unknown, field: string): OrderBookId {
+  return asOrderBookId(wireString(value, field));
 }
 
 /**
@@ -123,6 +151,23 @@ export function wireU64(value: unknown, field: string): bigint {
 /** An optional `u64`; `null` or absent is `undefined`. */
 export function wireOptU64(value: unknown, field: string): bigint | undefined {
   return value === undefined || value === null ? undefined : wireU64(value, field);
+}
+
+const I64_MIN = -(1n << 63n);
+const I64_MAX = (1n << 63n) - 1n;
+
+/** An exact signed `i64` sent as a JSON number (or integer text). */
+export function wireI64(value: unknown, field: string): bigint {
+  const parsed = integerText(value, field, true);
+  if (parsed < I64_MIN || parsed > I64_MAX) {
+    throw wireError(field, `integer out of i64 range: ${parsed}`);
+  }
+  return parsed;
+}
+
+/** An optional `i64`; `null` or absent is `undefined`. */
+export function wireOptI64(value: unknown, field: string): bigint | undefined {
+  return value === undefined || value === null ? undefined : wireI64(value, field);
 }
 
 /** An exact signed `i128` sent as decimal text (raw signed atoms). */

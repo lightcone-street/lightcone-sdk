@@ -1,5 +1,5 @@
 import type { MarketEvent } from "../domain/market";
-import { normalizeUserUpdate, type AuthUpdate, type UserUpdate } from "../domain/order/wire";
+import { userUpdateFromWire, type AuthUpdate, type UserUpdate } from "../domain/order/wire";
 import type { OrderBook, WsTickerData } from "../domain/orderbook";
 import {
   FULL_PRECISION,
@@ -11,7 +11,7 @@ import type {
   DepositPrice,
   PriceHistory,
 } from "../domain/price_history";
-import type { WsTrade } from "../domain/trade";
+import { wsTradeFromWire, type WsTrade } from "../domain/trade/wire";
 import type {
   DepositTokenBalance,
   WalletDepositBalancesEvent,
@@ -362,9 +362,11 @@ const VALID_MESSAGE_TYPES = new Set([
 /**
  * Parse and normalize one inbound frame.
  *
- * Wallet-balance payloads cross a runtime validation boundary here: malformed
- * nested discriminators, exact values, or slots throw a protocol `WsError`
- * instead of escaping behind TypeScript-only types.
+ * Wallet-balance, `user`, and `trades` payloads cross a runtime validation
+ * boundary here: malformed nested discriminators, exact values, or slots throw
+ * (a protocol `WsError`, or an `SdkError` `Serde` naming the field) instead of
+ * escaping behind TypeScript-only types. A `user` event type this SDK version
+ * does not know decodes as `{ event_type: "unknown" }`.
  */
 export function parseMessageIn(input: string): MessageIn {
   const parsed: unknown = parseJsonExact(input);
@@ -415,10 +417,10 @@ export function parseMessageIn(input: string): MessageIn {
     };
   }
   if (message.type === "user") {
-    return {
-      ...message,
-      data: normalizeUserUpdate(message.data as Parameters<typeof normalizeUserUpdate>[0]),
-    };
+    return { ...message, data: userUpdateFromWire(message.data) };
+  }
+  if (message.type === "trades") {
+    return { ...message, data: wsTradeFromWire(message.data, "trades") };
   }
   if (message.type === "wallet_deposit_balances") {
     return {
@@ -467,10 +469,11 @@ function normalizeWalletDepositBalancesEvent(
         native_sol_balance: requireNativeSolBalance(data),
       };
     case "wallet_deposit_balance_status": {
-      const status = requireString(data, "status");
-      if (status !== "reconnecting" && status !== "metadata_unavailable") {
-        throw protocolError(`Invalid wallet balance status: "${status}"`);
-      }
+      const rawStatus = requireString(data, "status");
+      const status =
+        rawStatus === "reconnecting" || rawStatus === "metadata_unavailable"
+          ? rawStatus
+          : "unknown";
       return {
         event_type: eventType,
         wallet_address: walletAddress,

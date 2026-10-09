@@ -1,15 +1,24 @@
 export {
   ApiRejectedDetails,
+  ErrorCode,
   RejectionCode,
   asOrderBookId,
   asPubkeyStr,
+  decimalTextIsNegative,
+  decimalTextToDecimal,
   DepositSource,
   deriveOrderbookId,
+  FundingSource,
   OrderUpdateType,
+  parseDecimalText,
   Resolution,
   Side,
   TimeInForce,
   type ApiResponse,
+  type CommitInfo,
+  type DecimalText,
+  type KnownErrorCode,
+  type KnownRejectionCode,
   type OrderBookId,
   type PubkeyStr,
   type SubmitOrderRequest,
@@ -132,30 +141,55 @@ export type {
   OrderbookRefreshReason,
 } from "./domain/orderbook/state";
 
+export {
+  ApplyOutcome,
+  CancelStatus,
+  ClosureScope,
+  InitialCohortState,
+  OrderStatus,
+  OrderType,
+  Role,
+  SubmitOrderStatus,
+  UserOpenLimitOrders,
+  closureScope,
+  convertSnapshotOrders,
+  deriveOrderStatus,
+  fillInfoPrice,
+  limitOrderFromSnapshot,
+  limitOrderFromUpdate,
+  limitOrderFromUserOrder,
+  limitOrderIsLive,
+  orderFillEventPrice,
+  orderUpdatePrice,
+  submitFilledBase,
+  submitOpenBase,
+} from "./domain/order";
 export type {
   CancelAllBody,
   CancelAllSuccess,
   CancelBody,
+  CancelQuantities,
   CancelSuccess,
-  ConditionalBalance,
+  ClosureAck,
+  ClosureUpdate,
   FillInfo,
-  GlobalDepositUpdate,
-  NonceUpdate,
+  InitialCohort,
   LimitOrder,
-  OrderEvent,
-  OrderStatus,
-  OrderType,
+  NotificationUpdate,
+  OrderFillEvent,
+  OrderState,
+  OrderUpdate,
+  RecordedOrderState,
+  RecoveryCompleted,
   SubmitOrderResponse,
-  SubmitOrderStatus,
-  UserBalanceUpdate,
-  UserDepositAssetBalance,
-  UserMarketBalance,
-  UserOutcomeBalance,
-  UserSnapshotOrder,
+  UserOrder,
+  UserOrderFill,
+  UserOrderFillsResponse,
   UserOrdersResponse,
+  UserSnapshot,
+  UserSnapshotOrder,
   UserUpdate,
 } from "./domain/order";
-export type { UserOpenLimitOrders } from "./domain/order/state";
 
 export type {
   Portfolio,
@@ -181,7 +215,12 @@ export type {
   SolBalanceAvailability,
   SolBalanceBreakdown,
   SolBalanceDelta,
+  FundingAccount,
+  FundingUpdate,
+  MarketPositionsResponse,
+  PositionsResponse,
 } from "./domain/position";
+export { ObservationState } from "./domain/position";
 
 export {
   DepositBuilder,
@@ -201,7 +240,8 @@ export {
   SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS,
 } from "./domain/position";
 
-export type { Trade, WsTrade } from "./domain/trade";
+export type { Trade, TradesPage, WsTrade } from "./domain/trade";
+export { tradeFromResponse, tradeFromWs, wsTradeId, wsTradePrice } from "./domain/trade";
 export { TradeHistory } from "./domain/trade/state";
 export type {
   DepositPrice,

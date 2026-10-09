@@ -23,19 +23,21 @@ async function main() {
   const pubkey = keypair.publicKey.toBase58();
 
   const snapshot = await client.orders().getUserOrders(50);
-  const limitOrder = snapshot.orders.find((o) => o.order_type === "limit");
+  const order = snapshot.orders[0];
 
-  if (!limitOrder) {
+  if (!order) {
     console.log("No open limit orders to cancel.");
     return;
   }
 
-  const orderHash = limitOrder.order_hash;
-  const orderbookId = limitOrder.orderbook_id;
+  const orderHash = order.order_hash;
+  const orderbookId = order.orderbook_id;
 
   const cancel = cancelBodySigned(orderHash, asPubkeyStr(pubkey), keypair);
   const cancelled = await client.orders().cancel(cancel);
-  console.log(`cancelled: ${cancelled.order_hash} remaining=${cancelled.remaining}`);
+  console.log(
+    `cancel ${cancelled.order_hash}: ${cancelled.status} remaining_open_base=${cancelled.quantities?.remaining_open_base ?? "unknown"}`
+  );
 
   const timestamp = unixTimestamp();
   const salt = generateCancelAllSalt();
@@ -47,7 +49,9 @@ async function main() {
     keypair
   );
   const cleared = await client.orders().cancelAll(cancelAll);
-  console.log(`cancel-all removed ${cleared.count} order(s) in ${cleared.orderbook_id}`);
+  console.log(
+    `cancel-all in ${cleared.orderbook_id}: ${cleared.message} (cutoff ${cleared.closure?.accepted_seq_cutoff ?? "none"})`
+  );
 
   // Cleanup: cancelling the order released its locked collateral back into
   // the global pool. Withdraw that amount to the user's token account so the

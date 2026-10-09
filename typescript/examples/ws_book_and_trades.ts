@@ -5,6 +5,7 @@ import {
   OrderbookState,
   subscribeBooks,
   TradeHistory,
+  tradeFromWs,
   unsubscribeBooks,
   validateAggregation,
   type BookAggregation,
@@ -57,16 +58,9 @@ async function main() {
       fullBook.beginGeneration();
       groupedBook.beginGeneration();
     } else if (event.type === "Message" && event.message.type === "trades") {
-      const trade: Trade = {
-        orderbookId: event.message.data.orderbook_id,
-        tradeId: event.message.data.trade_id,
-        timestamp: new Date(event.message.data.timestamp),
-        price: event.message.data.price,
-        size: event.message.data.size,
-        side: event.message.data.side,
-        sequence: event.message.data.sequence,
-      };
-      console.log(`trade: ${trade.size} ${trade.side} @ ${trade.price} seq=${trade.sequence}`);
+      const revision = event.message.data.commit.committed_revision;
+      const trade: Trade = tradeFromWs(event.message.data);
+      console.log(`trade: ${trade.size} ${trade.side} @ ${trade.price} revision=${revision}`);
       trades.push(trade);
       hits += 1;
     } else if (event.type === "Error") {
