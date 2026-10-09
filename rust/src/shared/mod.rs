@@ -424,6 +424,42 @@ pub enum DepositSource {
     Market,
 }
 
+// ─── FundingSource ──────────────────────────────────────────────────────────
+
+/// Which custody account backs a recorded order or holds a balance: the
+/// response-side counterpart of the [`DepositSource`] request option.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FundingSource {
+    /// The wallet's global deposit account for a deposit mint.
+    Global,
+    /// A conditional-token account of one market position.
+    Conditional,
+    /// A source this SDK version does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+// ─── CommitInfo ─────────────────────────────────────────────────────────────
+
+/// Commit metadata carried by every live committed fact on the WS `user`
+/// and `trades` channels (flattened into the payload).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommitInfo {
+    /// Durable publication id (`"<revision>:<index>"`).
+    pub effect_id: String,
+    /// Committed database revision that produced this fact.
+    #[serde(with = "serde_util::u64_text")]
+    pub committed_revision: u64,
+    /// Projection generation; a change means state was rebuilt.
+    #[serde(with = "serde_util::u64_text")]
+    pub projection_generation: u64,
+    /// False when the fact was replayed after it stopped being live
+    /// (readiness fields are then forced off).
+    #[serde(default)]
+    pub actionable: bool,
+}
+
 // ─── Resolution ──────────────────────────────────────────────────────────────
 
 /// Price history candle resolution.

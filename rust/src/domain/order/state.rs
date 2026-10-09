@@ -224,7 +224,7 @@ fn close_covered(
             .is_some_and(|(_, book)| order.orderbook_id.as_str() == book),
         _ => true,
     };
-    let covered = i64::try_from(order.accepted_seq).is_ok_and(|seq| seq <= closure.accepted_seq);
+    let covered = order.accepted_seq <= closure.accepted_seq;
     if !(covered && in_scope && order.remaining_size > Decimal::ZERO) {
         return false;
     }
@@ -364,7 +364,7 @@ mod tests {
             .unwrap_or_default()
     }
 
-    fn closure(scope_kind: i16, scope_key: &str, accepted_seq: i64) -> wire::ClosureUpdate {
+    fn closure(scope_kind: i16, scope_key: &str, accepted_seq: u64) -> wire::ClosureUpdate {
         serde_json::from_value(serde_json::json!({
             "effect_id": "900:0",
             "committed_revision": 900,

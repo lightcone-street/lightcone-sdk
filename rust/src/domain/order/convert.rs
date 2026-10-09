@@ -129,7 +129,7 @@ pub fn convert_snapshot_orders(orders: Vec<wire::UserSnapshotOrder>) -> UserOpen
 mod tests {
     use super::*;
     use crate::domain::order::wire::tests::{live_order, HASH};
-    use crate::domain::position::wire::FundingSource;
+    use crate::shared::FundingSource;
     use crate::shared::{OrderBookId, PubkeyStr, Side, TimeInForce};
     use chrono::{DateTime, Utc};
     use rust_decimal::Decimal;

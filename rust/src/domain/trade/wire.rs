@@ -1,7 +1,7 @@
 //! Wire types for trade responses (REST + WS).
 
-use crate::domain::order::wire::{quote_per_base, CommitInfo};
-use crate::shared::{serde_util, OrderBookId, PubkeyStr, Side};
+use crate::shared::price::quote_per_base;
+use crate::shared::{serde_util, CommitInfo, OrderBookId, PubkeyStr, Side};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};

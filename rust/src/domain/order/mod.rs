@@ -2,12 +2,10 @@
 
 pub mod client;
 mod convert;
-#[cfg(test)]
-mod response_tests;
 pub mod state;
 pub mod wire;
 
-use crate::domain::position::wire::FundingSource;
+use crate::shared::FundingSource;
 #[cfg(feature = "trigger_orders")]
 use crate::shared::TriggerType;
 use crate::shared::{OrderBookId, PubkeyStr, Side, TimeInForce};

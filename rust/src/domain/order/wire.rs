@@ -8,9 +8,12 @@
 //! in WS snapshots but as JSON numbers in live WS facts; both are accepted.
 
 use super::OrderStatus;
-use crate::domain::position::wire::{FundingAccount, FundingSource, FundingUpdate};
+use crate::domain::position::wire::{FundingAccount, FundingUpdate};
 use crate::domain::trade::wire::WsTrade;
-use crate::shared::{serde_util, OrderBookId, PubkeyStr, Side, TimeInForce};
+use crate::shared::price::quote_per_base;
+use crate::shared::{serde_util, FundingSource, OrderBookId, PubkeyStr, Side, TimeInForce};
+
+pub use crate::shared::CommitInfo;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -94,24 +97,6 @@ pub struct InitialCohort {
     pub unresolved_base: Decimal,
 }
 
-/// Commit metadata carried by every live committed fact on the WS `user`
-/// and `trades` channels (flattened into the payload).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CommitInfo {
-    /// Durable publication id (`"<revision>:<index>"`).
-    pub effect_id: String,
-    /// Committed database revision that produced this fact.
-    #[serde(with = "serde_util::u64_text")]
-    pub committed_revision: u64,
-    /// Projection generation; a change means state was rebuilt.
-    #[serde(with = "serde_util::u64_text")]
-    pub projection_generation: u64,
-    /// False when the fact was replayed after it stopped being live
-    /// (readiness fields are then forced off).
-    #[serde(default)]
-    pub actionable: bool,
-}
-
 // ─── REST user orders ────────────────────────────────────────────────────────
 
 /// One open or pending order from `GET /api/users/orders`.
@@ -136,7 +121,7 @@ pub struct UserOrder {
     pub quote_mint: PubkeyStr,
     /// Outcome index of the base token; the committed backend reports `-1`.
     #[serde(default = "unknown_outcome_index")]
-    pub outcome_index: i32,
+    pub outcome_index: i16,
     /// Recorded quantities; `None` if the engine omitted them.
     #[serde(default)]
     pub state: Option<RecordedOrderState>,
@@ -151,7 +136,7 @@ pub struct UserOrder {
     pub order_type: String,
 }
 
-fn unknown_outcome_index() -> i32 {
+fn unknown_outcome_index() -> i16 {
     -1
 }
 
@@ -415,7 +400,8 @@ pub struct ClosureUpdate {
     pub scope_kind: i16,
     pub scope_key: String,
     /// Inclusive acceptance-sequence cutoff.
-    pub accepted_seq: i64,
+    #[serde(with = "serde_util::u64_text")]
+    pub accepted_seq: u64,
     pub reason: String,
 }
 
@@ -433,7 +419,10 @@ impl ClosureUpdate {
 pub struct RecoveryCompleted {
     #[serde(flatten)]
     pub commit: CommitInfo,
-    pub recovered_generation: i64,
+    /// Projection generation the engine rebuilt to (compare with
+    /// [`CommitInfo::projection_generation`]).
+    #[serde(with = "serde_util::u64_text")]
+    pub recovered_generation: u64,
 }
 
 /// WS notification push event.
@@ -486,14 +475,6 @@ pub enum AuthUpdate {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/// Quote per base, normalized; `None` for a zero base amount.
-pub(crate) fn quote_per_base(quote: Decimal, base: Decimal) -> Option<Decimal> {
-    if base.is_zero() {
-        return None;
-    }
-    quote.checked_div(base).map(|price| price.normalize())
-}
 
 /// Limit price of signed amounts: a bid gives quote for base, an ask gives
 /// base for quote.

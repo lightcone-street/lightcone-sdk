@@ -179,7 +179,7 @@ An order the wallet participated in (as maker or taker) with its oldest-first pa
 | `base_amount` / `quote_amount` | `Decimal` | Base-unit size and quote-unit notional; `price()` = quote / base |
 | `is_maker` | `bool` | Whether the submitted order was the maker |
 | `fee_estimate_atoms` | `i128` | Signed fee estimate in raw `fee_mint` atoms |
-| `fee_bps` | `i32` | Captured fee rate |
+| `fee_bps` | `i16` | Captured fee rate in basis points (negative = rebate) |
 | `fee_mint` | `PubkeyStr` | Fee token |
 
 ### `CancelSuccess` / `CancelAllSuccess`
@@ -679,7 +679,7 @@ async fn show_fill_history(
 
 ## Wire Types
 
-Raw types in `lightcone::domain::order::wire` include `OrderState`, `RecordedOrderState`, `InitialCohort`, `UserOrder`, `UserOrderFillsResponse`, `UserOrderFill`, `OrderFillEvent`, `Role`, and the WS `user` channel types `UserUpdate`, `UserSnapshot`, `UserSnapshotOrder`, `OrderUpdate`, `ClosureUpdate`, `RecoveryCompleted`, `NotificationUpdate`, `CommitInfo`, and `AuthUpdate`. Funding types (`FundingAccount`, `FundingUpdate`, `FundingSource`) live in `lightcone::domain::position::wire`. Integer revisions and sequences accept both the string (REST/snapshot) and number (live fact) encodings. Response enums decode a value this SDK version does not know as `Unknown` (`UserOrder.tif` as `None`), so a new backend value never fails the surrounding page.
+Raw types in `lightcone::domain::order::wire` include `OrderState`, `RecordedOrderState`, `InitialCohort`, `UserOrder`, `UserOrderFillsResponse`, `UserOrderFill`, `OrderFillEvent`, `Role`, and the WS `user` channel types `UserUpdate`, `UserSnapshot`, `UserSnapshotOrder`, `OrderUpdate`, `ClosureUpdate`, `RecoveryCompleted`, `NotificationUpdate`, and `AuthUpdate`. Funding types (`FundingAccount`, `FundingUpdate`) live in `lightcone::domain::position::wire`. `CommitInfo` and `FundingSource` are shared by the order, trade, and position payloads, so they are defined in `lightcone::shared` and re-exported from those wire modules. Integer revisions and sequences accept both the string (REST/snapshot) and number (live fact) encodings. Response enums decode a value this SDK version does not know as `Unknown` (`UserOrder.tif` as `None`), so a new backend value never fails the surrounding page.
 
 ---
 

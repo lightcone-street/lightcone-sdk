@@ -6,22 +6,11 @@
 //! position). Amount fields are decimal strings in the account mint's own
 //! units unless the field name ends in `_atoms`.
 
-use crate::shared::{serde_util, DecimalText, PubkeyStr};
+use crate::shared::{serde_util, CommitInfo, DecimalText, PubkeyStr};
+
+pub use crate::shared::FundingSource;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-
-/// Which custody account backs an order or holds a balance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum FundingSource {
-    /// The wallet's global deposit account for a deposit mint.
-    Global,
-    /// A conditional-token account of one market position.
-    Conditional,
-    /// A source this SDK version does not know.
-    #[serde(other)]
-    Unknown,
-}
 
 /// Evidence state of the last custody observation for a funding account.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -90,7 +79,7 @@ pub struct FundingAccount {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FundingUpdate {
     #[serde(flatten)]
-    pub commit: crate::domain::order::wire::CommitInfo,
+    pub commit: CommitInfo,
     pub user_pubkey: PubkeyStr,
     pub account: PubkeyStr,
     pub mint: PubkeyStr,
