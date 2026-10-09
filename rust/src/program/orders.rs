@@ -572,6 +572,203 @@ mod tests {
         .unwrap()
     }
 
+    /// One program-contract signing vector. Amounts are raw atoms, expiration
+    /// is Unix seconds, and every hex field is the backend's expected bytes.
+    struct SigningVector {
+        name: &'static str,
+        salt: u64,
+        side: OrderSide,
+        maker_amount: u64,
+        taker_amount: u64,
+        expiration: i64,
+        preimage_hex: &'static str,
+        order_id_hex: &'static str,
+        signature_hex: &'static str,
+        compact_hex: &'static str,
+    }
+
+    // Backend signing vectors (fixtures/program-contract/v1/signing.json),
+    // generated independently of this SDK with Python struct, Keccak and
+    // Ed25519. Every vector is signed by seed 00..1f, whose public key is the
+    // maker, on market [0x11; 32], base mint [0x22; 32] and quote mint [0x33; 32].
+    #[cfg(feature = "native-auth")]
+    const SIGNING_SEED_HEX: &str =
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    const SIGNING_MAKER_HEX: &str =
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8";
+    const SIGNING_VECTORS: [SigningVector; 4] = [
+        SigningVector {
+            name: "bid",
+            salt: 72_623_859_790_382_856,
+            side: OrderSide::Bid,
+            maker_amount: 60_000_000,
+            taker_amount: 100_000_000,
+            expiration: 0,
+            preimage_hex: concat!(
+                "0807060504030201",
+                "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+                "1111111111111111111111111111111111111111111111111111111111111111",
+                "2222222222222222222222222222222222222222222222222222222222222222",
+                "3333333333333333333333333333333333333333333333333333333333333333",
+                "00008793030000000000e1f505000000000000000000000000",
+            ),
+            order_id_hex: "497bbc21bdf8d3fb1187f0eda8f7a0f124dc97511e1f5068bbb7180b6b4a9bdc",
+            signature_hex: concat!(
+                "28ee8645e9a4f1cd3b28f910531d2d7b29b36038f873f5e1517058c02cf4cc4b",
+                "ec8400596d0e87766c3a527e4f2d04b4d0b592be656b91160e48b3b5c6a7e800",
+            ),
+            compact_hex: "080706050403020100008793030000000000e1f505000000000000000000000000",
+        },
+        SigningVector {
+            name: "ask",
+            salt: 9_833_440_827_789_222_417,
+            side: OrderSide::Ask,
+            maker_amount: 100_000_000,
+            taker_amount: 60_000_000,
+            expiration: 1_700_000_000,
+            preimage_hex: concat!(
+                "1122334455667788",
+                "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+                "1111111111111111111111111111111111111111111111111111111111111111",
+                "2222222222222222222222222222222222222222222222222222222222222222",
+                "3333333333333333333333333333333333333333333333333333333333333333",
+                "0100e1f50500000000008793030000000000f1536500000000",
+            ),
+            order_id_hex: "ee414532884ed99be69c82c9a99d4916ccf13bb17c955d2e979c43df6697fdfc",
+            signature_hex: concat!(
+                "f7df8ad52408140f9418b0a9c3a5925ffe41d58f68899001769748eaa84a4f55",
+                "f5afc47c8a2d241f38b63141012f8970fecc159dfad855c624c4def66cd2c80a",
+            ),
+            compact_hex: "11223344556677880100e1f50500000000008793030000000000f1536500000000",
+        },
+        SigningVector {
+            name: "zero_salt",
+            salt: 0,
+            side: OrderSide::Bid,
+            maker_amount: 1,
+            taker_amount: 1,
+            expiration: 0,
+            preimage_hex: concat!(
+                "0000000000000000",
+                "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+                "1111111111111111111111111111111111111111111111111111111111111111",
+                "2222222222222222222222222222222222222222222222222222222222222222",
+                "3333333333333333333333333333333333333333333333333333333333333333",
+                "00010000000000000001000000000000000000000000000000",
+            ),
+            order_id_hex: "bddbbc63b3eca9b0c8ab96920b44d44239042684fa523f4d9e3e35d23228a77c",
+            signature_hex: concat!(
+                "2a0e4bea081930c109b666e29b979bdcfcaddb1b169a2bed1f1df60ac9522fcd",
+                "fee68652f00541151af5cc2ca9c288a79e6dab71904ee3f35efd4fb4caf43506",
+            ),
+            compact_hex: "000000000000000000010000000000000001000000000000000000000000000000",
+        },
+        SigningVector {
+            name: "max_salt",
+            salt: u64::MAX,
+            side: OrderSide::Ask,
+            maker_amount: u64::MAX,
+            taker_amount: u64::MAX,
+            expiration: i64::MAX,
+            preimage_hex: concat!(
+                "ffffffffffffffff",
+                "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+                "1111111111111111111111111111111111111111111111111111111111111111",
+                "2222222222222222222222222222222222222222222222222222222222222222",
+                "3333333333333333333333333333333333333333333333333333333333333333",
+                "01ffffffffffffffffffffffffffffffffffffffffffffff7f",
+            ),
+            order_id_hex: "f51ef152121aeb7380e5fd0e0f5574382fc9e1bda5cecff7b98d8ff938ad0dc2",
+            signature_hex: concat!(
+                "a03310e35a4dbae73b111de3ffb233ffdf6b358fb2023ee5cd88989a8f8e92c7",
+                "6eee9d37042eb3028e31cd6f17878c927b8a3da5598f2736e8ddd69a84c77a01",
+            ),
+            compact_hex: "ffffffffffffffff01ffffffffffffffffffffffffffffffffffffffffffffff7f",
+        },
+    ];
+
+    #[test]
+    fn signing_vectors_match_program_contract() {
+        let names: Vec<&str> = SIGNING_VECTORS.iter().map(|v| v.name).collect();
+        assert_eq!(names, ["bid", "ask", "zero_salt", "max_salt"]);
+        let maker: [u8; 32] = hex::decode(SIGNING_MAKER_HEX).unwrap().try_into().unwrap();
+
+        for vector in &SIGNING_VECTORS {
+            let name = vector.name;
+            let unsigned = OrderPayload {
+                salt: vector.salt,
+                maker: Pubkey::new_from_array(maker),
+                market: Pubkey::new_from_array([0x11; 32]),
+                base_mint: Pubkey::new_from_array([0x22; 32]),
+                quote_mint: Pubkey::new_from_array([0x33; 32]),
+                side: vector.side,
+                amount_in: vector.maker_amount,
+                amount_out: vector.taker_amount,
+                expiration: vector.expiration,
+                signature: [0; 64],
+            };
+
+            assert_eq!(
+                hex::encode(unsigned.preimage()),
+                vector.preimage_hex,
+                "{name}: preimage"
+            );
+            // The fixture's signed message (`message_ascii`) equals `order_id_hex`
+            // in every vector: makers sign the order id's 64 lowercase hex ASCII
+            // bytes, which `verify_signature` checks below.
+            assert_eq!(
+                unsigned.hash_hex(),
+                vector.order_id_hex,
+                "{name}: order id and signed message"
+            );
+            assert_eq!(
+                hex::encode(unsigned.to_order().serialize()),
+                vector.compact_hex,
+                "{name}: compact order"
+            );
+
+            let mut signed = unsigned.clone();
+            signed
+                .signature
+                .copy_from_slice(&hex::decode(vector.signature_hex).unwrap());
+            signed.verify_signature().unwrap();
+            let signed_bytes = signed.serialize();
+            // The fixture's 225-byte `signed_order_hex` is the preimage
+            // followed by the signature.
+            assert_eq!(
+                hex::encode(signed_bytes),
+                format!("{}{}", vector.preimage_hex, vector.signature_hex),
+                "{name}: signed order"
+            );
+
+            let decoded = OrderPayload::deserialize(&signed_bytes).unwrap();
+            assert_eq!(decoded.serialize(), signed_bytes, "{name}: signed decode");
+            let compact = Order::deserialize(&hex::decode(vector.compact_hex).unwrap()).unwrap();
+            let expanded = compact.to_signed(
+                signed.maker,
+                signed.market,
+                signed.base_mint,
+                signed.quote_mint,
+                signed.signature,
+            );
+            assert_eq!(expanded.serialize(), signed_bytes, "{name}: compact decode");
+
+            #[cfg(feature = "native-auth")]
+            {
+                let seed: [u8; 32] = hex::decode(SIGNING_SEED_HEX).unwrap().try_into().unwrap();
+                let keypair = solana_keypair::Keypair::new_from_array(seed);
+                assert_eq!(keypair.pubkey(), unsigned.maker, "{name}: maker key");
+                let mut resigned = unsigned.clone();
+                resigned.sign(&keypair, &signing_rules()).unwrap();
+                assert_eq!(
+                    resigned.signature_hex(),
+                    vector.signature_hex,
+                    "{name}: signature"
+                );
+            }
+        }
+    }
+
     #[test]
     fn serialized_order_layouts_require_exact_lengths() {
         assert_eq!(OrderPayload::HASH_SIZE, 161);
