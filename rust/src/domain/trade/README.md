@@ -146,7 +146,7 @@ async fn live_trades(client: &LightconeClient, orderbook_id: OrderBookId) {
 
     while let Some(event) = stream.next().await {
         if let WsEvent::Message(Kind::Trade(ws_trade)) = event {
-            let trade: Trade = ws_trade.into();
+            let trade = Trade::try_from(ws_trade).unwrap();
             history.push(trade.clone());
             println!("{}: {} @ {} ({})", trade.trade_id, trade.size, trade.price, trade.side);
         }
@@ -156,7 +156,7 @@ async fn live_trades(client: &LightconeClient, orderbook_id: OrderBookId) {
 
 ## Wire Types
 
-Raw types in `lightcone::domain::trade::wire` include `TradeResponse` (signed `taker_fee_estimate`/`maker_fee_estimate`, `i64` `id` cursor), `TradesResponse`, `MarketTradesResponse`, and `WsTrade`. `WsTrade` is the committed fill fact on the `trades` channel (and the `user` channel `fill` event): `fill_id` (relay dedup id, not the REST `trade_id`), `execution_id`, `base_amount`, `quote_amount`, maker/taker order hashes and wallets, `taker_side`, signed fee estimates in `fee_mint` units, fee bps, `executed_at`, plus the flattened `CommitInfo`. It carries no price, side, trade id, or sequence: use `price()` and `trade_id()`.
+Raw types in `lightcone::domain::trade::wire` include `TradeResponse` (signed `taker_fee_estimate`/`maker_fee_estimate`, `i64` `id` cursor), `TradesResponse`, `MarketTradesResponse`, and `WsTrade`. `WsTrade` is the committed fill fact on the `trades` channel (and the `user` channel `fill` event): `fill_id` (relay dedup id, not the REST `trade_id`), `execution_id`, `base_amount`, `quote_amount`, maker/taker order hashes and wallets, `taker_side`, signed fee estimates in `fee_mint` units, fee bps, `executed_at`, plus the flattened `CommitInfo`. It carries no price, side, trade id, or sequence: use `price()` and `trade_id()`. `Trade::try_from` converts a `WsTrade` or `TradeResponse` and fails with `SdkError::Validation` rather than defaulting a missing price, an unparseable amount, or an invalid timestamp.
 
 ---
 

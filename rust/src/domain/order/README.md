@@ -514,7 +514,7 @@ Tracks a wallet's live limit orders (resting, or with fills awaiting confirmatio
 | `get(&market_pubkey, &orderbook_id)` | Get orders for a specific orderbook |
 | `get_by_market(&market_pubkey)` | Get orders for a market, grouped by orderbook |
 | `get_by_hash(order_hash)` / `all()` | Lookup and iteration |
-| `apply(&order_update) -> ApplyOutcome` | Apply a live WS `order` fact (`Inserted`, `Updated`, `Removed`, `Stale`, `Ignored`) |
+| `apply(&order_update) -> Result<ApplyOutcome, SdkError>` | Apply a live WS `order` fact (`Inserted`, `Updated`, `Removed`, `Stale`, `Ignored`); fails, changing nothing, when its amounts define no limit price |
 | `apply_order(limit_order)` | Same for converted snapshot or REST orders |
 | `apply_closure(&closure_update)` | Close orders in scope up to the cutoff; `None` when the scope needs a refetch |
 | `upsert(&order_update)` | Alias of `apply` |
@@ -589,7 +589,7 @@ async fn market_make(client: &LightconeClient, keypair: &Keypair) -> Result<(), 
                 open_orders = convert_snapshot_orders(snapshot.orders);
             }
             WsEvent::Message(Kind::User(UserUpdate::Order(update))) => {
-                let outcome = open_orders.apply(&update);
+                let outcome = open_orders.apply(&update)?;
                 println!("Order {}: open={} ({outcome:?})", update.order_hash, update.open_base);
             }
             _ => {}

@@ -2,12 +2,20 @@
 
 use super::wire;
 use super::{LimitOrder, OrderStatus, UserOpenLimitOrders};
-use rust_decimal::Decimal;
+use crate::error::SdkError;
 
-impl From<wire::OrderUpdate> for LimitOrder {
-    fn from(update: wire::OrderUpdate) -> Self {
-        let price = update.price().unwrap_or(Decimal::ZERO);
-        LimitOrder {
+/// Fails when the signed amounts define no limit price (a zero amount).
+impl TryFrom<wire::OrderUpdate> for LimitOrder {
+    type Error = SdkError;
+
+    fn try_from(update: wire::OrderUpdate) -> Result<Self, Self::Error> {
+        let price = update.price().ok_or_else(|| {
+            SdkError::Validation(format!(
+                "order {}: signed amounts define no limit price",
+                update.order_hash
+            ))
+        })?;
+        Ok(LimitOrder {
             status: OrderStatus::derive(
                 update.closed_reason.as_deref(),
                 update.original_base,
@@ -33,7 +41,7 @@ impl From<wire::OrderUpdate> for LimitOrder {
             committed_revision: update.commit.committed_revision,
             created_at: update.accepted_at,
             expiration: update.expiration,
-        }
+        })
     }
 }
 
@@ -124,6 +132,7 @@ mod tests {
     use crate::domain::position::wire::FundingSource;
     use crate::shared::{OrderBookId, PubkeyStr, Side, TimeInForce};
     use chrono::{DateTime, Utc};
+    use rust_decimal::Decimal;
 
     fn test_time() -> DateTime<Utc> {
         DateTime::<Utc>::from_timestamp_millis(1_790_685_521_784).unwrap()
@@ -157,7 +166,8 @@ mod tests {
 
     #[test]
     fn live_order_fact_converts_quantities_and_price() {
-        let order = LimitOrder::from(live_order(812, "7.00000000", "1.00000000", None));
+        let order =
+            LimitOrder::try_from(live_order(812, "7.00000000", "1.00000000", None)).unwrap();
         assert_eq!(order.order_hash, HASH);
         assert_eq!(order.side, Side::Bid);
         assert_eq!(order.price, Decimal::new(55, 2));
@@ -173,9 +183,24 @@ mod tests {
 
     #[test]
     fn closed_reason_wins_status_precedence() {
-        let order = LimitOrder::from(live_order(813, "0.00000000", "1.00000000", Some("expired")));
+        let order =
+            LimitOrder::try_from(live_order(813, "0.00000000", "1.00000000", Some("expired")))
+                .unwrap();
         assert_eq!(order.status, OrderStatus::Closed);
         assert_eq!(order.closed_reason.as_deref(), Some("expired"));
+    }
+
+    #[test]
+    fn live_order_fact_without_a_limit_price_is_rejected() {
+        let mut update = live_order(814, "7.00000000", "0.00000000", None);
+        update.taker_amount = Decimal::ZERO;
+        assert!(matches!(
+            LimitOrder::try_from(update.clone()),
+            Err(SdkError::Validation(_))
+        ));
+        let mut open_orders = UserOpenLimitOrders::new();
+        assert!(open_orders.apply(&update).is_err());
+        assert!(open_orders.is_empty());
     }
 
     #[test]

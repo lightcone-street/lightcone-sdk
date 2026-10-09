@@ -6,6 +6,7 @@ use super::wire::{self, ClosureScope};
 #[cfg(feature = "trigger_orders")]
 use super::TriggerOrder;
 use super::{LimitOrder, OrderStatus};
+use crate::error::SdkError;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
@@ -77,14 +78,15 @@ impl UserOpenLimitOrders {
             .flat_map(|orders| orders.iter())
     }
 
-    /// Apply a live WS `order` fact.
-    pub fn apply(&mut self, update: &wire::OrderUpdate) -> ApplyOutcome {
-        self.apply_order(LimitOrder::from(update.clone()))
+    /// Apply a live WS `order` fact. Fails, changing nothing, when the fact's
+    /// signed amounts define no limit price.
+    pub fn apply(&mut self, update: &wire::OrderUpdate) -> Result<ApplyOutcome, SdkError> {
+        Ok(self.apply_order(LimitOrder::try_from(update.clone())?))
     }
 
     /// Same as [`Self::apply`]; kept for callers of the previous API.
-    pub fn upsert(&mut self, update: &wire::OrderUpdate) {
-        self.apply(update);
+    pub fn upsert(&mut self, update: &wire::OrderUpdate) -> Result<(), SdkError> {
+        self.apply(update).map(|_| ())
     }
 
     /// Apply converted committed order state (live fact, snapshot, or REST).
@@ -380,11 +382,15 @@ mod tests {
     fn apply_inserts_updates_and_removes_by_liveness() {
         let mut container = UserOpenLimitOrders::new();
         assert_eq!(
-            container.apply(&live_order(10, "8.00000000", "0.00000000", None)),
+            container
+                .apply(&live_order(10, "8.00000000", "0.00000000", None))
+                .unwrap(),
             ApplyOutcome::Inserted
         );
         assert_eq!(
-            container.apply(&live_order(11, "5.00000000", "3.00000000", None)),
+            container
+                .apply(&live_order(11, "5.00000000", "3.00000000", None))
+                .unwrap(),
             ApplyOutcome::Updated
         );
         let orders = tracked(&container);
@@ -395,16 +401,22 @@ mod tests {
 
         // Pending fills keep a fully matched order live until confirmation.
         assert_eq!(
-            container.apply(&live_order(12, "0.00000000", "3.00000000", None)),
+            container
+                .apply(&live_order(12, "0.00000000", "3.00000000", None))
+                .unwrap(),
             ApplyOutcome::Updated
         );
         assert_eq!(
-            container.apply(&live_order(13, "0.00000000", "0.00000000", None)),
+            container
+                .apply(&live_order(13, "0.00000000", "0.00000000", None))
+                .unwrap(),
             ApplyOutcome::Removed
         );
         assert!(container.is_empty());
         assert_eq!(
-            container.apply(&live_order(14, "0.00000000", "0.00000000", None)),
+            container
+                .apply(&live_order(14, "0.00000000", "0.00000000", None))
+                .unwrap(),
             ApplyOutcome::Ignored
         );
     }
@@ -412,9 +424,13 @@ mod tests {
     #[test]
     fn apply_ignores_older_revisions() {
         let mut container = UserOpenLimitOrders::new();
-        container.apply(&live_order(20, "5.00000000", "0.00000000", None));
+        container
+            .apply(&live_order(20, "5.00000000", "0.00000000", None))
+            .unwrap();
         assert_eq!(
-            container.apply(&live_order(19, "8.00000000", "0.00000000", None)),
+            container
+                .apply(&live_order(19, "8.00000000", "0.00000000", None))
+                .unwrap(),
             ApplyOutcome::Stale
         );
         assert_eq!(tracked(&container)[0].remaining_size, Decimal::from(5));
@@ -423,21 +439,27 @@ mod tests {
     #[test]
     fn upsert_remains_an_alias_for_apply() {
         let mut container = UserOpenLimitOrders::new();
-        container.upsert(&live_order(1, "5.00000000", "0.00000000", None));
+        container
+            .upsert(&live_order(1, "5.00000000", "0.00000000", None))
+            .unwrap();
         assert!(!container.is_empty());
-        container.upsert(&live_order(
-            2,
-            "0.00000000",
-            "0.00000000",
-            Some("cancelled"),
-        ));
+        container
+            .upsert(&live_order(
+                2,
+                "0.00000000",
+                "0.00000000",
+                Some("cancelled"),
+            ))
+            .unwrap();
         assert!(container.is_empty());
     }
 
     #[test]
     fn closure_closes_orders_in_scope_up_to_the_cutoff() {
         let mut container = UserOpenLimitOrders::new();
-        container.apply(&live_order(10, "8.00000000", "0.00000000", None));
+        container
+            .apply(&live_order(10, "8.00000000", "0.00000000", None))
+            .unwrap();
         // Cutoff below the order's accepted_seq (44) leaves it resting.
         assert_eq!(container.apply_closure(&closure(2, BOOK, 43)), Some(0));
         assert_eq!(tracked(&container).len(), 1);
@@ -456,7 +478,9 @@ mod tests {
     #[test]
     fn closure_keeps_pending_claims_visible() {
         let mut container = UserOpenLimitOrders::new();
-        container.apply(&live_order(10, "5.00000000", "3.00000000", None));
+        container
+            .apply(&live_order(10, "5.00000000", "3.00000000", None))
+            .unwrap();
         assert_eq!(container.apply_closure(&closure(4, "wallet", 50)), Some(1));
         let order = tracked(&container)[0];
         assert_eq!(order.remaining_size, Decimal::ZERO);
@@ -466,7 +490,9 @@ mod tests {
         assert_eq!(order.committed_revision, 900);
         // A fact older than the closure cannot reopen the order.
         assert_eq!(
-            container.apply(&live_order(11, "5.00000000", "3.00000000", None)),
+            container
+                .apply(&live_order(11, "5.00000000", "3.00000000", None))
+                .unwrap(),
             ApplyOutcome::Stale
         );
     }
@@ -474,12 +500,16 @@ mod tests {
     #[test]
     fn older_state_cannot_reopen_an_order_a_closure_removed() {
         let mut container = UserOpenLimitOrders::new();
-        container.apply(&live_order(10, "8.00000000", "0.00000000", None));
+        container
+            .apply(&live_order(10, "8.00000000", "0.00000000", None))
+            .unwrap();
         assert_eq!(container.apply_closure(&closure(4, "wallet", 50)), Some(1));
         assert!(container.is_empty());
         // A REST page or snapshot captured before the closure arrives late.
         assert_eq!(
-            container.apply(&live_order(11, "8.00000000", "0.00000000", None)),
+            container
+                .apply(&live_order(11, "8.00000000", "0.00000000", None))
+                .unwrap(),
             ApplyOutcome::Stale
         );
         assert!(container.is_empty());
@@ -488,28 +518,38 @@ mod tests {
     #[test]
     fn older_state_cannot_reopen_a_removed_order() {
         let mut container = UserOpenLimitOrders::new();
-        container.apply(&live_order(10, "8.00000000", "0.00000000", None));
+        container
+            .apply(&live_order(10, "8.00000000", "0.00000000", None))
+            .unwrap();
         assert_eq!(
-            container.apply(&live_order(
-                12,
-                "0.00000000",
-                "0.00000000",
-                Some("cancelled")
-            )),
+            container
+                .apply(&live_order(
+                    12,
+                    "0.00000000",
+                    "0.00000000",
+                    Some("cancelled")
+                ))
+                .unwrap(),
             ApplyOutcome::Removed
         );
         assert_eq!(
-            container.apply(&live_order(11, "8.00000000", "0.00000000", None)),
+            container
+                .apply(&live_order(11, "8.00000000", "0.00000000", None))
+                .unwrap(),
             ApplyOutcome::Stale
         );
         assert_eq!(
-            container.apply(&live_order(12, "8.00000000", "0.00000000", None)),
+            container
+                .apply(&live_order(12, "8.00000000", "0.00000000", None))
+                .unwrap(),
             ApplyOutcome::Stale
         );
         assert!(container.is_empty());
         // Newer committed state stays authoritative.
         assert_eq!(
-            container.apply(&live_order(13, "8.00000000", "0.00000000", None)),
+            container
+                .apply(&live_order(13, "8.00000000", "0.00000000", None))
+                .unwrap(),
             ApplyOutcome::Inserted
         );
     }
@@ -519,7 +559,9 @@ mod tests {
         let mut container = UserOpenLimitOrders::new();
         assert_eq!(container.apply_closure(&closure(4, "wallet", 50)), Some(0));
         assert_eq!(
-            container.apply(&live_order(11, "8.00000000", "0.00000000", None)),
+            container
+                .apply(&live_order(11, "8.00000000", "0.00000000", None))
+                .unwrap(),
             ApplyOutcome::Ignored
         );
         assert!(container.is_empty());
@@ -528,7 +570,9 @@ mod tests {
         container.clear();
         container.apply_closure(&closure(4, "wallet", 50));
         assert_eq!(
-            container.apply(&live_order(11, "5.00000000", "3.00000000", None)),
+            container
+                .apply(&live_order(11, "5.00000000", "3.00000000", None))
+                .unwrap(),
             ApplyOutcome::Inserted
         );
         let order = tracked(&container)[0];
@@ -541,13 +585,17 @@ mod tests {
         container.clear();
         container.apply_closure(&closure(4, "wallet", 43));
         assert_eq!(
-            container.apply(&live_order(11, "8.00000000", "0.00000000", None)),
+            container
+                .apply(&live_order(11, "8.00000000", "0.00000000", None))
+                .unwrap(),
             ApplyOutcome::Inserted
         );
         container.clear();
         container.apply_closure(&closure(4, "wallet", 50));
         assert_eq!(
-            container.apply(&live_order(901, "8.00000000", "0.00000000", None)),
+            container
+                .apply(&live_order(901, "8.00000000", "0.00000000", None))
+                .unwrap(),
             ApplyOutcome::Inserted
         );
     }
@@ -555,11 +603,15 @@ mod tests {
     #[test]
     fn clear_forgets_retired_orders_and_closures() {
         let mut container = UserOpenLimitOrders::new();
-        container.apply(&live_order(10, "8.00000000", "0.00000000", None));
+        container
+            .apply(&live_order(10, "8.00000000", "0.00000000", None))
+            .unwrap();
         container.apply_closure(&closure(4, "wallet", 50));
         container.clear();
         assert_eq!(
-            container.apply(&live_order(11, "8.00000000", "0.00000000", None)),
+            container
+                .apply(&live_order(11, "8.00000000", "0.00000000", None))
+                .unwrap(),
             ApplyOutcome::Inserted
         );
     }
@@ -567,7 +619,9 @@ mod tests {
     #[test]
     fn closure_scopes_without_order_data_request_a_refresh() {
         let mut container = UserOpenLimitOrders::new();
-        container.apply(&live_order(10, "5.00000000", "0.00000000", None));
+        container
+            .apply(&live_order(10, "5.00000000", "0.00000000", None))
+            .unwrap();
         assert_eq!(container.apply_closure(&closure(3, "mint", 50)), None);
         assert_eq!(container.apply_closure(&closure(99, "x", 50)), None);
         assert_eq!(tracked(&container).len(), 1);
@@ -576,13 +630,17 @@ mod tests {
     #[test]
     fn remove_and_clear() {
         let mut container = UserOpenLimitOrders::new();
-        container.apply(&live_order(10, "5.00000000", "0.00000000", None));
+        container
+            .apply(&live_order(10, "5.00000000", "0.00000000", None))
+            .unwrap();
         assert!(container
             .get_by_hash(crate::domain::order::wire::tests::HASH)
             .is_some());
         container.remove(crate::domain::order::wire::tests::HASH);
         assert!(container.is_empty());
-        container.apply(&live_order(11, "5.00000000", "0.00000000", None));
+        container
+            .apply(&live_order(11, "5.00000000", "0.00000000", None))
+            .unwrap();
         container.clear();
         assert!(container.is_empty());
     }
