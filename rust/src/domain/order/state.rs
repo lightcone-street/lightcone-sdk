@@ -84,11 +84,6 @@ impl UserOpenLimitOrders {
         Ok(self.apply_order(LimitOrder::try_from(update.clone())?))
     }
 
-    /// Same as [`Self::apply`]; kept for callers of the previous API.
-    pub fn upsert(&mut self, update: &wire::OrderUpdate) -> Result<(), SdkError> {
-        self.apply(update).map(|_| ())
-    }
-
     /// Apply converted committed order state (live fact, snapshot, or REST).
     ///
     /// State older than the tracked `committed_revision`, or not newer than
@@ -434,24 +429,6 @@ mod tests {
             ApplyOutcome::Stale
         );
         assert_eq!(tracked(&container)[0].remaining_size, Decimal::from(5));
-    }
-
-    #[test]
-    fn upsert_remains_an_alias_for_apply() {
-        let mut container = UserOpenLimitOrders::new();
-        container
-            .upsert(&live_order(1, "5.00000000", "0.00000000", None))
-            .unwrap();
-        assert!(!container.is_empty());
-        container
-            .upsert(&live_order(
-                2,
-                "0.00000000",
-                "0.00000000",
-                Some("cancelled"),
-            ))
-            .unwrap();
-        assert!(container.is_empty());
     }
 
     #[test]

@@ -54,15 +54,23 @@ pub struct OrderState {
 /// Unlike [`OrderState`] it makes no claim about live executability.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecordedOrderState {
+    /// Base size of the signed order, in base-token units.
     pub original_base: Decimal,
+    /// Base filled by confirmed executions, in base-token units.
     pub confirmed_base: Decimal,
+    /// Base matched but awaiting on-chain confirmation, in base-token units.
     pub pending_base: Decimal,
+    /// Base still resting on the book, in base-token units.
     pub open_base: Decimal,
+    /// Base cancelled (explicitly, by expiry, or by closure), in base-token
+    /// units.
     pub cancelled_base: Decimal,
     #[serde(default, deserialize_with = "serde_util::deserialize_nonempty_string")]
     pub closed_reason: Option<String>,
+    /// Committed database revision of this snapshot.
     #[serde(with = "serde_util::u64_text")]
     pub committed_revision: u64,
+    /// Engine acceptance sequence; closures cut off by it.
     #[serde(with = "serde_util::u64_text")]
     pub accepted_seq: u64,
 }
@@ -205,8 +213,10 @@ pub struct OrderFillEvent {
     #[serde(with = "serde_util::i128_text")]
     pub fee_estimate_atoms: i128,
     pub fee_mint: PubkeyStr,
-    /// Fee rates captured for the fill, in basis points.
+    /// Maker fee rate captured for the fill, in basis points (negative =
+    /// rebate).
     pub maker_fee_bps: i16,
+    /// Taker fee rate captured for the fill, in basis points.
     pub taker_fee_bps: i16,
     pub tx_signature: String,
     #[serde(with = "serde_util::timestamp_ms")]

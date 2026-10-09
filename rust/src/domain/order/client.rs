@@ -72,7 +72,11 @@ pub struct CancelAllBody {
     #[serde(default)]
     pub orderbook_id: OrderBookId,
     pub signature: String,
+    /// Unix seconds; must be within the engine's window (at most 30
+    /// seconds) of server time.
     pub timestamp: i64,
+    /// Replay-protection salt: non-empty, at most 128 bytes (the engine may
+    /// allow fewer), never reused.
     pub salt: String,
 }
 
@@ -383,13 +387,15 @@ pub struct UserOrdersResponse {
 }
 
 /// Query for `GET /api/users[/{wallet}]/order-fills`. The backend rejects
-/// unknown parameters and combining `cursor` with `order_hash`.
+/// unknown parameters, combining `cursor` with `order_hash`, and a
+/// `fill_cursor` with `fills` of `0`.
 fn order_fills_query(
     market_pubkey: Option<&str>,
     limit: Option<u32>,
     cursor: Option<&str>,
     order_hash: Option<&str>,
     fill_cursor: Option<&str>,
+    fills: Option<u32>,
 ) -> Vec<(&'static str, String)> {
     let mut query = Vec::new();
     if let Some(market_pubkey) = market_pubkey {
@@ -406,6 +412,9 @@ fn order_fills_query(
     }
     if let Some(fill_cursor) = fill_cursor {
         query.push(("fill_cursor", fill_cursor.to_string()));
+    }
+    if let Some(fills) = fills {
+        query.push(("fills", fills.to_string()));
     }
     query
 }
@@ -582,16 +591,18 @@ impl<'a> Orders<'a> {
     ///
     /// Includes orders where the user was either maker or taker. Optionally
     /// filter by market. Orders are sorted by most recent fill first; each
-    /// carries its oldest-first page of at most 16 fills. `limit` is clamped
+    /// carries its oldest-first page of `fills` fills (default and maximum 16;
+    /// `0` reads none and only reports `fills_has_more`). `limit` is clamped
     /// to 1..=100 server-side.
     pub async fn get_user_order_fills(
         &self,
         market_pubkey: Option<&str>,
         limit: Option<u32>,
         cursor: Option<&str>,
+        fills: Option<u32>,
     ) -> Result<UserOrderFillsResponse, SdkError> {
         let url = format!("{}/api/users/order-fills", self.client.http.base_url());
-        let query = order_fills_query(market_pubkey, limit, cursor, None, None);
+        let query = order_fills_query(market_pubkey, limit, cursor, None, None, fills);
         self.client
             .http
             .get_with_query(&url, &query, RetryPolicy::Idempotent)
@@ -607,10 +618,11 @@ impl<'a> Orders<'a> {
         market_pubkey: Option<&str>,
         limit: Option<u32>,
         cursor: Option<&str>,
+        fills: Option<u32>,
         cookie_header: &str,
     ) -> Result<UserOrderFillsResponse, SdkError> {
         let url = format!("{}/api/users/order-fills", self.client.http.base_url());
-        let query = order_fills_query(market_pubkey, limit, cursor, None, None);
+        let query = order_fills_query(market_pubkey, limit, cursor, None, None, fills);
         self.client
             .http
             .get_with_cookies_and_query(&url, &query, RetryPolicy::Idempotent, cookie_header)
@@ -626,13 +638,14 @@ impl<'a> Orders<'a> {
         market_pubkey: Option<&str>,
         limit: Option<u32>,
         cursor: Option<&str>,
+        fills: Option<u32>,
     ) -> Result<UserOrderFillsResponse, SdkError> {
         let url = format!(
             "{}/api/users/{}/order-fills",
             self.client.http.base_url(),
             wallet_address
         );
-        let query = order_fills_query(market_pubkey, limit, cursor, None, None);
+        let query = order_fills_query(market_pubkey, limit, cursor, None, None, fills);
         self.client
             .http
             .get_with_query(&url, &query, RetryPolicy::Idempotent)
@@ -642,14 +655,16 @@ impl<'a> Orders<'a> {
     /// Fetch one order of the authenticated user with the next page of its
     /// fills. Pass the order's `fills_next_cursor` (or a submission's
     /// `fills_next_cursor`) as `fill_cursor`; `None` starts at the first fill.
-    /// `order_hash` must be 64 lowercase hex characters.
+    /// `fills` is the page size (default and maximum 16; a `fill_cursor`
+    /// needs at least 1). `order_hash` must be 64 lowercase hex characters.
     pub async fn get_order_fill_page(
         &self,
         order_hash: &str,
         fill_cursor: Option<&str>,
+        fills: Option<u32>,
     ) -> Result<UserOrderFillsResponse, SdkError> {
         let url = format!("{}/api/users/order-fills", self.client.http.base_url());
-        let query = order_fills_query(None, None, None, Some(order_hash), fill_cursor);
+        let query = order_fills_query(None, None, None, Some(order_hash), fill_cursor, fills);
         self.client
             .http
             .get_with_query(&url, &query, RetryPolicy::Idempotent)
@@ -662,10 +677,11 @@ impl<'a> Orders<'a> {
         &self,
         order_hash: &str,
         fill_cursor: Option<&str>,
+        fills: Option<u32>,
         cookie_header: &str,
     ) -> Result<UserOrderFillsResponse, SdkError> {
         let url = format!("{}/api/users/order-fills", self.client.http.base_url());
-        let query = order_fills_query(None, None, None, Some(order_hash), fill_cursor);
+        let query = order_fills_query(None, None, None, Some(order_hash), fill_cursor, fills);
         self.client
             .http
             .get_with_cookies_and_query(&url, &query, RetryPolicy::Idempotent, cookie_header)
@@ -678,13 +694,14 @@ impl<'a> Orders<'a> {
         wallet_address: &str,
         order_hash: &str,
         fill_cursor: Option<&str>,
+        fills: Option<u32>,
     ) -> Result<UserOrderFillsResponse, SdkError> {
         let url = format!(
             "{}/api/users/{}/order-fills",
             self.client.http.base_url(),
             wallet_address
         );
-        let query = order_fills_query(None, None, None, Some(order_hash), fill_cursor);
+        let query = order_fills_query(None, None, None, Some(order_hash), fill_cursor, fills);
         self.client
             .http
             .get_with_query(&url, &query, RetryPolicy::Idempotent)
@@ -956,6 +973,25 @@ mod tests {
     use serde_json::{json, Value};
 
     const HASH: &str = "4f1a4b1ab1c0c0ffee0000000000000000000000000000000000000000000001";
+
+    #[test]
+    fn order_fills_query_sends_only_the_given_parameters() {
+        assert_eq!(
+            order_fills_query(None, Some(20), Some("c"), None, None, Some(0)),
+            [
+                ("limit", "20".to_string()),
+                ("cursor", "c".to_string()),
+                ("fills", "0".to_string())
+            ]
+        );
+        assert_eq!(
+            order_fills_query(None, None, None, Some(HASH), Some("f"), None),
+            [
+                ("order_hash", HASH.to_string()),
+                ("fill_cursor", "f".to_string())
+            ]
+        );
+    }
 
     /// Unwrap a success envelope the way the HTTP client does.
     fn body<T: serde::de::DeserializeOwned>(envelope: Value) -> Result<T, SdkError> {

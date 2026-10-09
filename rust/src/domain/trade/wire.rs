@@ -88,7 +88,9 @@ pub struct WsTrade {
     pub fill_id: String,
     pub execution_id: String,
     pub evidence_id: String,
+    /// Index of the settlement event within the confirming evidence.
     pub event_index: i32,
+    /// Index of this leg within the execution.
     pub leg_index: i32,
     pub orderbook_id: OrderBookId,
     pub market_pubkey: PubkeyStr,
@@ -110,7 +112,9 @@ pub struct WsTrade {
     /// Signed taker fee estimate in `fee_mint` units.
     pub taker_fee_estimate: Decimal,
     pub fee_mint: PubkeyStr,
+    /// Maker fee rate in basis points (negative = rebate).
     pub maker_fee_bps: i16,
+    /// Taker fee rate in basis points.
     pub taker_fee_bps: i16,
     pub executed_at: DateTime<Utc>,
 }

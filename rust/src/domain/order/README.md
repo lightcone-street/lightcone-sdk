@@ -131,7 +131,7 @@ An order the wallet participated in (as maker or taker) with its oldest-first pa
 | `closed_reason` | `Option<String>` | Why the order closed |
 | `created_at` | `DateTime<Utc>` | Acceptance time |
 | `fills` | `Vec<OrderFillEvent>` | First fill page |
-| `fills_has_more` / `fills_next_cursor` | | Continue with `get_order_fill_page(order_hash, fill_cursor)` |
+| `fills_has_more` / `fills_next_cursor` | | Continue with `get_order_fill_page(order_hash, fill_cursor, fills)` |
 
 ### `OrderFillEvent`
 
@@ -274,10 +274,11 @@ async fn get_user_order_fills(
     market_pubkey: Option<&str>,
     limit: Option<u32>,
     cursor: Option<&str>,
+    fills: Option<u32>,
 ) -> Result<UserOrderFillsResponse, SdkError>
 ```
 
-Fetch the **authenticated** user's filled orders (with nested fill events; `limit` clamped to 1..=100). See `get_user_order_fills_with_cookies` for the SSR variant and `get_user_order_fills_by_wallet` for the public path-based variant.
+Fetch the **authenticated** user's filled orders (with nested fill events; `limit` clamped to 1..=100). `fills` is how many of each order's fills to embed (default and maximum 16); `Some(0)` reads none and only reports `fills_has_more`. See `get_user_order_fills_with_cookies` for the SSR variant and `get_user_order_fills_by_wallet` for the public path-based variant.
 
 ### `get_order_fill_page`
 
@@ -286,14 +287,15 @@ async fn get_order_fill_page(
     &self,
     order_hash: &str,
     fill_cursor: Option<&str>,
+    fills: Option<u32>,
 ) -> Result<UserOrderFillsResponse, SdkError>
 ```
 
-Fetch one order with the next page of its fills (continue a submission's or an order's `fills_next_cursor`). `order_hash` must be 64 lowercase hex characters. Variants: `get_order_fill_page_with_cookies` and the public `get_order_fill_page_by_wallet`.
+Fetch one order with the next page of its fills (continue a submission's or an order's `fills_next_cursor`). `fills` is the page size (default and maximum 16; a `fill_cursor` needs at least 1). `order_hash` must be 64 lowercase hex characters. Variants: `get_order_fill_page_with_cookies` and the public `get_order_fill_page_by_wallet`.
 
 ### `get_user_orders_with_cookies` / `get_user_order_fills_with_cookies`
 
-SSR / server-function variants — accept an explicit `auth_token: &str` instead of using the SDK's process-wide token store. Same wire contract, different credentials path. See [the top-level Authentication section](../../../README.md#authentication).
+SSR / server-function variants — take the request's raw `Cookie` header (`cookie_header: &str`, carrying `privy-token` and/or `lightcone-token`) instead of using the SDK's process-wide token store. Same wire contract, different credentials path. See [the top-level Authentication section](../../../README.md#authentication).
 
 ### `get_user_order_fills_by_wallet`
 
@@ -304,6 +306,7 @@ async fn get_user_order_fills_by_wallet(
     market_pubkey: Option<&str>,
     limit: Option<u32>,
     cursor: Option<&str>,
+    fills: Option<u32>,
 ) -> Result<UserOrderFillsResponse, SdkError>
 ```
 
@@ -517,7 +520,6 @@ Tracks a wallet's live limit orders (resting, or with fills awaiting confirmatio
 | `apply(&order_update) -> Result<ApplyOutcome, SdkError>` | Apply a live WS `order` fact (`Inserted`, `Updated`, `Removed`, `Stale`, `Ignored`); fails, changing nothing, when its amounts define no limit price |
 | `apply_order(limit_order)` | Same for converted snapshot or REST orders |
 | `apply_closure(&closure_update)` | Close orders in scope up to the cutoff; `None` when the scope needs a refetch |
-| `upsert(&order_update)` | Alias of `apply` |
 | `remove(order_hash)` | Stop tracking an order; older state can add it again |
 | `clear()` | Forget all orders, retired revisions, and closures (before reseeding) |
 
@@ -653,6 +655,7 @@ async fn show_fill_history(
         Some(market_pubkey),
         Some(20),
         None,
+        None, // default: up to 16 fills per order
     ).await?;
 
     for order in &response.orders {
@@ -670,6 +673,7 @@ async fn show_fill_history(
             Some(market_pubkey),
             Some(20),
             response.next_cursor.as_deref(),
+            None,
         ).await?;
     }
 
