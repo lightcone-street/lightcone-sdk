@@ -58,14 +58,17 @@ export function wireObject(value: unknown, field: string): WireRecord {
   return value as WireRecord;
 }
 
-/** A JSON array decoded element by element; `null`/absent is `[]` when `defaultEmpty`. */
+/**
+ * A JSON array decoded element by element. An absent field is `[]` when
+ * `defaultEmpty`; `null` is rejected, as the Rust SDK's `#[serde(default)]` does.
+ */
 export function wireArray<T>(
   value: unknown,
   field: string,
   decode: (item: unknown, field: string) => T,
   defaultEmpty = false,
 ): T[] {
-  if ((value === undefined || value === null) && defaultEmpty) return [];
+  if (value === undefined && defaultEmpty) return [];
   if (!Array.isArray(value)) {
     throw wireError(field, `expected array, got ${describe(value)}`);
   }
@@ -80,9 +83,9 @@ export function wireString(value: unknown, field: string): string {
   return value;
 }
 
-/** A JSON string, or `fallback` when the field is `null` or absent. */
+/** A JSON string, or `fallback` when the field is absent (`null` is rejected). */
 export function wireStringOr(value: unknown, field: string, fallback: string): string {
-  if (value === undefined || value === null) return fallback;
+  if (value === undefined) return fallback;
   return wireString(value, field);
 }
 
@@ -112,9 +115,9 @@ export function wireNonEmptyString(value: unknown, field: string): string | unde
   return text === "" ? undefined : text;
 }
 
-/** A JSON boolean, or `fallback` when the field is `null` or absent. */
+/** A JSON boolean, or `fallback` when the field is absent (`null` is rejected). */
 export function wireBool(value: unknown, field: string, fallback?: boolean): boolean {
-  if ((value === undefined || value === null) && fallback !== undefined) return fallback;
+  if (value === undefined && fallback !== undefined) return fallback;
   if (typeof value !== "boolean") {
     throw wireError(field, `expected boolean, got ${describe(value)}`);
   }
@@ -139,6 +142,13 @@ function integerText(value: unknown, field: string, signed: boolean): bigint {
   throw wireError(field, `expected integer text or number, got ${describe(value)}`);
 }
 
+/** A JSON integer token (number, or `bigint` from exact parsing); text is rejected. */
+function jsonInteger(value: unknown, field: string): bigint {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number" && Number.isSafeInteger(value)) return BigInt(value);
+  throw wireError(field, `expected an exact JSON integer, got ${describe(value)}`);
+}
+
 /** An exact `u64` sent as decimal text or a JSON number. */
 export function wireU64(value: unknown, field: string): bigint {
   const parsed = integerText(value, field, false);
@@ -156,9 +166,9 @@ export function wireOptU64(value: unknown, field: string): bigint | undefined {
 const I64_MIN = -(1n << 63n);
 const I64_MAX = (1n << 63n) - 1n;
 
-/** An exact signed `i64` sent as a JSON number (or integer text). */
+/** An exact signed `i64` sent as a JSON number (integer text is rejected). */
 export function wireI64(value: unknown, field: string): bigint {
-  const parsed = integerText(value, field, true);
+  const parsed = jsonInteger(value, field);
   if (parsed < I64_MIN || parsed > I64_MAX) {
     throw wireError(field, `integer out of i64 range: ${parsed}`);
   }
@@ -186,18 +196,17 @@ export function wireOptI128(value: unknown, field: string): bigint | undefined {
 
 /**
  * A small JSON integer such as basis points or an index, within
- * `[min, max]`. Accepts integer text as well, which the backend uses for
- * some protobuf integers.
+ * `[min, max]`. Integer text is rejected, as the Rust SDK's plain integers do.
  */
 export function wireInt(value: unknown, field: string, min: number, max: number): number {
-  const parsed = integerText(value, field, true);
+  const parsed = jsonInteger(value, field);
   if (parsed < BigInt(min) || parsed > BigInt(max)) {
     throw wireError(field, `integer out of range [${min}, ${max}]: ${parsed}`);
   }
   return Number(parsed);
 }
 
-/** `wireInt`, or `fallback` when the field is `null` or absent. */
+/** `wireInt`, or `fallback` when the field is absent (`null` is rejected). */
 export function wireIntOr(
   value: unknown,
   field: string,
@@ -205,7 +214,7 @@ export function wireIntOr(
   max: number,
   fallback: number,
 ): number {
-  if (value === undefined || value === null) return fallback;
+  if (value === undefined) return fallback;
   return wireInt(value, field, min, max);
 }
 
@@ -228,9 +237,9 @@ export function wireOptDecimal(value: unknown, field: string): string | undefine
   return value === undefined || value === null ? undefined : wireDecimal(value, field);
 }
 
-/** A decimal string, or `fallback` when the field is `null` or absent. */
+/** A decimal string, or `fallback` when the field is absent (`null` is rejected). */
 export function wireDecimalOr(value: unknown, field: string, fallback: string): string {
-  return value === undefined || value === null ? fallback : wireDecimal(value, field);
+  return value === undefined ? fallback : wireDecimal(value, field);
 }
 
 /**
@@ -239,10 +248,15 @@ export function wireDecimalOr(value: unknown, field: string, fallback: string): 
  * `1` = ask).
  */
 export function wireSide(value: unknown, field: string): Side {
-  if (value === "bid" || value === "buy") return Side.Bid;
-  if (value === "ask" || value === "sell") return Side.Ask;
   if (value === 0 || value === 0n) return Side.Bid;
   if (value === 1 || value === 1n) return Side.Ask;
+  return wireSideText(value, field);
+}
+
+/** A REST side: `"bid"`/`"ask"` or `"buy"`/`"sell"` only. */
+export function wireSideText(value: unknown, field: string): Side {
+  if (value === "bid" || value === "buy") return Side.Bid;
+  if (value === "ask" || value === "sell") return Side.Ask;
   throw wireError(field, `unknown side ${describe(value)}`);
 }
 

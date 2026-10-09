@@ -14,6 +14,7 @@ import {
   wirePubkey,
   wireRfc3339,
   wireSide,
+  wireSideText,
   wireString,
   type WireRecord,
 } from "../../shared/wire_decode";
@@ -148,7 +149,7 @@ export function tradeResponseFromWire(value: unknown, field = "trade"): TradeRes
     orderbook_id: wireOrderBookId(data.orderbook_id, `${field}.orderbook_id`),
     taker_pubkey: wireString(data.taker_pubkey, `${field}.taker_pubkey`),
     maker_pubkey: wireString(data.maker_pubkey, `${field}.maker_pubkey`),
-    side: wireSide(data.side, `${field}.side`),
+    side: wireSideText(data.side, `${field}.side`),
     size: wireString(data.size, `${field}.size`),
     price: wireString(data.price, `${field}.price`),
     taker_fee_estimate: wireOptDecimal(data.taker_fee_estimate, `${field}.taker_fee_estimate`),

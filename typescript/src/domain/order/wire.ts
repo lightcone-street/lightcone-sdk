@@ -38,6 +38,7 @@ import {
   wirePubkey,
   wireRfc3339,
   wireSide,
+  wireSideText,
   wireString,
   wireStringOr,
   wireTimestampMs,
@@ -59,7 +60,7 @@ const ORDER_STATUSES = [
 ] as const;
 
 function wireI64Or(value: unknown, field: string, fallback: bigint): bigint {
-  return value === undefined || value === null ? fallback : wireI64(value, field);
+  return value === undefined ? fallback : wireI64(value, field);
 }
 
 // ─── Committed order state (REST) ────────────────────────────────────────────
@@ -509,7 +510,7 @@ export function userOrderFromWire(value: unknown, field = "order"): UserOrder {
     order_hash: wireString(data.order_hash, `${field}.order_hash`),
     market_pubkey: wirePubkey(data.market_pubkey, `${field}.market_pubkey`),
     orderbook_id: wireOrderBookId(data.orderbook_id, `${field}.orderbook_id`),
-    side: wireSide(data.side, `${field}.side`),
+    side: wireSideText(data.side, `${field}.side`),
     amount_in: wireDecimal(data.amount_in, `${field}.amount_in`),
     amount_out: wireDecimal(data.amount_out, `${field}.amount_out`),
     price: wireDecimal(data.price, `${field}.price`),
@@ -556,7 +557,7 @@ export function userOrderFillFromWire(value: unknown, field = "order"): UserOrde
     order_hash: wireString(data.order_hash, `${field}.order_hash`),
     market_pubkey: wirePubkey(data.market_pubkey, `${field}.market_pubkey`),
     orderbook_id: wireOrderBookId(data.orderbook_id, `${field}.orderbook_id`),
-    side: wireSide(data.side, `${field}.side`),
+    side: wireSideText(data.side, `${field}.side`),
     base_mint: wirePubkey(data.base_mint, `${field}.base_mint`),
     quote_mint: wirePubkey(data.quote_mint, `${field}.quote_mint`),
     original_base: wireDecimal(data.original_base, `${field}.original_base`),

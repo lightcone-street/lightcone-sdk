@@ -11,15 +11,21 @@ import {
 import { quotePerBase } from "../src/shared/price";
 import { FundingSource, Side } from "../src/shared/types";
 import {
+  wireArray,
+  wireBool,
   wireCommitInfo,
   wireDecimal,
   wireFundingSource,
   wireI128,
+  wireI64,
+  wireInt,
   wireKnownOrUndefined,
   wireNonEmptyString,
   wireOptI128,
   wireOptU64,
   wireSide,
+  wireSideText,
+  wireStringOr,
   wireU64,
 } from "../src/shared/wire_decode";
 import { parseJsonExact } from "../src/shared/json";
@@ -65,6 +71,27 @@ describe("committed wire encodings", () => {
     assert.throws(() => wireI128((1n << 127n).toString(), "fee"), isSerde);
     assert.throws(() => wireSide(2, "side"), isSerde);
     assert.throws(() => wireSide("1", "side"), isSerde);
+  });
+
+  it("decodes plain integers and REST sides as the Rust SDK does", () => {
+    assert.equal(wireI64(-5, "id"), -5n);
+    assert.equal(wireInt(30, "fee_bps", -32768, 32767), 30);
+    for (const value of ["5", "-5", 1.5]) {
+      assert.throws(() => wireI64(value, "id"), isSerde, String(value));
+      assert.throws(() => wireInt(value, "fee_bps", -32768, 32767), isSerde, String(value));
+    }
+    assert.equal(wireSideText("sell", "side"), Side.Ask);
+    assert.throws(() => wireSideText(0, "side"), isSerde);
+    assert.throws(() => wireSideText(1n, "side"), isSerde);
+  });
+
+  it("defaults absent fields but rejects null, as serde(default) does", () => {
+    assert.equal(wireBool(undefined, "has_more", false), false);
+    assert.deepEqual(wireArray(undefined, "fills", (item) => item, true), []);
+    assert.equal(wireStringOr(undefined, "order_type", ""), "");
+    assert.throws(() => wireBool(null, "has_more", false), isSerde);
+    assert.throws(() => wireArray(null, "fills", (item) => item, true), isSerde);
+    assert.throws(() => wireStringOr(null, "order_type", ""), isSerde);
   });
 
   it("names the field in decode failures", () => {

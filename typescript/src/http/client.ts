@@ -514,7 +514,14 @@ export class LightconeHttp {
         this.captureCookies(response);
       }
 
-      const text = await response.text();
+      let text: string;
+      try {
+        text = await response.text();
+      } catch (error) {
+        // A body cut off in transit is a transport failure, retried under the
+        // request's policy like any other lost connection.
+        throw HttpError.request(error instanceof Error ? error.message : String(error));
+      }
       let payload: T;
       try {
         payload = parseJsonExact<T>(text);

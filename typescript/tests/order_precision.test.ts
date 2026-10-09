@@ -17,7 +17,7 @@ import { OrderSide } from "../src/program/types";
 import { parseMessageIn } from "../src/ws";
 import { LightconeClient } from "../src/client";
 import { LimitOrderEnvelope } from "../src/program/envelope";
-import { ProgramSdkError } from "../src/program/error";
+import { SdkError } from "../src/error";
 import type { OrderBookPair } from "../src/domain/orderbook";
 
 const rulesWire: DecimalsResponse = {
@@ -215,7 +215,7 @@ describe("exact order precision", () => {
     assert.equal(submitCalls, 0);
   });
 
-  it("reports null projection metadata as a serialization error", async () => {
+  it("reports null projection metadata as a Serde error", async () => {
     for (const field of ["revision", "captured_at_ms"] as const) {
       const client = LightconeClient.builder().baseUrl("https://example.test").build();
       (client.http as unknown as { get: () => Promise<unknown> }).get = async () => ({
@@ -234,8 +234,7 @@ describe("exact order precision", () => {
 
       await assert.rejects(
         () => client.orderbooks().get("ob"),
-        (error) =>
-          error instanceof ProgramSdkError && error.variant === "Serialization"
+        (error) => error instanceof SdkError && error.variant === "Serde"
       );
     }
   });

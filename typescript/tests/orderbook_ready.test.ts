@@ -101,6 +101,72 @@ describe("orderbook tickers paging", () => {
   });
 });
 
+describe("orderbook decoding strictness", () => {
+  function depthBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      orderbook_id: "ob",
+      bids: [{ price: "0.5000", size: "10" }],
+      asks: [],
+      price_quantum: "0.0001",
+      trading_rules: RULES,
+      revision: 275,
+      captured_at_ms: 1790685521784,
+      decimals: { price: 4, size: 8 },
+      ready: true,
+      ...overrides,
+    };
+  }
+
+  function stub(body: unknown): LightconeClient {
+    const client = LightconeClient.builder().baseUrl("https://example.test").build();
+    (client.http as unknown as { get: () => Promise<unknown> }).get = async () => body;
+    return client;
+  }
+
+  const isSerde = (error: unknown) => error instanceof SdkError && error.variant === "Serde";
+
+  it("decodes depth levels and defaults absent flags", async () => {
+    const depth = await stub(depthBody({ ready: undefined })).orderbooks().get("ob");
+    assert.equal(depth.ready, false);
+    assert.equal(depth.bids_truncated, false);
+    assert.equal(depth.revision, 275n);
+    assert.deepEqual(depth.bids, [{ price: "0.5000", size: "10" }]);
+  });
+
+  it("rejects a malformed depth body as Serde", async () => {
+    for (const overrides of [
+      { ready: "yes" },
+      { ready: null },
+      { revision: "abc" },
+      { revision: -1 },
+      { captured_at_ms: undefined },
+      { decimals: { price: 300, size: 8 } },
+      { bids: [{ price: "x", size: "1" }] },
+      { trading_rules: { ...RULES, price_quantum_raw: "0.1" } },
+    ]) {
+      await assert.rejects(() => stub(depthBody(overrides)).orderbooks().get("ob"), isSerde, JSON.stringify(overrides));
+    }
+  });
+
+  it("rejects a malformed ticker entry as Serde", async () => {
+    const entry = {
+      orderbook_id: "ob",
+      market_pubkey: "market",
+      base_deposit_asset: "base",
+      quote_deposit_asset: "quote",
+    };
+    for (const body of [
+      { tickers: [{ ...entry, base_deposit_asset: undefined }], has_more: false },
+      { tickers: [{ ...entry, best_bid: "abc" }], has_more: false },
+      { tickers: [{ ...entry, outcome_index: "1" }], has_more: false },
+      { tickers: [{ ...entry, computed_at: "yesterday" }], has_more: false },
+      { tickers: [entry], has_more: null },
+    ]) {
+      await assert.rejects(() => stub(body).metrics().orderbookTickersPage(), isSerde, JSON.stringify(body));
+    }
+  });
+});
+
 describe("orderbook readiness", () => {
   it("exposes ready on REST depth and WS frames", async () => {
     const client = LightconeClient.builder().baseUrl("https://example.test").build();

@@ -1,7 +1,17 @@
 import type { ClientContext } from "../../context";
 import { SdkError } from "../../error";
 import { RetryPolicy } from "../../http";
-import { wireArray, wireBool, wireObject, wireOptString } from "../../shared/wire_decode";
+import {
+  wireArray,
+  wireBool,
+  wireInt,
+  wireObject,
+  wireOptDecimal,
+  wireOptString,
+  wireOrderBookId,
+  wirePubkey,
+  wireRfc3339,
+} from "../../shared/wire_decode";
 import { Resolution, type OrderBookId, type PubkeyStr } from "../../shared";
 import type {
   CategoriesMetrics,
@@ -16,6 +26,7 @@ import type {
   MetricsHistoryQuery,
   OpenInterestHistory,
   OpenInterestHistoryQuery,
+  OrderbookTickerEntry,
   OrderbookTickersResponse,
   OrderbookVolumeMetrics,
   PlatformMetrics,
@@ -60,14 +71,36 @@ export async function collectTickerPages(
   return { tickers, next_cursor: cursor, has_more: true };
 }
 
+function orderbookTickerEntryFromWire(value: unknown, field: string): OrderbookTickerEntry {
+  const data = wireObject(value, field);
+  const computedAt = wireOptString(data.computed_at, `${field}.computed_at`);
+  if (computedAt !== undefined) wireRfc3339(computedAt, `${field}.computed_at`);
+  const entry: OrderbookTickerEntry = {
+    orderbook_id: wireOrderBookId(data.orderbook_id, `${field}.orderbook_id`),
+    market_pubkey: wirePubkey(data.market_pubkey, `${field}.market_pubkey`),
+    outcome_index: data.outcome_index === undefined || data.outcome_index === null
+      ? undefined
+      : wireInt(data.outcome_index, `${field}.outcome_index`, -32768, 32767),
+    outcome_name: wireOptString(data.outcome_name, `${field}.outcome_name`),
+    outcome_name_long: wireOptString(data.outcome_name_long, `${field}.outcome_name_long`),
+    base_deposit_asset: wirePubkey(data.base_deposit_asset, `${field}.base_deposit_asset`),
+    quote_deposit_asset: wirePubkey(data.quote_deposit_asset, `${field}.quote_deposit_asset`),
+    best_bid: wireOptDecimal(data.best_bid, `${field}.best_bid`),
+    best_ask: wireOptDecimal(data.best_ask, `${field}.best_ask`),
+    midpoint: wireOptDecimal(data.midpoint, `${field}.midpoint`),
+    computed_at: computedAt,
+  };
+  // Absent optional fields stay absent, as the backend omits them.
+  for (const key of Object.keys(entry) as Array<keyof OrderbookTickerEntry>) {
+    if (entry[key] === undefined) delete entry[key];
+  }
+  return entry;
+}
+
 function orderbookTickersPageFromWire(value: unknown): OrderbookTickersResponse {
   const data = wireObject(value, "orderbook_tickers");
   return {
-    tickers: wireArray(
-      data.tickers,
-      "orderbook_tickers.tickers",
-      (item, field) => wireObject(item, field) as unknown as OrderbookTickersResponse["tickers"][number],
-    ),
+    tickers: wireArray(data.tickers, "orderbook_tickers.tickers", orderbookTickerEntryFromWire),
     next_cursor: wireOptString(data.next_cursor, "orderbook_tickers.next_cursor"),
     has_more: wireBool(data.has_more, "orderbook_tickers.has_more", false),
   };

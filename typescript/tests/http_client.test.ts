@@ -123,6 +123,32 @@ describe("LightconeHttp", () => {
     );
   });
 
+  it("retries a 2xx body cut off in transit as a request failure", async () => {
+    let attempts = 0;
+    const server = createServer((_request, response) => {
+      attempts += 1;
+      if (attempts === 1) {
+        // Headers and part of the body arrive before the connection resets.
+        response.writeHead(200, { "content-type": "application/json", "content-length": "100" });
+        response.write('{"status":"succ');
+        setTimeout(() => response.socket?.destroy(), 50);
+        return;
+      }
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end('{"status":"success","body":{"ok":true}}');
+    });
+    await listen(server);
+    const { port } = server.address() as AddressInfo;
+    try {
+      const client = new LightconeHttp(`http://127.0.0.1:${port}`);
+      const body = await client.get<{ ok: boolean }>(`http://127.0.0.1:${port}/test`, fastRetry([]));
+      assert.deepEqual(body, { ok: true });
+      assert.equal(attempts, 2);
+    } finally {
+      await close(server);
+    }
+  });
+
   it("returns structured 500 rejection details", async () => {
     await withServer(
       [
