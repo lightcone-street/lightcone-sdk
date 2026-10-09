@@ -28,7 +28,7 @@ const client = LightconeClient.builder()
 
 | Sub-client | Access | On-chain capabilities |
 |------------|--------|----------------------|
-| `client.orders()` | Order management | cancelOrder, incrementNonce, closeOrderStatus, createBidOrder, createAskOrder, signOrder, getStatus, getNonce |
+| `client.orders()` | Order management | cancelOrderIx, closeOrderStatusIx, createBidOrder, createAskOrder, hashOrder, signOrder, getStatus |
 | `client.markets()` | Market queries | mintCompleteSet, mergeCompleteSet, deriveConditionId, getConditionalMints, getOnchain |
 | `client.positions()` | Position management | redeemWinnings, withdrawConditionalFromPosition, withdrawFromPosition compatibility wrapper, initPositionTokens, depositToGlobal, globalToMarketDeposit, closePositionTokenAccounts, getOnchain |
 | `client.orderbooks()` | Orderbook data | closeOrderbook, getOnchain |
@@ -87,7 +87,6 @@ import type {
   Market,
   Position,
   OrderStatus,
-  UserNonce,
   PendingRoleKind,
 } from "@lightconexyz/lightcone-sdk";
 ```
@@ -136,12 +135,13 @@ import type {
 | `index` | number | Deposit token ordering index |
 | `active` | boolean | Whether the collateral may back an executed trade; inactivity leaves deposit, preparation, split, merge, and exit rules unchanged |
 
-#### SignedOrder (233 bytes)
+#### SignedOrder (225 bytes)
+
+There is no per-user nonce: the salt is the order's only identity, and bytes 0..161 are the signing preimage. Integers are little-endian. `serializeSignedOrder` writes and `deserializeSignedOrder` requires exactly 225 bytes.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `nonce` | number | Order nonce |
-| `salt` | bigint | Random salt for order uniqueness |
+| `salt` | bigint | Order identity; any u64, including 0. Use a distinct salt per order |
 | `maker` | PublicKey | Maker public key |
 | `market` | PublicKey | Market address |
 | `baseMint` | PublicKey | Base token mint |
@@ -149,12 +149,14 @@ import type {
 | `side` | OrderSide | BID or ASK |
 | `amountIn` | bigint | Amount maker gives |
 | `amountOut` | bigint | Amount maker receives |
-| `expiration` | bigint | Expiration timestamp (0 = no expiration) |
+| `expiration` | bigint | Expiration Unix timestamp in seconds (0 = no expiration). The order remains valid during its expiration second |
 | `signature` | Buffer | Ed25519 signature (64 bytes) |
 
-#### Order (37 bytes)
+`hashOrder` returns the Keccak-256 hash of the 161-byte preimage, which is also the order-status PDA seed. The wallet signs the 64 lowercase ASCII hex characters of that hash, with no prefix (`getOrderMessage`). `generateSalt` draws a uniformly random u64.
 
-Compact order payload without `maker`, `market`, `baseMint`, or `quoteMint`.
+#### Order (33 bytes)
+
+Compact order payload: salt, side, amountIn, amountOut, and expiration, without `maker`, `market`, `baseMint`, `quoteMint`, or the signature. `deserializeOrder` requires exactly 33 bytes.
 
 ---
 
@@ -196,7 +198,7 @@ Every `build*Ix` appends the event-authority PDA and executable program account
 as read-only, non-signer accounts, in that order. These are always the last two
 accounts; callers must not append another trailer.
 
-See the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules and the governance CPI allowlist. The [program source at `db552338`](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src) defines the current binary interfaces, preparation behavior, limits, and errors.
+See the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules and the governance CPI allowlist. The nonce-free [program source at `f1092ae7`](https://github.com/lightcone-street/lightcone-pinnochio/tree/f1092ae7cc13910528437a8c33bb53c893687a32/src) defines the current binary interfaces, preparation behavior, limits, and errors; its ABI is unchanged from `9702f231`. The order-identity and program-client vector tests pin the backend's order-signing vectors and the instruction bytes produced by the program team's `lightcone-client` at that commit.
 
 The program emits authenticated event schema 2. This is separate from the outer Solana transaction version.
 The SDK neither builds nor decodes event batches. `INSTRUCTION.EVENT_BATCH = 255` is reserved. Builders do not add a compute-budget instruction. Callers must include
@@ -251,12 +253,10 @@ async function main() {
   const [quoteMint] = client.markets().getConditionalMints(marketPda, usdcMint, 2);
 
   // Construct and sign an exact order with immutable rules
-  const orders = client.orders();
-  const nonce = await orders.currentNonce(maker.publicKey);
   const rules = await client.orderbooks().decimals(orderbookId);
 
+  // The builder draws a random u64 salt on the first build and reuses it.
   const signedOrder = new OrderBuilder()
-    .nonce(nonce)
     .maker(maker.publicKey)
     .market(marketPda)
     .baseMint(baseMint)
