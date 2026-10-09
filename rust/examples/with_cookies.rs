@@ -39,7 +39,7 @@ async fn main() -> ExampleResult {
         .positions()
         .positions_with_cookies(&cookie_header)
         .await?;
-    println!("markets with positions: {}", positions.total_markets);
+    println!("funding accounts: {}", positions.funding_accounts.len());
 
     let balances = client
         .positions()
@@ -67,7 +67,7 @@ async fn main() -> ExampleResult {
 
     let fills = client
         .orders()
-        .get_user_order_fills_with_cookies(None, Some(50), None, &cookie_header)
+        .get_user_order_fills_with_cookies(None, Some(50), None, None, &cookie_header)
         .await?;
     println!("order fills: {}", fills.orders.len());
 

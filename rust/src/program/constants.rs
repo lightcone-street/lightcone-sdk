@@ -43,7 +43,6 @@ pub mod instruction {
     pub const MINT_COMPLETE_SET: u8 = 3;
     pub const MERGE_COMPLETE_SET: u8 = 4;
     pub const CANCEL_ORDER: u8 = 5;
-    pub const INCREMENT_NONCE: u8 = 6;
     pub const SETTLE_MARKET: u8 = 7;
     pub const REDEEM_WINNINGS: u8 = 8;
     pub const SET_PAUSED: u8 = 9;
@@ -92,8 +91,6 @@ pub const EXCHANGE_DISCRIMINATOR: [u8; 8] = [0x1e, 0xc8, 0xdc, 0x95, 0x03, 0x3d,
 pub const MARKET_DISCRIMINATOR: [u8; 8] = [0xdb, 0xbe, 0xd5, 0x37, 0x00, 0xe3, 0xc6, 0x9a];
 /// Order status account discriminator
 pub const ORDER_STATUS_DISCRIMINATOR: [u8; 8] = [0x2e, 0x5a, 0xf1, 0x49, 0xb2, 0x68, 0x41, 0x03];
-/// User nonce account discriminator
-pub const USER_NONCE_DISCRIMINATOR: [u8; 8] = [0xeb, 0x85, 0x01, 0xf3, 0x12, 0x87, 0x58, 0xe0];
 /// Position account discriminator
 pub const POSITION_DISCRIMINATOR: [u8; 8] = [0xaa, 0xbc, 0x8f, 0xe4, 0x7a, 0x40, 0xf7, 0xd0];
 /// Orderbook account discriminator
@@ -120,16 +117,12 @@ pub const CONDITIONAL_MINT_SEED: &[u8] = b"conditional_mint";
 pub const CONDITION_SEED: &[u8] = b"condition";
 /// Order status PDA seed
 pub const ORDER_STATUS_SEED: &[u8] = b"order_status";
-/// User nonce PDA seed
-pub const USER_NONCE_SEED: &[u8] = b"user_nonce";
 /// Position PDA seed
 pub const POSITION_SEED: &[u8] = b"position";
 /// Orderbook PDA seed
 pub const ORDERBOOK_SEED: &[u8] = b"orderbook";
 /// GlobalDepositToken PDA seed (also used for user global deposit accounts)
 pub const GLOBAL_DEPOSIT_TOKEN_SEED: &[u8] = b"global_deposit";
-/// Fee receiver seed exported by the on-chain program.
-pub const FEE_RECEIVER_SEED: &[u8] = b"fee_receiver";
 /// Metaplex metadata PDA seed.
 pub const MPL_METADATA_SEED: &[u8] = b"metadata";
 /// Event-authority PDA seed.
@@ -148,8 +141,6 @@ pub const EXCHANGE_SIZE: usize = 216;
 pub const MARKET_SIZE: usize = 216;
 /// Order status account size in bytes
 pub const ORDER_STATUS_SIZE: usize = 32;
-/// User nonce account size in bytes
-pub const USER_NONCE_SIZE: usize = 16;
 /// Position account size in bytes
 pub const POSITION_SIZE: usize = 80;
 /// Orderbook account size in bytes
@@ -161,10 +152,16 @@ pub const GLOBAL_DEPOSIT_TOKEN_SIZE: usize = 47;
 // Order Sizes
 // ============================================================================
 
-/// Signed order size in bytes
-pub const SIGNED_ORDER_SIZE: usize = 233;
-/// Order size in bytes (compact on-chain format)
-pub const ORDER_SIZE: usize = 37;
+/// Signed-order preimage size in bytes.
+///
+/// Keccak256 of these bytes is the order hash, which is also the order-status
+/// PDA seed. Layout: salt, maker, market, base mint, quote mint, side,
+/// amount in, amount out, expiration.
+pub const ORDER_PREIMAGE_SIZE: usize = 161;
+/// Signed order size in bytes (preimage followed by the Ed25519 signature)
+pub const SIGNED_ORDER_SIZE: usize = ORDER_PREIMAGE_SIZE + SIGNATURE_SIZE;
+/// Order size in bytes (compact on-chain format: salt, side, amounts, expiration)
+pub const ORDER_SIZE: usize = 33;
 /// Signature size in bytes
 pub const SIGNATURE_SIZE: usize = 64;
 

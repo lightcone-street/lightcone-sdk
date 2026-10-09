@@ -12,34 +12,35 @@ use solana_keypair::Keypair;
 #[cfg(feature = "native-auth")]
 use solana_signer::Signer;
 
-use crate::program::constants::{ORDER_SIZE, SIGNED_ORDER_SIZE};
+use crate::program::constants::{ORDER_PREIMAGE_SIZE, ORDER_SIZE, SIGNED_ORDER_SIZE};
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::types::{AskOrderParams, BidOrderParams, OrderSide};
 use crate::shared::{validate_raw_amounts, OrderbookRules, SubmitOrderRequest};
 
 // ============================================================================
-// Signed Order (233 bytes)
+// Signed Order (225 bytes)
 // ============================================================================
 
 /// Signed order structure with full context and signature.
 ///
-/// Layout (233 bytes):
-/// - [0..8]     nonce (8 bytes, u64)
-/// - [8..16]    salt (8 bytes, u64)
-/// - [16..48]   maker (32 bytes)
-/// - [48..80]   market (32 bytes)
-/// - [80..112]  base_mint (32 bytes)
-/// - [112..144] quote_mint (32 bytes)
-/// - [144]      side (1 byte)
-/// - [145..153] amount_in (8 bytes)
-/// - [153..161] amount_out (8 bytes)
-/// - [161..169] expiration (8 bytes)
-/// - [169..233] signature (64 bytes)
+/// There is no per-user nonce: the salt is the order's only identity field.
+/// Two orders with identical fields and salt have the same hash.
+///
+/// Layout (225 bytes, integers little-endian). The first 161 bytes are the
+/// signing preimage:
+/// - [0..8]     salt (8 bytes, u64)
+/// - [8..40]    maker (32 bytes)
+/// - [40..72]   market (32 bytes)
+/// - [72..104]  base_mint (32 bytes)
+/// - [104..136] quote_mint (32 bytes)
+/// - [136]      side (1 byte)
+/// - [137..145] amount_in (8 bytes)
+/// - [145..153] amount_out (8 bytes)
+/// - [153..161] expiration (8 bytes)
+/// - [161..225] signature (64 bytes)
 #[derive(Debug, Clone)]
 pub struct OrderPayload {
-    /// Unique order ID and replay protection
-    pub nonce: u64,
-    /// Random salt for order uniqueness
+    /// Order identity salt. Any u64, including 0, is valid.
     pub salt: u64,
     /// Order maker's pubkey
     pub maker: Pubkey,
@@ -51,11 +52,11 @@ pub struct OrderPayload {
     pub quote_mint: Pubkey,
     /// Order side (0 = Bid, 1 = Ask)
     pub side: OrderSide,
-    /// Amount maker gives
+    /// Amount the maker gives, in raw atoms of the given mint (the program's `maker_amount`)
     pub amount_in: u64,
-    /// Amount maker receives
+    /// Amount the maker receives, in raw atoms of the received mint (the program's `taker_amount`)
     pub amount_out: u64,
-    /// Expiration timestamp (0 = no expiration)
+    /// Expiration as Unix seconds (0 = no expiration)
     pub expiration: i64,
     /// Ed25519 signature
     pub signature: [u8; 64],
@@ -65,13 +66,12 @@ impl OrderPayload {
     /// Order size in bytes
     pub const LEN: usize = SIGNED_ORDER_SIZE;
 
-    /// Size of the signed portion of the order (for hashing)
-    pub const HASH_SIZE: usize = 169;
+    /// Size of the signed preimage (the hashed portion of the order)
+    pub const HASH_SIZE: usize = ORDER_PREIMAGE_SIZE;
 
     /// Create a new bid order (maker buys base, gives quote)
     pub fn new_bid(params: BidOrderParams) -> Self {
         Self {
-            nonce: params.nonce,
             salt: params.salt,
             maker: params.maker,
             market: params.market,
@@ -88,7 +88,6 @@ impl OrderPayload {
     /// Create a new ask order (maker sells base, receives quote)
     pub fn new_ask(params: AskOrderParams) -> Self {
         Self {
-            nonce: params.nonce,
             salt: params.salt,
             maker: params.maker,
             market: params.market,
@@ -102,31 +101,34 @@ impl OrderPayload {
         }
     }
 
-    /// Build the raw 169-byte order message from the signed fields.
+    /// Build the raw 161-byte order preimage from the signed fields.
     /// This is hashed (keccak256) and hex-encoded to produce the bytes that users sign.
-    fn signing_message(&self) -> [u8; Self::HASH_SIZE] {
+    fn preimage(&self) -> [u8; Self::HASH_SIZE] {
         let mut data = [0u8; Self::HASH_SIZE];
 
-        data[0..8].copy_from_slice(&self.nonce.to_le_bytes());
-        data[8..16].copy_from_slice(&self.salt.to_le_bytes());
-        data[16..48].copy_from_slice(self.maker.as_ref());
-        data[48..80].copy_from_slice(self.market.as_ref());
-        data[80..112].copy_from_slice(self.base_mint.as_ref());
-        data[112..144].copy_from_slice(self.quote_mint.as_ref());
-        data[144] = self.side as u8;
-        data[145..153].copy_from_slice(&self.amount_in.to_le_bytes());
-        data[153..161].copy_from_slice(&self.amount_out.to_le_bytes());
-        data[161..169].copy_from_slice(&self.expiration.to_le_bytes());
+        data[0..8].copy_from_slice(&self.salt.to_le_bytes());
+        data[8..40].copy_from_slice(self.maker.as_ref());
+        data[40..72].copy_from_slice(self.market.as_ref());
+        data[72..104].copy_from_slice(self.base_mint.as_ref());
+        data[104..136].copy_from_slice(self.quote_mint.as_ref());
+        data[136] = self.side as u8;
+        data[137..145].copy_from_slice(&self.amount_in.to_le_bytes());
+        data[145..153].copy_from_slice(&self.amount_out.to_le_bytes());
+        data[153..161].copy_from_slice(&self.expiration.to_le_bytes());
 
         data
     }
 
     /// Compute the 32-byte Keccak256 hash of the signed fields.
+    ///
+    /// This is the order ID and the order-status PDA seed.
     pub fn hash(&self) -> [u8; 32] {
-        Keccak256::digest(self.signing_message()).into()
+        Keccak256::digest(self.preimage()).into()
     }
 
-    /// Compute the order hash as a hex string.
+    /// Compute the order hash as a lowercase hex string.
+    ///
+    /// Its 64 ASCII bytes are the message the maker signs.
     pub fn hash_hex(&self) -> String {
         hex::encode(self.hash())
     }
@@ -134,12 +136,7 @@ impl OrderPayload {
     /// Sign the order with the given keypair.
     #[cfg(feature = "native-auth")]
     pub fn sign(&mut self, keypair: &Keypair, rules: &OrderbookRules) -> SdkResult<()> {
-        crate::shared::validate_signed_fields(
-            self.amount_in,
-            self.amount_out,
-            self.salt,
-            self.nonce,
-        )?;
+        crate::shared::validate_signed_fields(self.amount_in, self.amount_out)?;
         validate_raw_amounts(self.amount_in, self.amount_out, self.side, rules)?;
         let hash = self.hash_hex();
         let sig = keypair.sign_message(hash.as_bytes());
@@ -187,12 +184,7 @@ impl OrderPayload {
 
     /// Apply a signature to the order.
     pub fn apply_signature(&mut self, sig_bs58: String, rules: &OrderbookRules) -> SdkResult<()> {
-        crate::shared::validate_signed_fields(
-            self.amount_in,
-            self.amount_out,
-            self.salt,
-            self.nonce,
-        )?;
+        crate::shared::validate_signed_fields(self.amount_in, self.amount_out)?;
         validate_raw_amounts(self.amount_in, self.amount_out, self.side, rules)?;
         let signature = sig_bs58
             .parse::<Signature>()
@@ -202,72 +194,59 @@ impl OrderPayload {
         Ok(())
     }
 
-    /// Serialize to bytes (233 bytes).
+    /// Serialize to bytes (225 bytes): the preimage followed by the signature.
     pub fn serialize(&self) -> [u8; SIGNED_ORDER_SIZE] {
         let mut data = [0u8; SIGNED_ORDER_SIZE];
 
-        data[0..8].copy_from_slice(&self.nonce.to_le_bytes());
-        data[8..16].copy_from_slice(&self.salt.to_le_bytes());
-        data[16..48].copy_from_slice(self.maker.as_ref());
-        data[48..80].copy_from_slice(self.market.as_ref());
-        data[80..112].copy_from_slice(self.base_mint.as_ref());
-        data[112..144].copy_from_slice(self.quote_mint.as_ref());
-        data[144] = self.side as u8;
-        data[145..153].copy_from_slice(&self.amount_in.to_le_bytes());
-        data[153..161].copy_from_slice(&self.amount_out.to_le_bytes());
-        data[161..169].copy_from_slice(&self.expiration.to_le_bytes());
-        data[169..233].copy_from_slice(&self.signature);
+        data[..ORDER_PREIMAGE_SIZE].copy_from_slice(&self.preimage());
+        data[ORDER_PREIMAGE_SIZE..].copy_from_slice(&self.signature);
 
         data
     }
 
-    /// Deserialize from bytes.
+    /// Deserialize from exactly 225 bytes.
     pub fn deserialize(data: &[u8]) -> SdkResult<Self> {
-        if data.len() < SIGNED_ORDER_SIZE {
+        if data.len() != SIGNED_ORDER_SIZE {
             return Err(SdkError::InvalidDataLength {
                 expected: SIGNED_ORDER_SIZE,
                 actual: data.len(),
             });
         }
 
-        let mut nonce_bytes = [0u8; 8];
-        nonce_bytes.copy_from_slice(&data[0..8]);
-
         let mut salt_bytes = [0u8; 8];
-        salt_bytes.copy_from_slice(&data[8..16]);
+        salt_bytes.copy_from_slice(&data[0..8]);
 
         let mut maker_bytes = [0u8; 32];
-        maker_bytes.copy_from_slice(&data[16..48]);
+        maker_bytes.copy_from_slice(&data[8..40]);
 
         let mut market_bytes = [0u8; 32];
-        market_bytes.copy_from_slice(&data[48..80]);
+        market_bytes.copy_from_slice(&data[40..72]);
 
         let mut base_mint_bytes = [0u8; 32];
-        base_mint_bytes.copy_from_slice(&data[80..112]);
+        base_mint_bytes.copy_from_slice(&data[72..104]);
 
         let mut quote_mint_bytes = [0u8; 32];
-        quote_mint_bytes.copy_from_slice(&data[112..144]);
+        quote_mint_bytes.copy_from_slice(&data[104..136]);
 
         let mut amount_in_bytes = [0u8; 8];
-        amount_in_bytes.copy_from_slice(&data[145..153]);
+        amount_in_bytes.copy_from_slice(&data[137..145]);
 
         let mut amount_out_bytes = [0u8; 8];
-        amount_out_bytes.copy_from_slice(&data[153..161]);
+        amount_out_bytes.copy_from_slice(&data[145..153]);
 
         let mut expiration_bytes = [0u8; 8];
-        expiration_bytes.copy_from_slice(&data[161..169]);
+        expiration_bytes.copy_from_slice(&data[153..161]);
 
         let mut signature = [0u8; 64];
-        signature.copy_from_slice(&data[169..233]);
+        signature.copy_from_slice(&data[161..225]);
 
         Ok(Self {
-            nonce: u64::from_le_bytes(nonce_bytes),
             salt: u64::from_le_bytes(salt_bytes),
             maker: Pubkey::new_from_array(maker_bytes),
             market: Pubkey::new_from_array(market_bytes),
             base_mint: Pubkey::new_from_array(base_mint_bytes),
             quote_mint: Pubkey::new_from_array(quote_mint_bytes),
-            side: OrderSide::try_from(data[144])?,
+            side: OrderSide::try_from(data[136])?,
             amount_in: u64::from_le_bytes(amount_in_bytes),
             amount_out: u64::from_le_bytes(amount_out_bytes),
             expiration: i64::from_le_bytes(expiration_bytes),
@@ -275,10 +254,9 @@ impl OrderPayload {
         })
     }
 
-    /// Convert to compact order format (37 bytes, no maker field).
+    /// Convert to compact order format (33 bytes, no maker or mint fields).
     pub fn to_order(&self) -> Order {
         Order {
-            nonce: self.nonce as u32,
             salt: self.salt,
             side: self.side,
             amount_in: self.amount_in,
@@ -313,7 +291,6 @@ impl OrderPayload {
 
         Ok(SubmitOrderRequest {
             maker: self.maker.to_string(),
-            nonce: self.nonce,
             salt: self.salt,
             market_pubkey: self.market.to_string(),
             base_token: self.base_mint.to_string(),
@@ -342,33 +319,31 @@ impl OrderPayload {
 }
 
 // ============================================================================
-// Order (37 bytes)
+// Order (33 bytes)
 // ============================================================================
 
 /// Compact order format for on-chain transaction data.
 ///
-/// No `maker` field (derived from Position PDA on-chain).
+/// No `maker`, `market`, or mint fields: the program reads them from the
+/// instruction's accounts when it rebuilds the signed preimage.
 ///
-/// Layout (37 bytes):
-/// - [0..4]   nonce (4 bytes, u32)
-/// - [4..12]  salt (8 bytes, u64)
-/// - [12]     side (1 byte)
-/// - [13..21] amount_in (8 bytes)
-/// - [21..29] amount_out (8 bytes)
-/// - [29..37] expiration (8 bytes)
+/// Layout (33 bytes, integers little-endian):
+/// - [0..8]   salt (8 bytes, u64)
+/// - [8]      side (1 byte)
+/// - [9..17]  amount_in (8 bytes)
+/// - [17..25] amount_out (8 bytes)
+/// - [25..33] expiration (8 bytes)
 #[derive(Debug, Clone)]
 pub struct Order {
-    /// Unique order ID and replay protection
-    pub nonce: u32,
-    /// Random salt for order uniqueness
+    /// Order identity salt
     pub salt: u64,
     /// Order side (0 = Bid, 1 = Ask)
     pub side: OrderSide,
-    /// Amount maker gives
+    /// Amount the maker gives, in raw atoms of the given mint
     pub amount_in: u64,
-    /// Amount maker receives
+    /// Amount the maker receives, in raw atoms of the received mint
     pub amount_out: u64,
-    /// Expiration timestamp (0 = no expiration)
+    /// Expiration as Unix seconds (0 = no expiration)
     pub expiration: i64,
 }
 
@@ -376,48 +351,43 @@ impl Order {
     /// Order size in bytes
     pub const LEN: usize = ORDER_SIZE;
 
-    /// Serialize to bytes (37 bytes).
+    /// Serialize to bytes (33 bytes).
     pub fn serialize(&self) -> [u8; ORDER_SIZE] {
         let mut data = [0u8; ORDER_SIZE];
 
-        data[0..4].copy_from_slice(&self.nonce.to_le_bytes());
-        data[4..12].copy_from_slice(&self.salt.to_le_bytes());
-        data[12] = self.side as u8;
-        data[13..21].copy_from_slice(&self.amount_in.to_le_bytes());
-        data[21..29].copy_from_slice(&self.amount_out.to_le_bytes());
-        data[29..37].copy_from_slice(&self.expiration.to_le_bytes());
+        data[0..8].copy_from_slice(&self.salt.to_le_bytes());
+        data[8] = self.side as u8;
+        data[9..17].copy_from_slice(&self.amount_in.to_le_bytes());
+        data[17..25].copy_from_slice(&self.amount_out.to_le_bytes());
+        data[25..33].copy_from_slice(&self.expiration.to_le_bytes());
 
         data
     }
 
-    /// Deserialize from bytes.
+    /// Deserialize from exactly 33 bytes.
     pub fn deserialize(data: &[u8]) -> SdkResult<Self> {
-        if data.len() < ORDER_SIZE {
+        if data.len() != ORDER_SIZE {
             return Err(SdkError::InvalidDataLength {
                 expected: ORDER_SIZE,
                 actual: data.len(),
             });
         }
 
-        let mut nonce_bytes = [0u8; 4];
-        nonce_bytes.copy_from_slice(&data[0..4]);
-
         let mut salt_bytes = [0u8; 8];
-        salt_bytes.copy_from_slice(&data[4..12]);
+        salt_bytes.copy_from_slice(&data[0..8]);
 
         let mut amount_in_bytes = [0u8; 8];
-        amount_in_bytes.copy_from_slice(&data[13..21]);
+        amount_in_bytes.copy_from_slice(&data[9..17]);
 
         let mut amount_out_bytes = [0u8; 8];
-        amount_out_bytes.copy_from_slice(&data[21..29]);
+        amount_out_bytes.copy_from_slice(&data[17..25]);
 
         let mut expiration_bytes = [0u8; 8];
-        expiration_bytes.copy_from_slice(&data[29..37]);
+        expiration_bytes.copy_from_slice(&data[25..33]);
 
         Ok(Self {
-            nonce: u32::from_le_bytes(nonce_bytes),
             salt: u64::from_le_bytes(salt_bytes),
-            side: OrderSide::try_from(data[12])?,
+            side: OrderSide::try_from(data[8])?,
             amount_in: u64::from_le_bytes(amount_in_bytes),
             amount_out: u64::from_le_bytes(amount_out_bytes),
             expiration: i64::from_le_bytes(expiration_bytes),
@@ -434,7 +404,6 @@ impl Order {
         signature: [u8; 64],
     ) -> OrderPayload {
         OrderPayload {
-            nonce: self.nonce as u64,
             salt: self.salt,
             maker,
             market,
@@ -453,9 +422,13 @@ impl Order {
 // Order Validation Helpers
 // ============================================================================
 
-/// Check if an order is expired.
+/// Check if an order is expired at `current_time` (Unix seconds).
+///
+/// Matches the program: an order expires only when its expiration is nonzero
+/// and strictly earlier than the current time, so it is still valid during the
+/// second equal to its expiration.
 pub fn is_order_expired(order: &OrderPayload, current_time: i64) -> bool {
-    order.expiration != 0 && current_time >= order.expiration
+    order.expiration != 0 && order.expiration < current_time
 }
 
 /// Check if two orders can cross (prices are compatible).
@@ -488,23 +461,23 @@ pub fn orders_can_cross(buy_order: &OrderPayload, sell_order: &OrderPayload) -> 
     buyer_cross >= seller_cross
 }
 
-/// Calculate the taker fill amount given a maker fill amount.
+/// Calculate the minimum taker fill for a maker fill, in raw atoms.
+///
+/// `maker_fill_amount` is what the maker gives, in atoms of the maker's given
+/// mint. The result is the least the taker must give the maker, in atoms of the
+/// maker's received mint, rounded up as the program requires:
+/// `taker_fill >= ceil(maker_fill * maker.amount_out / maker.amount_in)`.
 pub fn calculate_taker_fill(maker_order: &OrderPayload, maker_fill_amount: u64) -> SdkResult<u64> {
     if maker_order.amount_in == 0 {
         return Err(SdkError::Overflow);
     }
 
-    let result = (maker_fill_amount as u128)
-        .checked_mul(maker_order.amount_out as u128)
-        .ok_or(SdkError::Overflow)?
-        .checked_div(maker_order.amount_in as u128)
+    let numerator = u128::from(maker_fill_amount)
+        .checked_mul(u128::from(maker_order.amount_out))
         .ok_or(SdkError::Overflow)?;
+    let result = numerator.div_ceil(u128::from(maker_order.amount_in));
 
-    if result > u64::MAX as u128 {
-        return Err(SdkError::Overflow);
-    }
-
-    Ok(result as u64)
+    u64::try_from(result).map_err(|_| SdkError::Overflow)
 }
 
 /// Derive condition ID from oracle, question_id, and num_outcomes.
@@ -543,8 +516,10 @@ pub fn cancel_all_message(
 }
 
 /// Generate a random salt for order uniqueness.
+///
+/// The salt is the order's only identity field, so it spans the full u64 range.
 pub fn generate_salt() -> u64 {
-    rand::random::<u64>() & crate::shared::scaling::I64_MAX_U64
+    rand::random::<u64>()
 }
 
 /// Generate a random UUID v4 salt for cancel-all replay protection.
@@ -589,68 +564,264 @@ mod tests {
         .unwrap()
     }
 
+    /// One program-contract signing vector. Amounts are raw atoms, expiration
+    /// is Unix seconds, and every hex field is the backend's expected bytes.
+    struct SigningVector {
+        name: &'static str,
+        salt: u64,
+        side: OrderSide,
+        maker_amount: u64,
+        taker_amount: u64,
+        expiration: i64,
+        preimage_hex: &'static str,
+        order_id_hex: &'static str,
+        signature_hex: &'static str,
+        compact_hex: &'static str,
+    }
+
+    // Backend signing vectors (fixtures/program-contract/v1/signing.json),
+    // generated independently of this SDK with Python struct, Keccak and
+    // Ed25519. Every vector is signed by seed 00..1f, whose public key is the
+    // maker, on market [0x11; 32], base mint [0x22; 32] and quote mint [0x33; 32].
+    #[cfg(feature = "native-auth")]
+    const SIGNING_SEED_HEX: &str =
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    const SIGNING_MAKER_HEX: &str =
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8";
+    const SIGNING_VECTORS: [SigningVector; 4] = [
+        SigningVector {
+            name: "bid",
+            salt: 72_623_859_790_382_856,
+            side: OrderSide::Bid,
+            maker_amount: 60_000_000,
+            taker_amount: 100_000_000,
+            expiration: 0,
+            preimage_hex: concat!(
+                "0807060504030201",
+                "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+                "1111111111111111111111111111111111111111111111111111111111111111",
+                "2222222222222222222222222222222222222222222222222222222222222222",
+                "3333333333333333333333333333333333333333333333333333333333333333",
+                "00008793030000000000e1f505000000000000000000000000",
+            ),
+            order_id_hex: "497bbc21bdf8d3fb1187f0eda8f7a0f124dc97511e1f5068bbb7180b6b4a9bdc",
+            signature_hex: concat!(
+                "28ee8645e9a4f1cd3b28f910531d2d7b29b36038f873f5e1517058c02cf4cc4b",
+                "ec8400596d0e87766c3a527e4f2d04b4d0b592be656b91160e48b3b5c6a7e800",
+            ),
+            compact_hex: "080706050403020100008793030000000000e1f505000000000000000000000000",
+        },
+        SigningVector {
+            name: "ask",
+            salt: 9_833_440_827_789_222_417,
+            side: OrderSide::Ask,
+            maker_amount: 100_000_000,
+            taker_amount: 60_000_000,
+            expiration: 1_700_000_000,
+            preimage_hex: concat!(
+                "1122334455667788",
+                "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+                "1111111111111111111111111111111111111111111111111111111111111111",
+                "2222222222222222222222222222222222222222222222222222222222222222",
+                "3333333333333333333333333333333333333333333333333333333333333333",
+                "0100e1f50500000000008793030000000000f1536500000000",
+            ),
+            order_id_hex: "ee414532884ed99be69c82c9a99d4916ccf13bb17c955d2e979c43df6697fdfc",
+            signature_hex: concat!(
+                "f7df8ad52408140f9418b0a9c3a5925ffe41d58f68899001769748eaa84a4f55",
+                "f5afc47c8a2d241f38b63141012f8970fecc159dfad855c624c4def66cd2c80a",
+            ),
+            compact_hex: "11223344556677880100e1f50500000000008793030000000000f1536500000000",
+        },
+        SigningVector {
+            name: "zero_salt",
+            salt: 0,
+            side: OrderSide::Bid,
+            maker_amount: 1,
+            taker_amount: 1,
+            expiration: 0,
+            preimage_hex: concat!(
+                "0000000000000000",
+                "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+                "1111111111111111111111111111111111111111111111111111111111111111",
+                "2222222222222222222222222222222222222222222222222222222222222222",
+                "3333333333333333333333333333333333333333333333333333333333333333",
+                "00010000000000000001000000000000000000000000000000",
+            ),
+            order_id_hex: "bddbbc63b3eca9b0c8ab96920b44d44239042684fa523f4d9e3e35d23228a77c",
+            signature_hex: concat!(
+                "2a0e4bea081930c109b666e29b979bdcfcaddb1b169a2bed1f1df60ac9522fcd",
+                "fee68652f00541151af5cc2ca9c288a79e6dab71904ee3f35efd4fb4caf43506",
+            ),
+            compact_hex: "000000000000000000010000000000000001000000000000000000000000000000",
+        },
+        SigningVector {
+            name: "max_salt",
+            salt: u64::MAX,
+            side: OrderSide::Ask,
+            maker_amount: u64::MAX,
+            taker_amount: u64::MAX,
+            expiration: i64::MAX,
+            preimage_hex: concat!(
+                "ffffffffffffffff",
+                "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+                "1111111111111111111111111111111111111111111111111111111111111111",
+                "2222222222222222222222222222222222222222222222222222222222222222",
+                "3333333333333333333333333333333333333333333333333333333333333333",
+                "01ffffffffffffffffffffffffffffffffffffffffffffff7f",
+            ),
+            order_id_hex: "f51ef152121aeb7380e5fd0e0f5574382fc9e1bda5cecff7b98d8ff938ad0dc2",
+            signature_hex: concat!(
+                "a03310e35a4dbae73b111de3ffb233ffdf6b358fb2023ee5cd88989a8f8e92c7",
+                "6eee9d37042eb3028e31cd6f17878c927b8a3da5598f2736e8ddd69a84c77a01",
+            ),
+            compact_hex: "ffffffffffffffff01ffffffffffffffffffffffffffffffffffffffffffffff7f",
+        },
+    ];
+
     #[test]
-    fn generated_salts_fit_durable_signed_range() {
-        for _ in 0..10_000 {
-            assert!(generate_salt() <= crate::shared::I64_MAX_U64);
+    fn signing_vectors_match_program_contract() {
+        let names: Vec<&str> = SIGNING_VECTORS.iter().map(|v| v.name).collect();
+        assert_eq!(names, ["bid", "ask", "zero_salt", "max_salt"]);
+        let maker: [u8; 32] = hex::decode(SIGNING_MAKER_HEX).unwrap().try_into().unwrap();
+
+        for vector in &SIGNING_VECTORS {
+            let name = vector.name;
+            let unsigned = OrderPayload {
+                salt: vector.salt,
+                maker: Pubkey::new_from_array(maker),
+                market: Pubkey::new_from_array([0x11; 32]),
+                base_mint: Pubkey::new_from_array([0x22; 32]),
+                quote_mint: Pubkey::new_from_array([0x33; 32]),
+                side: vector.side,
+                amount_in: vector.maker_amount,
+                amount_out: vector.taker_amount,
+                expiration: vector.expiration,
+                signature: [0; 64],
+            };
+
+            assert_eq!(
+                hex::encode(unsigned.preimage()),
+                vector.preimage_hex,
+                "{name}: preimage"
+            );
+            // The fixture's signed message (`message_ascii`) equals `order_id_hex`
+            // in every vector: makers sign the order id's 64 lowercase hex ASCII
+            // bytes, which `verify_signature` checks below.
+            assert_eq!(
+                unsigned.hash_hex(),
+                vector.order_id_hex,
+                "{name}: order id and signed message"
+            );
+            assert_eq!(
+                hex::encode(unsigned.to_order().serialize()),
+                vector.compact_hex,
+                "{name}: compact order"
+            );
+
+            let mut signed = unsigned.clone();
+            signed
+                .signature
+                .copy_from_slice(&hex::decode(vector.signature_hex).unwrap());
+            signed.verify_signature().unwrap();
+            let signed_bytes = signed.serialize();
+            // The fixture's 225-byte `signed_order_hex` is the preimage
+            // followed by the signature.
+            assert_eq!(
+                hex::encode(signed_bytes),
+                format!("{}{}", vector.preimage_hex, vector.signature_hex),
+                "{name}: signed order"
+            );
+
+            let decoded = OrderPayload::deserialize(&signed_bytes).unwrap();
+            assert_eq!(decoded.serialize(), signed_bytes, "{name}: signed decode");
+            let compact = Order::deserialize(&hex::decode(vector.compact_hex).unwrap()).unwrap();
+            let expanded = compact.to_signed(
+                signed.maker,
+                signed.market,
+                signed.base_mint,
+                signed.quote_mint,
+                signed.signature,
+            );
+            assert_eq!(expanded.serialize(), signed_bytes, "{name}: compact decode");
+
+            #[cfg(feature = "native-auth")]
+            {
+                let seed: [u8; 32] = hex::decode(SIGNING_SEED_HEX).unwrap().try_into().unwrap();
+                let keypair = solana_keypair::Keypair::new_from_array(seed);
+                assert_eq!(keypair.pubkey(), unsigned.maker, "{name}: maker key");
+                let mut resigned = unsigned.clone();
+                resigned.sign(&keypair, &signing_rules()).unwrap();
+                assert_eq!(
+                    resigned.signature_hex(),
+                    vector.signature_hex,
+                    "{name}: signature"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn serialized_order_layouts_require_exact_lengths() {
+        assert_eq!(OrderPayload::HASH_SIZE, 161);
+        assert_eq!(OrderPayload::LEN, 225);
+        assert_eq!(Order::LEN, 33);
+        for length in [224, 226] {
+            assert!(matches!(
+                OrderPayload::deserialize(&vec![0; length]),
+                Err(SdkError::InvalidDataLength {
+                    expected: 225,
+                    actual,
+                }) if actual == length
+            ));
+        }
+        for length in [32, 34] {
+            assert!(matches!(
+                Order::deserialize(&vec![0; length]),
+                Err(SdkError::InvalidDataLength {
+                    expected: 33,
+                    actual,
+                }) if actual == length
+            ));
         }
     }
 
     #[test]
     #[cfg(feature = "native-auth")]
-    fn known_signing_contract_is_unchanged() {
-        let seed = hex::decode("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
-            .unwrap();
-        let keypair = solana_keypair::Keypair::new_from_array(seed.try_into().unwrap());
+    fn signing_preflights_amounts_against_rules() {
+        let keypair = Keypair::new();
         let mut order = OrderPayload {
-            nonce: 42,
-            salt: 123,
-            maker: "FAe4sisG95oZ42w7buUn5qEE4TAnfTTFPiguZUHmhiF"
-                .parse()
-                .unwrap(),
-            market: "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
-                .parse()
-                .unwrap(),
-            base_mint: "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
-                .parse()
-                .unwrap(),
-            quote_mint: "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
-                .parse()
-                .unwrap(),
+            salt: u64::MAX,
+            maker: keypair.pubkey(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
             side: OrderSide::Bid,
-            amount_in: 15_185_088,
-            amount_out: 123_456_000,
+            amount_in: 1,
+            amount_out: 3_000,
             expiration: 0,
             signature: [0; 64],
         };
-        assert_eq!(OrderPayload::HASH_SIZE, 169);
-        assert_eq!(
-            order.hash_hex(),
-            "17228fe4bdf93c14714367454e948206bb4f001917d59e132e4aaad097819eac"
-        );
-        order.sign(&keypair, &signing_rules()).unwrap();
-        assert_eq!(
-            order.signature_hex(),
-            "1e68fe672f919085ed34333c86facf9ad816ae30ab23d3d6ccef0aeb4c40b161f841c8f68355c9720252fc9ab4d859e64416d81ffa170e5a6cd17dfe41038808"
-        );
-        order.salt = crate::shared::I64_MAX_U64 + 1;
-        assert!(order.sign(&keypair, &signing_rules()).is_err());
-        order.salt = 0;
-        order.amount_in = 1;
-        order.amount_out = 3_000;
         assert!(matches!(
             order.sign(&keypair, &signing_rules()),
             Err(SdkError::Scaling(
                 crate::shared::scaling::ScalingError::PriceNotExactlyRepresentable
             ))
         ));
+        order.amount_in = 0;
+        assert!(matches!(
+            order.sign(&keypair, &signing_rules()),
+            Err(SdkError::Scaling(
+                crate::shared::scaling::ScalingError::OrderFieldOutOfRange { field: "amount_in" }
+            ))
+        ));
+        assert!(!order.is_signed());
     }
 
     #[test]
     fn test_order_payload_serialization_roundtrip() {
         let order = OrderPayload {
-            nonce: 12345,
-            salt: 0,
+            salt: 12345,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),
@@ -665,7 +836,6 @@ mod tests {
         let serialized = order.serialize();
         let deserialized = OrderPayload::deserialize(&serialized).unwrap();
 
-        assert_eq!(order.nonce, deserialized.nonce);
         assert_eq!(order.salt, deserialized.salt);
         assert_eq!(order.maker, deserialized.maker);
         assert_eq!(order.market, deserialized.market);
@@ -680,8 +850,7 @@ mod tests {
     #[test]
     fn test_order_serialization_roundtrip() {
         let order = Order {
-            nonce: 12345,
-            salt: 0,
+            salt: 12345,
             side: OrderSide::Ask,
             amount_in: 1000000,
             amount_out: 500000,
@@ -691,7 +860,6 @@ mod tests {
         let serialized = order.serialize();
         let deserialized = Order::deserialize(&serialized).unwrap();
 
-        assert_eq!(order.nonce, deserialized.nonce);
         assert_eq!(order.salt, deserialized.salt);
         assert_eq!(order.side, deserialized.side);
         assert_eq!(order.amount_in, deserialized.amount_in);
@@ -701,23 +869,21 @@ mod tests {
 
     #[test]
     fn test_order_size() {
-        assert_eq!(ORDER_SIZE, 37);
+        assert_eq!(ORDER_SIZE, 33);
         let order = Order {
-            nonce: 1,
-            salt: 0,
+            salt: 1,
             side: OrderSide::Bid,
             amount_in: 100,
             amount_out: 50,
             expiration: 0,
         };
-        assert_eq!(order.serialize().len(), 37);
+        assert_eq!(order.serialize().len(), 33);
     }
 
     #[test]
     fn test_order_hash_consistency() {
         let order = OrderPayload {
-            nonce: 1,
-            salt: 0,
+            salt: 1,
             maker: Pubkey::new_from_array([1u8; 32]),
             market: Pubkey::new_from_array([2u8; 32]),
             base_mint: Pubkey::new_from_array([3u8; 32]),
@@ -737,8 +903,7 @@ mod tests {
     #[test]
     fn test_signed_order_to_order_roundtrip() {
         let signed = OrderPayload {
-            nonce: 42,
-            salt: 0,
+            salt: 42,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),
@@ -751,7 +916,7 @@ mod tests {
         };
 
         let order = signed.to_order();
-        assert_eq!(order.nonce, 42);
+        assert_eq!(order.salt, 42);
         assert_eq!(order.side, OrderSide::Bid);
         assert_eq!(order.amount_in, 1000);
         assert_eq!(order.amount_out, 500);
@@ -764,7 +929,7 @@ mod tests {
             signed.quote_mint,
             signed.signature,
         );
-        assert_eq!(back.nonce, 42);
+        assert_eq!(back.salt, 42);
         assert_eq!(back.maker, signed.maker);
         assert_eq!(back.amount_in, 1000);
     }
@@ -772,8 +937,7 @@ mod tests {
     #[test]
     fn test_orders_can_cross() {
         let buy_order = OrderPayload {
-            nonce: 1,
-            salt: 0,
+            salt: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),
@@ -786,8 +950,7 @@ mod tests {
         };
 
         let sell_order = OrderPayload {
-            nonce: 2,
-            salt: 0,
+            salt: 2,
             maker: Pubkey::new_unique(),
             market: buy_order.market,
             base_mint: buy_order.base_mint,
@@ -806,8 +969,7 @@ mod tests {
     #[test]
     fn test_orders_cannot_cross() {
         let buy_order = OrderPayload {
-            nonce: 1,
-            salt: 0,
+            salt: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),
@@ -820,8 +982,7 @@ mod tests {
         };
 
         let sell_order = OrderPayload {
-            nonce: 2,
-            salt: 0,
+            salt: 2,
             maker: Pubkey::new_unique(),
             market: buy_order.market,
             base_mint: buy_order.base_mint,
@@ -840,8 +1001,7 @@ mod tests {
     #[test]
     fn test_calculate_taker_fill() {
         let maker_order = OrderPayload {
-            nonce: 1,
-            salt: 0,
+            salt: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),
@@ -856,6 +1016,45 @@ mod tests {
         // If filling 50 amount_in, taker should get 50 * 200 / 100 = 100
         let taker_fill = calculate_taker_fill(&maker_order, 50).unwrap();
         assert_eq!(taker_fill, 100);
+        // A fractional minimum rounds up, as the program's price check requires:
+        // ceil(1 * 200 / 100) = 2 and ceil(3 * 200 / 101) = ceil(5.94) = 6.
+        assert_eq!(calculate_taker_fill(&maker_order, 1).unwrap(), 2);
+        let odd_maker = OrderPayload {
+            amount_in: 101,
+            ..maker_order.clone()
+        };
+        assert_eq!(calculate_taker_fill(&odd_maker, 3).unwrap(), 6);
+        let overflowing = OrderPayload {
+            amount_in: 1,
+            amount_out: u64::MAX,
+            ..maker_order
+        };
+        assert!(matches!(
+            calculate_taker_fill(&overflowing, 2),
+            Err(SdkError::Overflow)
+        ));
+    }
+
+    #[test]
+    fn order_expires_only_after_its_expiration_second() {
+        let mut order = OrderPayload {
+            salt: 0,
+            maker: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            side: OrderSide::Bid,
+            amount_in: 100,
+            amount_out: 50,
+            expiration: 0,
+            signature: [0u8; 64],
+        };
+        assert!(!is_order_expired(&order, i64::MAX));
+
+        order.expiration = 1_700_000_000;
+        assert!(!is_order_expired(&order, 1_699_999_999));
+        assert!(!is_order_expired(&order, 1_700_000_000));
+        assert!(is_order_expired(&order, 1_700_000_001));
     }
 
     #[test]
@@ -871,8 +1070,7 @@ mod tests {
         let quote_mint = Pubkey::new_unique();
 
         let mut order = OrderPayload {
-            nonce: 42,
-            salt: 0,
+            salt: 42,
             maker,
             market,
             base_mint,
@@ -891,7 +1089,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(request.maker, maker.to_string());
-        assert_eq!(request.nonce, 42);
+        assert_eq!(request.salt, 42);
         assert_eq!(request.market_pubkey, market.to_string());
         assert_eq!(request.base_token, base_mint.to_string());
         assert_eq!(request.quote_token, quote_mint.to_string());
@@ -906,8 +1104,7 @@ mod tests {
     #[test]
     fn test_derive_orderbook_id() {
         let order = OrderPayload {
-            nonce: 1,
-            salt: 0,
+            salt: 1,
             maker: Pubkey::new_from_array([1u8; 32]),
             market: Pubkey::new_from_array([2u8; 32]),
             base_mint: Pubkey::new_from_array([3u8; 32]),
@@ -935,8 +1132,7 @@ mod tests {
 
         let keypair = Keypair::new();
         let mut order = OrderPayload {
-            nonce: 1,
-            salt: 0,
+            salt: 1,
             maker: keypair.pubkey(),
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),
@@ -963,8 +1159,7 @@ mod tests {
 
         let keypair = Keypair::new();
         let mut order = OrderPayload {
-            nonce: 1,
-            salt: 0,
+            salt: 1,
             maker: keypair.pubkey(),
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),
@@ -994,8 +1189,7 @@ mod tests {
     #[test]
     fn test_to_submit_request_errors_unsigned() {
         let order = OrderPayload {
-            nonce: 1,
-            salt: 0,
+            salt: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),

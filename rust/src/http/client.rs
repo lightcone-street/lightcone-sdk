@@ -111,6 +111,10 @@ enum ApiRequestError {
         headers_retry_after_ms: Option<u64>,
     },
     Http(HttpError),
+    /// A 2xx body that is not the expected JSON shape. Kept as the serde
+    /// error so a contract mismatch names the offending field instead of
+    /// surfacing as an opaque transport failure. Never retried.
+    Decode(serde_json::Error),
 }
 
 impl From<HttpError> for ApiRequestError {
@@ -933,8 +937,8 @@ impl LightconeHttp {
                 }
             }
 
-            let parsed = resp.json::<T>().await?;
-            return Ok(parsed);
+            let body = resp.bytes().await?;
+            return serde_json::from_slice::<T>(&body).map_err(ApiRequestError::Decode);
         }
 
         let status_code = status.as_u16();
@@ -985,6 +989,7 @@ impl LightconeHttp {
                 Self::http_error_for_status(status, body, headers_retry_after_ms).into()
             }
             ApiRequestError::Http(error) => error.into(),
+            ApiRequestError::Decode(error) => SdkError::Serde(error),
         }
     }
 
@@ -1131,7 +1136,7 @@ mod tests {
     async fn http_200_error_envelope_is_rejected() {
         let (base_url, _) = spawn_server(vec![TestResponse {
             status: 200,
-            body: r#"{"status":"error","error_details":{"reason":"invalid exact ratio","rejection_code":"PRICE_NOT_EXACTLY_REPRESENTABLE"}}"#,
+            body: r#"{"status":"error","error_details":{"reason":"Order does not satisfy current trading rules","rejection_code":"INVALID_ORDER","error_log_id":"LCERR_200"}}"#,
         }])
         .await;
         let http = LightconeHttp::new(&base_url);
@@ -1142,7 +1147,7 @@ mod tests {
         match error {
             SdkError::ApiRejected(details) => assert_eq!(
                 details.rejection_code,
-                Some(crate::shared::RejectionCode::PriceNotExactlyRepresentable)
+                Some(crate::shared::RejectionCode::InvalidOrder)
             ),
             other => panic!("expected ApiRejected, got {other:?}"),
         }
@@ -2049,6 +2054,80 @@ mod tests {
         match error {
             SdkError::Http(HttpError::BadRequest(body)) => assert_eq!(body, "not json"),
             other => panic!("expected BadRequest, got {other:?}"),
+        }
+    }
+
+    fn text_plain_response(status_line: &str, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status_line}\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    /// actix `deny_unknown_fields` extractor failures answer 400 text/plain.
+    #[tokio::test]
+    async fn text_plain_400_surfaces_as_bad_request_with_backend_text() {
+        let body = "Json deserialize error: unknown field `nonce` at line 1 column 20";
+        let (base_url, _) =
+            spawn_raw_response_server(text_plain_response("400 Bad Request", body)).await;
+        let http = LightconeHttp::new(&base_url);
+
+        let error = http
+            .post::<serde_json::Value, _>(
+                &format!("{base_url}/api/orders/submit"),
+                &serde_json::json!({"nonce": 0}),
+                RetryPolicy::None,
+            )
+            .await
+            .unwrap_err();
+
+        match error {
+            SdkError::Http(HttpError::BadRequest(text)) => assert_eq!(text, body),
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+    }
+
+    /// Authenticated GET extractors answer a bare text/plain 401.
+    #[tokio::test]
+    async fn text_plain_401_is_unauthorized() {
+        let (base_url, _) = spawn_raw_response_server(text_plain_response(
+            "401 Unauthorized",
+            "Authentication required",
+        ))
+        .await;
+        let http = LightconeHttp::new(&base_url);
+
+        let error = http
+            .get::<serde_json::Value>(&format!("{base_url}/api/users/orders"), RetryPolicy::None)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, SdkError::Http(HttpError::Unauthorized)));
+        assert!(error.is_unauthorized());
+    }
+
+    #[tokio::test]
+    async fn success_body_shape_mismatch_names_the_field() {
+        #[derive(Debug, serde::Deserialize)]
+        #[allow(dead_code)]
+        struct Expected {
+            required: u64,
+        }
+        let (base_url, _) = spawn_server(vec![TestResponse {
+            status: 200,
+            body: r#"{"status":"success","body":{"other":1}}"#,
+        }])
+        .await;
+        let http = LightconeHttp::new(&base_url);
+
+        let error = http
+            .get::<Expected>(&format!("{base_url}/shape"), RetryPolicy::Idempotent)
+            .await
+            .unwrap_err();
+
+        match error {
+            SdkError::Serde(error) => assert!(error.to_string().contains("required")),
+            other => panic!("expected Serde, got {other:?}"),
         }
     }
 

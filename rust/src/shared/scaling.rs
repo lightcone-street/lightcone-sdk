@@ -13,7 +13,6 @@ use crate::program::types::OrderSide;
 
 pub const PRICE_SCALE: u64 = 1_000_000;
 pub const I64_MAX_U64: u64 = i64::MAX as u64;
-pub const NONCE_MAX: u64 = u32::MAX as u64;
 
 /// Immutable admission rules returned by the orderbook decimals endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -197,12 +196,11 @@ fn invalid_decimal<T>(input: &str, reason: &str) -> Result<T, ScalingError> {
     })
 }
 
-fn checked_i64(value: &BigUint, field: &'static str) -> Result<u64, ScalingError> {
-    let parsed = value
+/// Signed amounts are raw token atoms; the program and engine accept the full u64 range.
+fn checked_u64(value: &BigUint, field: &'static str) -> Result<u64, ScalingError> {
+    value
         .to_u64()
-        .filter(|v| *v <= I64_MAX_U64)
-        .ok_or(ScalingError::OrderFieldOutOfRange { field })?;
-    Ok(parsed)
+        .ok_or(ScalingError::OrderFieldOutOfRange { field })
 }
 
 fn significant_digits(mut value: BigUint) -> usize {
@@ -214,7 +212,7 @@ fn significant_digits(mut value: BigUint) -> usize {
 }
 
 fn validate_price_raw(price_raw: &BigUint, rules: &OrderbookRules) -> Result<u64, ScalingError> {
-    if price_raw.is_zero() || price_raw > &BigUint::from(I64_MAX_U64) {
+    if price_raw.is_zero() || price_raw > &BigUint::from(u64::MAX) {
         return Err(ScalingError::PriceOutOfRange);
     }
     let human_scale = BigUint::from(10u8).pow(u32::from(rules.price_decimals));
@@ -243,7 +241,7 @@ fn validate_base_atoms(base_atoms: &BigUint, rules: &OrderbookRules) -> Result<u
     {
         return Err(ScalingError::InvalidSizeDecimals);
     }
-    checked_i64(base_atoms, "base amount")
+    checked_u64(base_atoms, "base amount")
 }
 
 /// Construct signed amounts from an exact human price and base size.
@@ -275,7 +273,7 @@ pub fn scale_price_size(
             field: "quote amount",
         });
     }
-    let quote_atoms = checked_i64(&quote_atoms_big, "quote amount")?;
+    let quote_atoms = checked_u64(&quote_atoms_big, "quote amount")?;
     let (amount_in, amount_out) = match side {
         OrderSide::Bid => (quote_atoms, base_atoms),
         OrderSide::Ask => (base_atoms, quote_atoms),
@@ -290,20 +288,16 @@ pub fn scale_price_size(
 }
 
 /// Preflight caller-supplied signed amounts against the same engine rules.
+///
+/// `amount_in` and `amount_out` are raw atoms of the given and received
+/// mints. Any nonzero u64 is in range.
 pub fn validate_raw_amounts(
     amount_in: u64,
     amount_out: u64,
     side: OrderSide,
     rules: &OrderbookRules,
 ) -> Result<ScaledAmounts, ScalingError> {
-    if amount_in == 0 || amount_in > I64_MAX_U64 {
-        return Err(ScalingError::OrderFieldOutOfRange { field: "amount_in" });
-    }
-    if amount_out == 0 || amount_out > I64_MAX_U64 {
-        return Err(ScalingError::OrderFieldOutOfRange {
-            field: "amount_out",
-        });
-    }
+    validate_signed_fields(amount_in, amount_out)?;
     let (base_atoms, quote_atoms) = match side {
         OrderSide::Bid => (amount_out, amount_in),
         OrderSide::Ask => (amount_in, amount_out),
@@ -325,23 +319,19 @@ pub fn validate_raw_amounts(
     })
 }
 
-pub fn validate_signed_fields(
-    amount_in: u64,
-    amount_out: u64,
-    salt: u64,
-    nonce: u64,
-) -> Result<(), ScalingError> {
-    for (field, value, zero_allowed) in [
-        ("amount_in", amount_in, false),
-        ("amount_out", amount_out, false),
-        ("salt", salt, true),
-    ] {
-        if value > I64_MAX_U64 || (!zero_allowed && value == 0) {
-            return Err(ScalingError::OrderFieldOutOfRange { field });
-        }
+/// Check the signed amount fields that the program and engine reject outright.
+///
+/// Amounts are raw token atoms and must be nonzero; the full u64 range is
+/// accepted. The salt (any u64) and expiration (any i64, 0 = none) carry no
+/// range restriction, so they need no check.
+pub fn validate_signed_fields(amount_in: u64, amount_out: u64) -> Result<(), ScalingError> {
+    if amount_in == 0 {
+        return Err(ScalingError::OrderFieldOutOfRange { field: "amount_in" });
     }
-    if nonce > NONCE_MAX {
-        return Err(ScalingError::OrderFieldOutOfRange { field: "nonce" });
+    if amount_out == 0 {
+        return Err(ScalingError::OrderFieldOutOfRange {
+            field: "amount_out",
+        });
     }
     Ok(())
 }
@@ -421,11 +411,51 @@ mod tests {
     }
 
     #[test]
-    fn signed_range_is_i64() {
-        assert!(
-            validate_signed_fields(I64_MAX_U64, I64_MAX_U64, I64_MAX_U64, u32::MAX as u64).is_ok()
+    fn signed_range_is_nonzero_u64() {
+        assert!(validate_signed_fields(u64::MAX, u64::MAX).is_ok());
+        assert!(validate_signed_fields(1, 1).is_ok());
+        assert_eq!(
+            validate_signed_fields(0, 1).unwrap_err(),
+            ScalingError::OrderFieldOutOfRange { field: "amount_in" }
         );
-        assert!(validate_signed_fields(I64_MAX_U64 + 1, 1, 0, 0).is_err());
+        assert_eq!(
+            validate_signed_fields(1, 0).unwrap_err(),
+            ScalingError::OrderFieldOutOfRange {
+                field: "amount_out"
+            }
+        );
+    }
+
+    #[test]
+    fn amounts_above_i64_are_admissible() {
+        let unit_rules = OrderbookRules {
+            orderbook_id: "unit".into(),
+            base_decimals: 0,
+            quote_decimals: 0,
+            price_decimals: 6,
+            trading_rules: TradingRules {
+                base_size_decimals: 0,
+                max_price_decimals: 6,
+                max_price_significant_figures: 5,
+                integer_prices_always_allowed: true,
+                price_quantum: "0.000001".into(),
+                price_quantum_raw: BigUint::from(1u8),
+                base_size_quantum: "1".into(),
+                base_size_quantum_raw: BigUint::from(1u8),
+            },
+        };
+        let raw = validate_raw_amounts(u64::MAX, u64::MAX, OrderSide::Ask, &unit_rules).unwrap();
+        assert_eq!((raw.base_atoms, raw.price_raw), (u64::MAX, PRICE_SCALE));
+
+        let above_i64 = (I64_MAX_U64 + 1).to_string();
+        let scaled = scale_price_size("1", &above_i64, OrderSide::Bid, &unit_rules).unwrap();
+        assert_eq!((scaled.amount_in, scaled.amount_out), (1 << 63, 1 << 63));
+        assert_eq!(
+            scale_price_size("2", &above_i64, OrderSide::Bid, &unit_rules).unwrap_err(),
+            ScalingError::OrderFieldOutOfRange {
+                field: "quote amount"
+            }
+        );
     }
 
     #[test]

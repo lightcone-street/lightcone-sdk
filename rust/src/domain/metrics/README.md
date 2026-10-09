@@ -122,6 +122,23 @@ async fn market(
 
 Detailed metrics for one market, including outcome, orderbook, and deposit-token breakdowns.
 
+### `orderbook_tickers` / `orderbook_tickers_page`
+
+```rust
+async fn orderbook_tickers(
+    &self,
+    deposit_asset: Option<&str>,
+) -> Result<OrderbookTickersResponse, SdkError>
+async fn orderbook_tickers_page(
+    &self,
+    deposit_asset: Option<&str>,
+    cursor: Option<&str>,
+    limit: Option<u32>,
+) -> Result<OrderbookTickersResponse, SdkError>
+```
+
+Best bid / best ask / midpoint for every ready orderbook, optionally filtered by deposit asset. The endpoint returns at most 8 tickers per page (`limit` must be within 1..=8, `next_cursor` is an orderbook pubkey, and a page can be empty while `has_more` is true). `orderbook_tickers` follows every page and returns them merged with `has_more` false; if it stops at its page cap first, `has_more` stays true and `next_cursor` resumes with `orderbook_tickers_page`, and a page reporting more without an advancing cursor is an `SdkError::Validation` error. `orderbook_tickers_page` fetches one page. Price fields are `None` for books without liquidity.
+
 ### `orderbook`
 
 ```rust

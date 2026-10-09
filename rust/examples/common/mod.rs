@@ -32,10 +32,6 @@ pub fn unix_timestamp_ms() -> ExampleResult<i64> {
     )?)
 }
 
-pub async fn fresh_order_nonce(client: &LightconeClient, user: &Pubkey) -> ExampleResult<u64> {
-    Ok(client.orders().get_nonce(user).await?)
-}
-
 pub fn rest_client() -> ExampleResult<LightconeClient> {
     let mut builder =
         LightconeClient::builder().transaction_resources(lightcone::program::V1ResourceConfig {

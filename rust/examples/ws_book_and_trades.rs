@@ -81,12 +81,14 @@ async fn main() -> ExampleResult {
                     );
                     hits += 1;
                 }
-                WsEvent::Message(Kind::Trade(trade)) => {
+                WsEvent::Message(Kind::Trade(fill)) => {
+                    let revision = fill.commit.committed_revision;
+                    let trade = Trade::try_from(fill)?;
                     println!(
-                        "trade: {} {} @ {} seq={}",
-                        trade.size, trade.side, trade.price, trade.sequence
+                        "trade: {} {} @ {} revision={revision}",
+                        trade.size, trade.side, trade.price
                     );
-                    trades.push(trade.into());
+                    trades.push(trade);
                     hits += 1;
                 }
                 WsEvent::Connected => {

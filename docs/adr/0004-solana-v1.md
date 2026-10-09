@@ -28,7 +28,9 @@ available. Unsponsored external signers must expose the fee-payer identity.
 ## Compatibility
 
 The program ABI from SDK PR #164 remains unchanged, including eleven-maker u16
-masks, canonical GlobalDepositToken accounts, and the 176-byte orderbook. This
+masks, canonical GlobalDepositToken accounts, and the 176-byte orderbook.
+[ADR 0005](0005-nonce-free-order-identity.md) later removes the per-user order
+nonce from that ABI. This
 decision changes the outer Solana transaction format and the APIs that own it.
 Rust uses the upstream Solana compiler and wincode codec. TypeScript matches
 Rust's account privilege merging and raw-address ordering while using Solana Kit

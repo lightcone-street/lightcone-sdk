@@ -484,6 +484,25 @@ mod tests {
             status.kind,
             Kind::WalletDepositBalances(WalletDepositBalancesEvent::Status { .. })
         ));
+
+        let unknown: MessageIn = serde_json::from_value(serde_json::json!({
+            "type": "wallet_deposit_balances",
+            "version": 0.1,
+            "data": {
+                "event_type": "wallet_deposit_balance_status",
+                "wallet_address": "WalletA",
+                "status": "throttled",
+                "code": "THROTTLED"
+            }
+        }))
+        .unwrap();
+        assert!(matches!(
+            unknown.kind,
+            Kind::WalletDepositBalances(WalletDepositBalancesEvent::Status {
+                status: crate::domain::position::WalletDepositBalanceStatus::Unknown,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -666,21 +685,37 @@ mod tests {
 
     #[test]
     fn test_kind_trades_deserialization() {
-        let json = r#"{"type": "trades", "data": {"orderbook_id": "abc", "trade_id": "t1", "timestamp": "2025-01-01T00:00:00Z", "price": "1.5", "size": "100", "side": "bid", "sequence": 1}, "version": 0.1}"#;
-        let msg: MessageIn = serde_json::from_str(json).unwrap();
+        let json = serde_json::json!({
+            "type": "trades",
+            "version": 0.1,
+            "data": crate::domain::trade::wire::tests::fill_fact()
+        });
+        let msg: MessageIn = serde_json::from_value(json).unwrap();
         match msg.kind {
-            Kind::Trade(trade) => assert_eq!(trade.sequence, 1),
+            Kind::Trade(trade) => {
+                assert_eq!(trade.fill_id, "0d6a6f3e-5b9b-4b43-9f0f-6c7c1f3f9a10:2:0");
+                assert_eq!(trade.commit.committed_revision, 812);
+                assert_eq!(trade.price(), Some(Decimal::new(55, 2)));
+            }
             _ => panic!("expected Kind::Trade"),
         }
     }
 
     #[test]
-    fn test_kind_trades_deserialization_without_sequence() {
-        let json = r#"{"type": "trades", "data": {"orderbook_id": "abc", "trade_id": "t1", "timestamp": "2025-01-01T00:00:00Z", "price": "1.5", "size": "100", "side": "bid"}, "version": 0.1}"#;
-        let msg: MessageIn = serde_json::from_str(json).unwrap();
+    fn test_kind_user_fill_uses_the_trades_payload() {
+        let mut data = crate::domain::trade::wire::tests::fill_fact();
+        data["event_type"] = serde_json::json!("fill");
+        let msg: MessageIn = serde_json::from_value(serde_json::json!({
+            "type": "user",
+            "version": 0.1,
+            "data": data
+        }))
+        .unwrap();
         match msg.kind {
-            Kind::Trade(trade) => assert_eq!(trade.sequence, 0),
-            _ => panic!("expected Kind::Trade"),
+            Kind::User(UserUpdate::Fill(fill)) => {
+                assert_eq!(fill.trade_id(), "5f7e3c2a-8a39-4f55-a1d6-2b6f0c1b9d11:0:3")
+            }
+            other => panic!("expected user fill, got {other:?}"),
         }
     }
 
@@ -692,7 +727,7 @@ mod tests {
     }
 
     #[test]
-    fn test_kind_user_market_balance_update_deserialization() {
+    fn test_kind_user_removed_balance_event_is_ignorable() {
         let json = r#"{
             "type": "user",
             "data": {
@@ -708,13 +743,7 @@ mod tests {
         }"#;
 
         let msg: MessageIn = serde_json::from_str(json).unwrap();
-        match msg.kind {
-            Kind::User(UserUpdate::BalanceUpdate(update)) => {
-                assert_eq!(update.market_pubkey.as_str(), "market-1");
-                assert!(update.market_balance.deposit_assets.is_empty());
-            }
-            other => panic!("expected user market balance update, got {other:?}"),
-        }
+        assert!(matches!(msg.kind, Kind::User(UserUpdate::Unknown)));
     }
 
     #[test]

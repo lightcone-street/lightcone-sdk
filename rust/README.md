@@ -22,20 +22,20 @@ Rust SDK for the Lightcone impact market protocol on Solana.
 
 ## Installation
 
-This branch targets `0.10.0-rc.1`. Until that version is published, use a path
+This branch targets `0.11.0-rc.1`. Until that version is published, use a path
 dependency to this checkout's `rust` directory or pin its Git revision.
 After publication, add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-lightcone = { version = "=0.10.0-rc.1", features = ["native"] }
+lightcone = { version = "=0.11.0-rc.1", features = ["native"] }
 ```
 
 For browser/WASM targets:
 
 ```toml
 [dependencies]
-lightcone = { version = "=0.10.0-rc.1", features = ["wasm"] }
+lightcone = { version = "=0.11.0-rc.1", features = ["wasm"] }
 ```
 
 ## Feature Flags
@@ -73,7 +73,12 @@ let resources = V1ResourceConfig {
     heap_size: None,
 };
 let context = client.transaction_context_with_resources(resources).await?;
-let tx = client.orders().increment_nonce_tx(&payer, &context)?;
+let tx = client.positions().merge()
+    .user(payer)
+    .market(&market)
+    .mint(deposit_mint)
+    .amount(1_000_000)
+    .build_tx(&context)?;
 let confirmed = client.sign_and_submit_tx_confirmed_with_slot(tx).await?;
 ```
 
@@ -170,7 +175,6 @@ let signed = lightcone::auth::native::sign_login_message(keypair.as_ref(), &nonc
 client.auth().login_with_message(
     &signed.message, &signed.signature_bs58, &signed.pubkey_bytes, None,
 ).await?;
-client.set_order_nonce(u64::from(client.orders().current_nonce(&payer).await?)).await;
 ```
 
 ### Step 1: Find a Market
@@ -244,7 +248,7 @@ Order submission uses immutable rules from
 `GET /api/orderbooks/{orderbook_id}/decimals`, cached per client. Decimal
 strings are converted with integer arithmetic and rejected rather than rounded.
 Direct `sign`/`finalize` calls require the fetched `OrderbookRules`; raw amount
-orders are preflighted against the same exact ratio and signed-64-bit limits.
+orders are preflighted against the same exact ratio and the nonzero `u64` atom range.
 
 The envelope generates a salt when omitted. The price is quote tokens per base token, and the size is base tokens. Example values must satisfy the selected orderbook's trading rules and available collateral.
 
@@ -519,8 +523,8 @@ status, so refresh authoritative balances before any retry. See the
 
 | Example | Description |
 |---------|-------------|
-| [`read_onchain`](examples/read_onchain.rs) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
-| [`onchain_transactions`](examples/onchain_transactions.rs) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
+| [`read_onchain`](examples/read_onchain.rs) | Read exchange, market, orderbook, and position state and PDA derivations via RPC |
+| [`onchain_transactions`](examples/onchain_transactions.rs) | Build, sign, and submit mint/merge complete set on-chain |
 | [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.rs) | Deposit to the global pool, move capital into a market, withdraw from global, and merge back to keep the run net-neutral |
 
 Every instruction builder appends the program's event transport trailer (the event-authority PDA and the program account, both read-only), and public Lightcone instructions require transaction-level invocation except for the governance CPI allowlist. See the [program module docs](src/program/README.md#event-transport-trailer).
@@ -562,40 +566,61 @@ The backend reports rejections (insufficient balance, expired order, validation 
 | `error_code` | `Option<String>` | API-level error code (e.g. `"NOT_FOUND"`, `"INVALID_ARGUMENT"`) |
 | `error_log_id` | `Option<String>` | Backend support correlation ID (`LCERR_*`) |
 | `request_id` | `Option<String>` | SDK-generated `x-request-id` for cross-service tracing |
-| `existing_method` | `Option<String>` | Primary method of the conflicting Account when identity ownership has one deterministic owner |
+| `existing_method` | `Option<LinkedIdentityType>` | Primary method of the conflicting Account when identity ownership has one deterministic owner |
 
 `Display` formats all present fields as a multi-line report. Use `.to_string()` for logging or clipboard.
 
 #### `RejectionCode`
 
-Machine-readable rejection codes with a human-readable `.label()` method. Unrecognized codes from the backend are captured as `Unknown(String)` for forward compatibility.
+Business outcomes of a trading mutation, delivered with HTTP 200 and a `rejection_code`. Each has a human-readable `.label()`; unrecognized codes are captured as `Unknown(String)` for forward compatibility. `.is_transient()` is true for `StaleState`, `RequestExpired`, `TradingCapacityUnavailable`, and `TradingNotReady`, where the same signed order may be submitted again.
 
-| Variant | Label | When |
-|---------|-------|------|
-| `InsufficientBalance` | "Insufficient Balance" | Not enough funds to fill the order |
-| `Expired` | "Expired" | Order expiration time has passed |
-| `NonceMismatch` | "Nonce Mismatch" | Order nonce doesn't match current user nonce |
-| `SelfTrade` | "Self Trade" | Order would match against the maker's own order |
-| `MarketInactive` | "Market Inactive" | Market is not accepting orders |
-| `BelowMinOrderSize` | "Below Min Order Size" | Order size is below the minimum |
-| `InvalidNonce` | "Invalid Nonce" | Nonce is invalid |
-| `BroadcastFailure` | "Broadcast Failure" | Failed to broadcast to the network |
-| `OrderNotFound` | "Order Not Found" | Order does not exist |
-| `NotOrderMaker` | "Not Order Maker" | Caller is not the order maker |
-| `OrderAlreadyFilled` | "Order Already Filled" | Order has already been fully filled |
-| `OrderAlreadyCancelled` | "Order Already Cancelled" | Order was already cancelled |
-| `DuplicateOrder` | "Duplicate Order" | Order already exists on this orderbook |
-| `PostOnlyWouldCross` | "Post Only Would Cross" | Post-only order would cross resting liquidity |
-| `FokNoFill` | "FOK No Fill" | Fill-or-kill order could not be fully filled |
-| `IocNoFill` | "IOC No Fill" | Immediate-or-cancel order got no fill |
-| `WouldCrossUnavailableLiquidity` | "Would Cross Unavailable Liquidity" | Would cross liquidity unavailable for matching |
-| `WouldCrossBook` | "Would Cross Book" | Order remainder would leave orderbook crossed |
-| `MarketNotFound` | "Market Not Found" | Market does not exist |
-| `OrderbookNotFound` | "Orderbook Not Found" | Orderbook does not exist |
-| `TokenPairMismatch` | "Token Pair Mismatch" | Token pair doesn't match orderbook |
-| `InsufficientMarketFeeBuffer` | "Insufficient Market Fee Buffer" | Not enough market fee buffer |
-| `SignatureExpired` | "Signature Expired" | Order signature has expired |
-| `Unknown(String)` | *(raw code)* | Unrecognized code (forward compatible) |
+| Variant | Wire code | When |
+|---------|-----------|------|
+| `DuplicateOrder` | `DUPLICATE_ORDER` | This signed order identity was already accepted |
+| `InsufficientBalance` | `INSUFFICIENT_BALANCE` | Requested funding cannot cover the complete order |
+| `FokInsufficientLiquidity` | `FOK_INSUFFICIENT_LIQUIDITY` | A fill-or-kill order's full base target is not executable |
+| `SelfTrade` | `SELF_TRADE` | The order would cross the same wallet's liquidity |
+| `InvalidOrder` | `INVALID_ORDER` | Price/size precision, tick, or minimum-size rule violated |
+| `InvalidRequest` | `INVALID_REQUEST` | The request exceeds supported limits |
+| `OrderExpired` | `ORDER_EXPIRED` | The signed order had already expired |
+| `TradingPaused` | `TRADING_PAUSED` | Trading is paused for the market, exchange, or deposit token |
+| `InvalidSignature` | `INVALID_SIGNATURE` | The mutation signature did not verify |
+| `CancelAllReplay` | `CANCEL_ALL_REPLAY` | A cancel-all salt was already consumed |
+| `StaleState` | `STALE_STATE` | Trading state changed while processing |
+| `RequestExpired` | `REQUEST_EXPIRED` | The request expired before acceptance |
+| `TradingCapacityUnavailable` | `TRADING_CAPACITY_UNAVAILABLE` | Capacity unavailable, including the 250-open-order wallet cap |
+| `TradingNotReady` | `TRADING_NOT_READY` | Committed trading state is not ready |
+| `InternalError` | `INTERNAL_ERROR` | Committed order state could not be read |
+| `OrderNotFound` | `ORDER_NOT_FOUND` | Cancel of an order hash that was never accepted |
+| `OrderbookNotFound` | `ORDERBOOK_NOT_FOUND` | The engine does not know the orderbook |
+| `Unknown(String)` | *(raw code)* | Unrecognized code |
+
+#### `ErrorCode`
+
+Transport, validation, authorization, and availability failures carry an `error_code` on a 4xx/5xx envelope. `ApiRejectedDetails::error_code_kind()` returns it as a typed `ErrorCode` (unknown codes become `ErrorCode::Unknown`); `.is_retryable()` marks the conditions that may clear on their own.
+
+| Variant | HTTP | When |
+|---------|------|------|
+| `InvalidArgument` | 400 | Malformed field, bad side, zero amount, non-canonical key, bad cancel-all salt or timestamp |
+| `FailedPrecondition` | 400 | Engine precondition failed outside the business-rejection path |
+| `Forbidden` | 403 | Mutation signature rejected (a stale cancel-all timestamp is `InvalidArgument`) |
+| `AuthRequired` | 401 | Order mutation without a session |
+| `AuthWalletMismatch` | 403 | Session wallet differs from the order maker / cancellation wallet |
+| `AlreadyExists` | 409 | Duplicate order identity or reused cancel-all salt |
+| `Aborted` | 409 | Trading state changed; retry |
+| `ResourceExhausted` | 429 | Engine admission queue or capacity exhausted |
+| `EngineUnavailable` | 503 | Engine unavailable. For submission the outcome is unknown: resubmit the identical signed request, where `DUPLICATE_ORDER` or `ALREADY_EXISTS` proves the first was accepted; never re-sign with a new salt |
+| `TradingUnavailable` | 503 | Committed trading state or orderbook metadata unavailable |
+| `EngineInternalError` | 500 | Engine failure without a public reason |
+| `InvalidTif`, `InvalidDepositSource`, `InvalidSignature`, `InvalidPubkey`, `InvalidCursor`, `InvalidOrderHash`, `UnexpectedQuery`, `InvalidLimit` | 400 | Request validation |
+| `NotFound` | 404 | Resource not found |
+| `OrderbookDecimalsNotFound` | 404 | No decimals or trading rules for the orderbook. `Orders::submit` fetches these first, so an unknown orderbook fails here before reaching the submit route |
+| `OrderbookConfigurationError` | 500 | The orderbook's stored trading rules are invalid |
+| `NonCanonicalEncoding` | 400 | Percent-encoded unreserved characters on a route that rejects them |
+| `RateLimited` | 429 | Request rate limit |
+| `Unknown(String)` | — | Unrecognized code |
+
+Some failures carry no envelope at all: request-body extractor errors (for example an unknown field such as `nonce`) answer `400 text/plain`, and authenticated GETs without a session answer `401 text/plain`. These surface as `SdkError::Http(HttpError::BadRequest(text))` and `SdkError::Http(HttpError::Unauthorized)` (`SdkError::is_unauthorized()` covers both 401 forms). A 2xx body that does not match the expected response type surfaces as `SdkError::Serde`, naming the offending field.
 
 ```rust
 match client.orders().submit(&request).await {

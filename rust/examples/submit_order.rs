@@ -1,8 +1,8 @@
 mod common;
 
 use common::{
-    fresh_order_nonce, get_keypair, market_and_orderbook, quote_deposit_mint, rest_client,
-    wait_for_global_balance, ExampleResult,
+    get_keypair, market_and_orderbook, quote_deposit_mint, rest_client, wait_for_global_balance,
+    ExampleResult,
 };
 use lightcone::prelude::*;
 use lightcone::program::V1Transaction;
@@ -65,11 +65,7 @@ async fn main() -> ExampleResult {
 
     wait_for_global_balance(&client, &mint, required_balance).await?;
 
-    // 2. Submit the limit order. Fetch and cache the on-chain nonce once —
-    //    subsequent orders that omit `.nonce()` use this cached value.
-    let nonce = fresh_order_nonce(&client, &maker).await?;
-    client.set_order_nonce(nonce).await;
-
+    // 2. Submit the limit order. The salt is the order's only identity.
     let response = client
         .orders()
         .limit_order()
@@ -81,12 +77,15 @@ async fn main() -> ExampleResult {
         .salt(lightcone::program::orders::generate_salt())
         .submit(&client, &orderbook)
         .await?;
+    let quantity = |value: Option<rust_decimal::Decimal>| {
+        value.map_or_else(|| "pending".to_string(), |value| value.to_string())
+    };
     println!(
-        "submitted: {} status={:?} filled={} remaining={} fills={}",
+        "submitted: {} status={:?} filled={} open={} fills={}",
         response.order_hash,
         response.status,
-        response.filled,
-        response.remaining,
+        quantity(response.filled_base()),
+        quantity(response.open_base()),
         response.fills.len()
     );
 
