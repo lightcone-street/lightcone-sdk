@@ -249,7 +249,7 @@ Order submission uses immutable rules from
 `GET /api/orderbooks/{orderbook_id}/decimals`, cached per client. Decimal
 strings are converted with integer arithmetic and rejected rather than rounded.
 Direct `sign`/`finalize` calls require the fetched `OrderbookRules`; raw amount
-orders are preflighted against the same exact ratio and signed-64-bit limits.
+orders are preflighted against the same exact ratio and the nonzero `u64` atom range.
 
 The envelope generates a salt when omitted. The price is quote tokens per base token, and the size is base tokens. Example values must satisfy the selected orderbook's trading rules and available collateral.
 
@@ -552,7 +552,7 @@ The backend reports rejections (insufficient balance, expired order, validation 
 | `error_code` | `Option<String>` | API-level error code (e.g. `"NOT_FOUND"`, `"INVALID_ARGUMENT"`) |
 | `error_log_id` | `Option<String>` | Backend support correlation ID (`LCERR_*`) |
 | `request_id` | `Option<String>` | SDK-generated `x-request-id` for cross-service tracing |
-| `existing_method` | `Option<String>` | Primary method of the conflicting Account when identity ownership has one deterministic owner |
+| `existing_method` | `Option<LinkedIdentityType>` | Primary method of the conflicting Account when identity ownership has one deterministic owner |
 
 `Display` formats all present fields as a multi-line report. Use `.to_string()` for logging or clipboard.
 

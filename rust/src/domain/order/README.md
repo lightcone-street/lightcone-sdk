@@ -94,12 +94,13 @@ Serialized lowercase, as in `GET /api/users/order-fills`. `OrderStatus::derive` 
 |---------|-------------|
 | `Limit` | Standard limit order |
 | `Market` | Market order (immediate execution) |
-| `Deposit` | Deposit operation |
+| `Split` | Split collateral into a complete set |
+| `Merge` | Merge a complete set back into collateral |
 | `Withdraw` | Withdrawal operation |
 
 ### `TimeInForce`
 
-Execution constraint for trigger orders.
+Execution policy of a limit order.
 
 | Variant | Serializes as | Description |
 |---------|---------------|-------------|
@@ -236,7 +237,8 @@ Cancel all open orders, optionally scoped to a specific orderbook. **Not retried
 
 `CancelAllBody` must include:
 - `orderbook_id` in the signed message, using `""` to mean all markets
-- `salt`, a unique UUID-like string for replay protection
+- `timestamp` in Unix seconds, within the engine's window (at most 30 seconds) of server time
+- `salt`, a unique UUID-like string for replay protection: non-empty, at most 128 bytes, never reused
 
 ### `submit_trigger`
 
@@ -321,11 +323,11 @@ Each operation has an `_ix` method returning an `Instruction` and a `_tx` conven
 #### `cancel_order_ix` / `cancel_order_tx`
 
 ```rust
-fn cancel_order_ix(&self, maker: &Pubkey, market: &Pubkey, order: &OrderPayload) -> Instruction
-fn cancel_order_tx(&self, maker: &Pubkey, market: &Pubkey, order: &OrderPayload, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
+fn cancel_order_ix(&self, operator: &Pubkey, market: &Pubkey, order: &OrderPayload) -> Instruction
+fn cancel_order_tx(&self, operator: &Pubkey, market: &Pubkey, order: &OrderPayload, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
-Build a CancelOrder instruction/transaction for on-chain order cancellation.
+Build a CancelOrder instruction/transaction for on-chain order cancellation. The program requires the exchange operator to sign, so a maker cannot use this directly; makers cancel through `cancel`.
 
 #### `close_order_status_ix` / `close_order_status_tx`
 
@@ -599,13 +601,14 @@ async fn market_make(client: &LightconeClient, keypair: &Keypair) -> Result<(), 
     }
 
     // 5. Cancel all orders
-    client.orders().cancel_all(&CancelAllBody {
-        user_pubkey: keypair.pubkey().into(),
-        orderbook_id: OrderBookId::from(""),
-        signature: "...".into(),
-        timestamp: 1_710_300_000,
-        salt: generate_cancel_all_salt(),
-    }).await?;
+    // The timestamp must be current (within the engine's window of at most 30 s).
+    client.orders().cancel_all(&CancelAllBody::signed(
+        keypair.pubkey().into(),
+        OrderBookId::from(""),
+        chrono::Utc::now().timestamp(),
+        generate_cancel_all_salt(),
+        keypair,
+    )).await?;
 
     Ok(())
 }

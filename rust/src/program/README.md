@@ -202,7 +202,8 @@ let ix = client.positions().withdraw().await
 
 **Orders — On-Chain Order Operations (`client.orders()`):**
 ```rust
-let ix = client.orders().cancel_order_ix(&maker, &market, &order);
+// The program requires the exchange operator to sign on-chain cancellation.
+let ix = client.orders().cancel_order_ix(&operator, &market, &order);
 let ix = client.orders().close_order_status_ix(&CloseOrderStatusParams { operator, order_hash });
 ```
 
@@ -281,7 +282,7 @@ All functions return `(Pubkey, u8)` (address, bump).
 | `get_exchange_pda(program_id)` | `["central_state"]` | Exchange singleton |
 | `get_event_authority_pda(program_id)` | `["__event_authority"]` | Event-authority PDA appended to every public instruction |
 | `get_market_pda(market_id, program_id)` | `["market", market_id.to_le_bytes()]` | Market account |
-| `get_condition_tombstone_pda(condition_id, program_id)` | `["condition", condition_id]` | Resolved condition tombstone |
+| `get_condition_tombstone_pda(condition_id, program_id)` | `["condition", condition_id]` | Condition tombstone created with the market, so a condition id is never reused |
 | `get_vault_pda(deposit_mint, market, program_id)` | `["market_deposit_token_account", deposit_mint, market]` | Deposit vault |
 | `get_mint_authority_pda(market, program_id)` | `["market_mint_authority", market]` | Conditional token mint authority |
 | `get_conditional_mint_pda(market, deposit_mint, outcome, program_id)` | `["conditional_mint", market, deposit_mint, [outcome]]` | Conditional token mint |
@@ -395,7 +396,7 @@ All instructions use a single-byte discriminator.
 | MintCompleteSet | 3 | Deposit and mint conditional tokens |
 | MergeCompleteSet | 4 | Burn conditionals and withdraw deposit |
 | CancelOrder | 5 | Cancel a specific order |
-| SettleMarket | 7 | Resolve market with winning outcome |
+| SettleMarket | 7 | Resolve market with one payout numerator per outcome |
 | RedeemWinnings | 8 | Redeem winning tokens for deposit |
 | SetPaused | 9 | Pause/unpause exchange |
 | SetOperator | 10 | Propose a new exchange operator |
@@ -461,7 +462,7 @@ last two accounts; callers must not append another trailer.
 `get_event_authority_pda(program_id)` exposes the same derivation for integrations
 that inspect instruction accounts.
 
-Refer to the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules and the governance CPI allowlist. The nonce-free [program source at `9702f231`](https://github.com/lightcone-street/lightcone-pinnochio/tree/9702f2316bc364bdd2775c558d9a0e5b0c52ea4d/src) defines the current binary interfaces, preparation behavior, limits, and errors. Tests beside the order and instruction modules reproduce the backend's program-contract fixtures (`tests/fixtures/program-contract-v1`) byte for byte.
+Refer to the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules and the governance CPI allowlist. The nonce-free [program source at `f1092ae7`](https://github.com/lightcone-street/lightcone-pinnochio/tree/f1092ae7cc13910528437a8c33bb53c893687a32/src) defines the current binary interfaces, preparation behavior, limits, and errors; its ABI is unchanged from `9702f231`. Tests beside the order and instruction modules pin inline known answers: the backend's order-signing vectors and instruction bytes produced by the program team's `lightcone-client` at that commit.
 
 The program emits authenticated event schema 2. Solana transaction version and event schema version are independent. The SDK neither builds nor decodes event batches. `instruction::EVENT_BATCH` remains reserved. Builders do not add a compute-budget instruction. Callers must include
 the program's final self-CPI when estimating transaction compute.
@@ -686,6 +687,9 @@ pub struct AskOrderParams {
 
 ```rust
 pub enum SdkError {
+    InvalidTransaction(String),
+    #[cfg(feature = "solana-rpc")]
+    Rpc(ClientError),
     InvalidDiscriminator { expected: String, actual: String },
     AccountNotFound(String),
     InvalidDataLength { expected: usize, actual: usize },

@@ -718,6 +718,7 @@ pub fn build_activate_market_ix(params: &ActivateMarketParams, program_id: &Pubk
 /// Match taker against makers.
 ///
 /// Data format (101 + 113 * M bytes for M makers):
+/// ```text
 /// [0]       discriminator
 /// [1..34]   taker Order (33 bytes)
 /// [34..98]  taker_signature (64 bytes)
@@ -728,14 +729,17 @@ pub fn build_activate_market_ix(params: &ActivateMarketParams, program_id: &Pubk
 ///   [+33..+97]   maker_signature (64)
 ///   [+97..+105]  maker_fill_amount (8)
 ///   [+105..+113] taker_fill_amount (8)
+/// ```
 ///
 /// Accounts (17 + 4 * M - F, where F counts full-fill participants, which
 /// omit their order status):
+/// ```text
 ///   Fixed: operator, exchange, market, orderbook, GDT A, GDT B
 ///   Taker: [order_status], position, base_mint, quote_mint, base_ata, quote_ata,
 ///          token_program, system_program, fee_receiver_quote_ata, fee_receiver,
 ///          ata_program
 ///   Per maker: [order_status], position, base_ata, quote_ata
+/// ```
 /// The event transport trailer (event_authority, program) is always appended last.
 pub fn build_match_orders_multi_ix(
     params: &MatchOrdersMultiParams,
