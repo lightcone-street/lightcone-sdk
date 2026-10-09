@@ -1,4 +1,4 @@
-import { RejectionCode } from "./rejection";
+import { ErrorCode, RejectionCode } from "./rejection";
 import type { LinkedIdentityType } from "../auth";
 
 /** Raw backend rejection details before bounded codes and methods are decoded. */
@@ -47,6 +47,15 @@ export class ApiRejectedDetails {
     this.errorLogId = params.errorLogId;
     this.requestId = params.requestId;
     this.httpStatus = params.httpStatus;
+  }
+
+  /**
+   * Typed view of {@link errorCode}; an unrecognized code keeps its raw text
+   * (`isKnown()` is false). `undefined` when the envelope carried no
+   * `error_code`, as for business rejections.
+   */
+  errorCodeKind(): ErrorCode | undefined {
+    return this.errorCode === undefined ? undefined : ErrorCode.from(this.errorCode);
   }
 
   static fromWire(

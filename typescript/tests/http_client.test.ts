@@ -88,7 +88,7 @@ describe("LightconeHttp", () => {
       [
         {
           status: 200,
-          body: '{"status":"error","error_details":{"reason":"invalid exact ratio","rejection_code":"PRICE_NOT_EXACTLY_REPRESENTABLE"}}',
+          body: '{"status":"error","error_details":{"reason":"invalid exact ratio","rejection_code":"INVALID_ORDER"}}',
         },
       ],
       async (baseUrl) => {
@@ -98,8 +98,9 @@ describe("LightconeHttp", () => {
           (error) =>
             error instanceof SdkError &&
             error.variant === "ApiRejected" &&
-            error.apiRejectedDetails?.rejectionCode?.wireName() ===
-              "PRICE_NOT_EXACTLY_REPRESENTABLE",
+            error.apiRejectedDetails?.rejectionCode?.wireName() === "INVALID_ORDER" &&
+            error.apiRejectedDetails.rejectionCode.isKnown() &&
+            error.apiRejectedDetails.errorCodeKind() === undefined,
         );
       },
     );

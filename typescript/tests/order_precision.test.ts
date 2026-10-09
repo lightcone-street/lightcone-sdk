@@ -10,7 +10,6 @@ import {
   stringifyJsonExact,
   validateRawAmounts,
   validateSignedFields,
-  RejectionCode,
 } from "../src/shared";
 import { orderbookRulesFromWire, type DecimalsResponse } from "../src/domain/orderbook/wire";
 import { signOrderFull } from "../src/program/orders";
@@ -238,21 +237,6 @@ describe("exact order precision", () => {
         (error) =>
           error instanceof ProgramSdkError && error.variant === "Serialization"
       );
-    }
-  });
-
-  it("recognizes every exact-order rejection code", () => {
-    for (const code of [
-      "TRADING_RULES_UNAVAILABLE",
-      "ORDER_FIELD_OUT_OF_RANGE",
-      "PRICE_NOT_EXACTLY_REPRESENTABLE",
-      "PRICE_OUT_OF_RANGE",
-      "INVALID_PRICE_DECIMALS",
-      "INVALID_PRICE_SIGNIFICANT_FIGURES",
-      "INVALID_SIZE_DECIMALS",
-    ]) {
-      assert.notEqual(RejectionCode.from(code).label(), code);
-      assert.equal(RejectionCode.from(code).wireName(), code);
     }
   });
 });

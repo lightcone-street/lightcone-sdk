@@ -36,7 +36,12 @@ export {
   type ApiResponse,
 } from "./api_response";
 
-export { RejectionCode } from "./rejection";
+export {
+  ErrorCode,
+  RejectionCode,
+  type KnownErrorCode,
+  type KnownRejectionCode,
+} from "./rejection";
 
 export { formatDecimal, isZero, parseDecimal, quotePerBase } from "./price";
 export {
