@@ -7,7 +7,7 @@ On-chain Solana program interaction for the Lightcone protocol. This module cont
 On-chain operations are accessed through `LightconeClient`'s domain sub-clients:
 
 ```typescript
-import { LightconeClient, OrderBuilder } from "@lightconexyz/lightcone-sdk";
+import { LightconeClient } from "@lightconexyz/lightcone-sdk";
 
 // HTTP-only client (no Connection required for instruction building)
 const client = LightconeClient.builder().build();
@@ -41,10 +41,10 @@ compile immutable `V1Transaction` values with an explicit blockhash/resource
 context. Direct helpers take the context before their optional program ID.
 
 ```typescript
-import { V1Transaction, buildInitializeIx } from "@lightconexyz/lightcone-sdk";
+import { V1Transaction, program } from "@lightconexyz/lightcone-sdk";
 
 const context = await client.transactionContext();
-const ix = buildInitializeIx({ authority });
+const ix = program.buildInitializeIx({ authority });
 const tx = V1Transaction.compile([ix], authority, context);
 const signed = tx.sign([authorityKeypair]);
 const signature = await client.rpc().submitSignedTransaction(signed);
@@ -61,8 +61,9 @@ resource units, wallet requirements, and one-shot submission behavior.
 ### MarketStatus
 
 ```typescript
-import { MarketStatus } from "@lightconexyz/lightcone-sdk";
+import { program } from "@lightconexyz/lightcone-sdk";
 
+const { MarketStatus } = program;
 MarketStatus.Pending    // 0 - Not yet active
 MarketStatus.Active     // 1 - Trading enabled
 MarketStatus.Resolved   // 2 - Market settled
@@ -72,8 +73,9 @@ MarketStatus.Cancelled  // 3 - Market cancelled
 ### OrderSide
 
 ```typescript
-import { OrderSide } from "@lightconexyz/lightcone-sdk";
+import { program } from "@lightconexyz/lightcone-sdk";
 
+const { OrderSide } = program;
 OrderSide.BID  // 0 - Buyer gives quote, receives base
 OrderSide.ASK  // 1 - Seller gives base, receives quote
 ```
@@ -81,14 +83,16 @@ OrderSide.ASK  // 1 - Seller gives base, receives quote
 ### Account Types
 
 ```typescript
-import type {
-  Exchange,
-  GlobalDepositToken,
-  Market,
-  Position,
-  OrderStatus,
-  PendingRoleKind,
-} from "@lightconexyz/lightcone-sdk";
+import type { program } from "@lightconexyz/lightcone-sdk";
+
+// On-chain account types live in the `program` namespace. The root `Market`,
+// `Position`, and `OrderStatus` names are the REST domain models instead.
+type Exchange = program.Exchange;
+type GlobalDepositToken = program.GlobalDepositToken;
+type Market = program.Market;
+type Position = program.Position;
+type OrderStatus = program.OrderStatus;
+type PendingRoleKind = program.PendingRoleKind;
 ```
 
 #### Exchange
@@ -167,7 +171,9 @@ Compact order payload: salt, side, amountIn, amountOut, and expiration, without 
 The Lightcone program ID is derived from `LightconeEnv` and accessed via `programId(env)` or `client.programId`. `PROGRAM_ID` is re-exported as a convenience default (production). When targeting staging or local, always pass `programId` explicitly.
 
 ```typescript
-import { PROGRAM_ID, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@lightconexyz/lightcone-sdk";
+import { program } from "@lightconexyz/lightcone-sdk";
+
+const { PROGRAM_ID, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } = program;
 ```
 
 | Constant | Value |
@@ -186,9 +192,9 @@ import { PROGRAM_ID, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@ligh
 - A selected funding mint must back the participant's signed give side: quote collateral for BUY, base collateral for SELL. Complete-set funding still covers every market outcome.
 - `initPositionTokens` prepares new, partial, repeated, and additional collateral groups with any signing payer. Supply 1..8 distinct mints in increasing global registration-index order. No slot is required. The synchronous builder preserves the supplied order.
 - `depositToGlobal` emits the exact eight-account deposit interface. `closeOrderbook` directly closes a resolved book with four business accounts. Both counts exclude the two event trailers.
-- Instruction values 21, 23, 26, and 34 are unassigned. ALT instructions, helpers, options, and exports have been removed. Use `initPositionTokens` for additional preparation groups.
+- Instruction values 6 (the removed `IncrementNonce`), 21, 23, 26, and 34 are unassigned. ALT instructions, helpers, options, and exports have been removed. Use `initPositionTokens` for additional preparation groups.
 - `GlobalDepositToken` requires exactly 47 bytes and an activity byte of 0 or 1. Inactivity gates trading, while deposits, preparation, splits, merges, and exits retain their existing rules.
-- `Exchange` and `Market` remain 216 bytes. Role transfers, fee updates, order signing, and backend wire fields retain their existing contracts.
+- `Exchange` and `Market` remain 216 bytes, and role transfers and fee updates retain their existing contracts. Order signing and the submit body changed with the nonce-free cutover: see [SignedOrder](#signedorder-225-bytes) and [ADR 0005](../../../docs/adr/0005-nonce-free-order-identity.md).
 
 Transaction helpers return only validated Solana v1 envelopes, with 4,096-byte signed size and 64-address limits. Eleven-maker instructions retain the upgraded program ABI. Legacy/v0 imports, ComputeBudget instructions, and address lookup tables are rejected.
 
@@ -234,7 +240,9 @@ program.MAX_DEPOSIT_MINTS_PER_IX       // 8
 
 ```typescript
 import { Keypair } from "@solana/web3.js";
-import { LightconeClient } from "@lightconexyz/lightcone-sdk";
+import { LightconeClient, program } from "@lightconexyz/lightcone-sdk";
+
+const { OrderBuilder, buildMatchOrdersMultiIx } = program;
 
 async function main() {
   const client = LightconeClient.builder()
@@ -285,7 +293,7 @@ async function main() {
 
 ## Low-Level Building Blocks
 
-The `program` module also exports all building blocks directly for advanced usage:
+The `program` namespace also exports every building block for advanced usage:
 
 Raw signing helpers preserve the wire/signature contract and require fetched
 `OrderbookRules`; they validate the executable ratio, size quantum, and signed
@@ -293,7 +301,9 @@ field ranges before signing. `LimitOrderEnvelope.submit()` fetches and caches
 those rules automatically.
 
 ```typescript
-import {
+import { program } from "@lightconexyz/lightcone-sdk";
+
+const {
   // Instruction builders
   buildInitializeIx, buildCreateMarketIx, buildMatchOrdersMultiIx,
   buildAcceptAuthorityIx, buildSetOracleIx,
@@ -307,7 +317,7 @@ import {
   hashOrder, signOrder, createBidOrder, createAskOrder,
   // Constants
   PROGRAM_ID, INSTRUCTION, DISCRIMINATOR,
-} from "@lightconexyz/lightcone-sdk";
+} = program;
 ```
 
 Settle instructions now submit payout numerators directly. Binary markets can use

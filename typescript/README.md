@@ -325,9 +325,12 @@ later REST pages with `limitOrderFromUserOrder` and `applyOrder`), then call
 `apply(update)` for every `order` fact and `applyClosure(closure)` for every
 `closure`. Application is revision-guarded, so older state cannot reopen a closed
 order. `applyClosure` returns `undefined` for scopes it cannot evaluate from order
-data (deposit token, account, settlement profile): refetch the orders then. On
-`recovery_completed`, or after a reconnect, `clear()` the container and reseed from
-the new snapshot.
+data (deposit token, account, settlement profile): refetch the orders then.
+`recovery_completed` means the engine rebuilt committed state and cached user
+state is stale, but no snapshot follows it: `clear()` the container, then
+unsubscribe and resubscribe the `user` channel for a new snapshot, or reseed from
+REST pages. After a reconnect the client resubscribes automatically; `clear()` the
+container and reseed from the snapshot that follows.
 
 Book streams are snapshot-only: every accepted `book_update` replaces the full
 top-20 view. `OrderbookState` discards equal/older `seq` values within a
@@ -827,4 +830,4 @@ The SDK stays credential-agnostic: what "restore" means belongs to the host. For
 
 Refer to the [shared order-response contract](../README.md#supported-order-responses). REST user orders (`UserOrder`, with its recorded quantities in `state`), WebSocket snapshot orders (`UserSnapshotOrder`), and live `order` facts (`OrderUpdate`) all carry an order's committed state and convert to `LimitOrder` with `limitOrderFromUserOrder`, `limitOrderFromSnapshot`, and `limitOrderFromUpdate`. Their pages also carry funding accounts (`FundingAccount`) and the committed revision; there is no account nonce. `convertSnapshotOrders` returns `UserOpenLimitOrders`.
 
-Unit conventions: quantities named `*_base` and order sizes are decimal strings in base-token units; `amount_in`/`amount_out` and `maker_amount`/`taker_amount` are in the units of the token each side gives or receives; prices are quote units per base unit; fields ending in `_atoms` are raw integer atoms (`bigint`); revisions, sequences, generations, and slots are `bigint`. Funding reservations are `DecimalText` because they can exceed 96-bit decimal range.
+Unit conventions: quantities named `*_base` and order sizes are decimal strings in base-token units; `amount_in`/`amount_out` and `maker_amount`/`taker_amount` are in the units of the token each side gives or receives; prices are quote units per base unit; fields ending in `_atoms` are raw integer atoms (`bigint`); order and trade revisions, sequences, generations, and slots are `bigint`. Wallet deposit-balance `context_slot` values remain safe-integer `number`s. Funding reservations are `DecimalText` because they can exceed 96-bit decimal range.

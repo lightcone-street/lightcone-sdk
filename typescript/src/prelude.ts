@@ -9,7 +9,6 @@ export {
   DepositSource,
   deriveOrderbookId,
   FundingSource,
-  OrderUpdateType,
   parseDecimalText,
   Resolution,
   Side,
@@ -299,6 +298,7 @@ export {
 } from "./auth";
 
 export {
+  generateCancelAllSalt,
   LimitOrderEnvelope,
   type OrderEnvelope,
   type OrderPayload,

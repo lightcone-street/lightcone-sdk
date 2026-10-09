@@ -85,7 +85,32 @@ describe("trade wire", () => {
     assert.equal(message.type, "trades");
     if (message.type !== "trades") return;
     assert.equal(message.data.leg_index, 0);
+    assert.equal(message.data.fill_id, "0d6a6f3e-5b9b-4b43-9f0f-6c7c1f3f9a10:2:0");
+    assert.equal(message.data.commit.committed_revision, 812n);
+    assert.equal(wsTradePrice(message.data), "0.55");
     assert.equal(message.data.executed_at.toISOString(), "2026-09-29T12:00:00.000Z");
+  });
+
+  it("decodes a user-channel fill as the trades payload", () => {
+    const message = parseMessageIn(
+      JSON.stringify({ type: "user", version: 0.1, data: { ...fillFact(), event_type: "fill" } }),
+    );
+    assert.equal(message.type, "user");
+    if (message.type !== "user" || message.data.event_type !== "fill") {
+      throw new Error("expected a user fill");
+    }
+    assert.equal(wsTradeId(message.data), "5f7e3c2a-8a39-4f55-a1d6-2b6f0c1b9d11:0:3");
+    assert.equal(message.data.taker_side, Side.Ask);
+  });
+
+  it("decodes the backend's fractional-second RFC 3339 times", () => {
+    for (const [executedAt, iso] of [
+      ["2026-09-29T12:00:00.123456+00:00", "2026-09-29T12:00:00.123Z"],
+      ["2026-09-29T12:00:00.987654321+00:00", "2026-09-29T12:00:00.987Z"],
+    ] as const) {
+      const trade = wsTradeFromWire({ ...fillFact(), executed_at: executedAt });
+      assert.equal(trade.executed_at.toISOString(), iso);
+    }
   });
 
   it("uses the REST fee estimate names and keeps a large id exact", () => {
