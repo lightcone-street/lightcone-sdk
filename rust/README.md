@@ -22,20 +22,20 @@ Rust SDK for the Lightcone impact market protocol on Solana.
 
 ## Installation
 
-This branch targets `0.10.0-rc.1`. Until that version is published, use a path
+This branch targets `0.11.0-rc.1`. Until that version is published, use a path
 dependency to this checkout's `rust` directory or pin its Git revision.
 After publication, add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-lightcone = { version = "=0.10.0-rc.1", features = ["native"] }
+lightcone = { version = "=0.11.0-rc.1", features = ["native"] }
 ```
 
 For browser/WASM targets:
 
 ```toml
 [dependencies]
-lightcone = { version = "=0.10.0-rc.1", features = ["wasm"] }
+lightcone = { version = "=0.11.0-rc.1", features = ["wasm"] }
 ```
 
 ## Feature Flags
