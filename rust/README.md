@@ -594,7 +594,7 @@ Transport, validation, authorization, and availability failures carry an `error_
 | `AlreadyExists` | 409 | Duplicate order identity or reused cancel-all salt |
 | `Aborted` | 409 | Trading state changed; retry |
 | `ResourceExhausted` | 429 | Engine admission queue or capacity exhausted |
-| `EngineUnavailable` | 503 | Engine unavailable. For submission the outcome is unknown: reconcile by order hash before resubmitting |
+| `EngineUnavailable` | 503 | Engine unavailable. For submission the outcome is unknown: resubmit the identical signed request, where `DUPLICATE_ORDER` or `ALREADY_EXISTS` proves the first was accepted; never re-sign with a new salt |
 | `TradingUnavailable` | 503 | Committed trading state or orderbook metadata unavailable (also an unknown orderbook on submit) |
 | `EngineInternalError` | 500 | Engine failure without a public reason |
 | `InvalidTif`, `InvalidDepositSource`, `InvalidSignature`, `InvalidPubkey`, `InvalidCursor`, `InvalidOrderHash`, `UnexpectedQuery`, `InvalidLimit` | 400 | Request validation |

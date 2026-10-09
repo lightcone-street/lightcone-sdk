@@ -184,7 +184,9 @@ pub enum ErrorCode {
     /// 429: engine admission queue or capacity exhausted; retry later.
     ResourceExhausted,
     /// 503: engine unavailable or deadline exceeded. For order submission the
-    /// outcome is unknown: reconcile by order hash before resubmitting.
+    /// outcome is unknown: resubmit the identical signed request, where
+    /// [`RejectionCode::DuplicateOrder`] or [`Self::AlreadyExists`] proves the
+    /// first was accepted.
     EngineUnavailable,
     /// 500: engine failure without a public reason.
     EngineInternalError,
@@ -277,7 +279,7 @@ impl ErrorCode {
     /// True for conditions that may clear on their own, where retrying the
     /// same request later is reasonable. For order submission,
     /// [`Self::EngineUnavailable`] additionally means the outcome is unknown:
-    /// query the order hash before submitting again.
+    /// retry only the identical signed request, never a re-signed order.
     pub fn is_retryable(&self) -> bool {
         matches!(
             self,

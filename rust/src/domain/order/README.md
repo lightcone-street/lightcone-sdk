@@ -166,7 +166,7 @@ An order the wallet participated in (as maker or taker) with its oldest-first pa
 | `fills_complete` | `bool` | False when more fills exist or a newer revision prevented capture |
 | `fills_next_cursor` | `Option<String>` | Continue with `get_order_fill_page` |
 
-`filled_base()` and `open_base()` read the corresponding `state` quantities. Business rejections arrive as `SdkError::ApiRejected` with a `RejectionCode`; an `ENGINE_UNAVAILABLE` error means the outcome is unknown, so reconcile by order hash before resubmitting.
+`filled_base()` and `open_base()` read the corresponding `state` quantities. Business rejections arrive as `SdkError::ApiRejected` with a `RejectionCode`; an `ENGINE_UNAVAILABLE` error means the outcome is unknown (see [`submit`](#submit)).
 
 ### `FillInfo`
 
@@ -209,10 +209,12 @@ Create a `TriggerOrderEnvelope` pre-seeded with the client's deposit source. Use
 ### `submit`
 
 ```rust
-async fn submit(&self, request: &impl Serialize) -> Result<SubmitOrderResponse, SdkError>
+async fn submit(&self, request: &SubmitOrderRequest) -> Result<SubmitOrderResponse, SdkError>
 ```
 
-Submit a signed limit order. The `request` is typically a `SubmitOrderRequest` produced by an order envelope's `.sign()` or `.finalize()` method. **Not retried** -- non-idempotent.
+Submit a signed limit order, typically the `SubmitOrderRequest` produced by an order envelope's `.sign()` or `.finalize()` method. **Not retried.**
+
+An `ENGINE_UNAVAILABLE` error means the outcome is unknown. Keep the signed `SubmitOrderRequest` (it is `Clone`) and submit that identical request again: a `DUPLICATE_ORDER` rejection or an `ALREADY_EXISTS` (409) error proves the first submission was accepted, and any other result is the outcome of this one. Never sign a replacement with a new salt, which is a different order. `get_user_orders` lists only open and pending orders, so it cannot prove an order was never accepted.
 
 ### `cancel`
 

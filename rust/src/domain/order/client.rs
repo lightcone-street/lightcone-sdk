@@ -217,8 +217,8 @@ impl FillInfo {
 ///
 /// Business rejections arrive as [`SdkError::ApiRejected`] with a
 /// [`RejectionCode`](crate::shared::RejectionCode). An
-/// `ENGINE_UNAVAILABLE` error means the outcome is unknown: reconcile by
-/// order hash before submitting again.
+/// `ENGINE_UNAVAILABLE` error means the outcome is unknown: see
+/// [`Orders::submit`] for how to resolve it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SubmitOrderResponse {
     pub order_hash: String,
@@ -444,6 +444,15 @@ impl<'a> Orders<'a> {
         crate::program::orders::generate_cancel_all_salt()
     }
 
+    /// Submit a signed limit order. Not retried.
+    ///
+    /// An `ENGINE_UNAVAILABLE` error means the outcome is unknown. Resolve it
+    /// by submitting the identical signed `request` again: a [`RejectionCode::DuplicateOrder`](crate::shared::RejectionCode::DuplicateOrder)
+    /// rejection or an [`ErrorCode::AlreadyExists`](crate::shared::ErrorCode::AlreadyExists)
+    /// error proves the first submission was accepted; any other result is the
+    /// outcome of this one. Never sign a replacement with a new salt, which is
+    /// a different order. Order reads list only open and pending orders, so
+    /// they cannot prove an order was never accepted.
     pub async fn submit(
         &self,
         request: &SubmitOrderRequest,
