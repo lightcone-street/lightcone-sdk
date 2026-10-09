@@ -36,6 +36,7 @@ pub trait Order {
 
 // ─── OrderType ───────────────────────────────────────────────────────────────
 
+/// Supported trade-form selections. Fund transfers are separate wallet operations.
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum OrderType {
     Limit,
@@ -43,7 +44,6 @@ pub enum OrderType {
     Market,
     Split,
     Merge,
-    Withdraw,
 }
 
 impl OrderType {
@@ -53,7 +53,6 @@ impl OrderType {
             OrderType::Market => "Market",
             OrderType::Split => "Split",
             OrderType::Merge => "Merge",
-            OrderType::Withdraw => "Withdraw",
         }
     }
 }
@@ -65,7 +64,6 @@ impl std::fmt::Display for OrderType {
             OrderType::Market => write!(f, "market"),
             OrderType::Split => write!(f, "split"),
             OrderType::Merge => write!(f, "merge"),
-            OrderType::Withdraw => write!(f, "withdraw"),
         }
     }
 }
@@ -79,7 +77,6 @@ impl std::str::FromStr for OrderType {
             "market" => Ok(OrderType::Market),
             "split" => Ok(OrderType::Split),
             "merge" => Ok(OrderType::Merge),
-            "withdraw" => Ok(OrderType::Withdraw),
             _ => Err(format!("invalid order type: {s}")),
         }
     }
@@ -200,6 +197,7 @@ impl Order for LimitOrder {
 
 // ─── AnyOrder ───────────────────────────────────────────────────────────────
 
+/// Supported entries rendered by order tables.
 #[derive(Clone, PartialEq)]
 pub enum AnyOrder {
     Limit(LimitOrder),
@@ -245,6 +243,7 @@ impl Order for AnyOrder {
 }
 
 impl AnyOrder {
+    /// Converts supported orders to table entries sorted by creation time.
     pub fn vec_from(limit_orders: Vec<LimitOrder>) -> Vec<AnyOrder> {
         let mut entries: Vec<AnyOrder> = limit_orders.into_iter().map(AnyOrder::Limit).collect();
         entries.sort_by(|a, b| Order::created_at(a).cmp(&Order::created_at(b)));

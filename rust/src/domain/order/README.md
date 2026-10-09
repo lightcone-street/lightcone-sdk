@@ -76,9 +76,8 @@ Serialized lowercase, as in `GET /api/users/order-fills`. `OrderStatus::derive` 
 |---------|-------------|
 | `Limit` | Standard limit order |
 | `Market` | Market order (immediate execution) |
-| `Split` | Split collateral into a complete set |
-| `Merge` | Merge a complete set back into collateral |
-| `Withdraw` | Withdrawal operation |
+| `Split` | Create a complete conditional-token set |
+| `Merge` | Combine a complete conditional-token set into its deposit asset |
 
 ### `TimeInForce`
 

@@ -275,7 +275,7 @@ impl OrderPayload {
         self.signature != [0u8; 64]
     }
 
-    /// Convert a signed payload to a limit-order `SubmitOrderRequest`.
+    /// Converts a signed payload to the ordinary REST submission request.
     ///
     /// Intended for internal use by envelope types. Prefer using
     /// `LimitOrderEnvelope::sign()`.
