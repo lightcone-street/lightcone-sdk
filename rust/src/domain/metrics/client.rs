@@ -13,10 +13,50 @@ use crate::domain::metrics::wire::{
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::shared::{OrderBookId, PubkeyStr};
+use std::future::Future;
 
 /// Upper bound on pages followed by [`Metrics::orderbook_tickers`] (8 tickers
 /// per page), so a misbehaving cursor can never loop forever.
 const MAX_TICKER_PAGES: usize = 1_000;
+
+/// Follow ticker pages until the last one or `max_pages`, which leaves
+/// `has_more` true with the cursor to resume from. A page that reports more
+/// without an advancing cursor fails instead of truncating silently.
+async fn collect_ticker_pages<F, Fut>(
+    max_pages: usize,
+    mut fetch: F,
+) -> Result<OrderbookTickersResponse, SdkError>
+where
+    F: FnMut(Option<String>) -> Fut,
+    Fut: Future<Output = Result<OrderbookTickersResponse, SdkError>>,
+{
+    let mut tickers = Vec::new();
+    let mut cursor: Option<String> = None;
+    for _ in 0..max_pages {
+        let page = fetch(cursor.clone()).await?;
+        tickers.extend(page.tickers);
+        if !page.has_more {
+            return Ok(OrderbookTickersResponse {
+                tickers,
+                next_cursor: None,
+                has_more: false,
+            });
+        }
+        match page.next_cursor {
+            Some(next) if cursor.as_deref() != Some(next.as_str()) => cursor = Some(next),
+            next => {
+                return Err(SdkError::Validation(format!(
+                    "orderbook tickers page reported more without an advancing cursor (after {cursor:?}: {next:?})"
+                )))
+            }
+        }
+    }
+    Ok(OrderbookTickersResponse {
+        tickers,
+        next_cursor: cursor,
+        has_more: true,
+    })
+}
 
 fn append_query(url: &mut String, qs: &str) {
     if !qs.is_empty() {
@@ -77,34 +117,21 @@ impl<'a> Metrics<'a> {
     /// scaled using that orderbook's own decimals.
     ///
     /// The endpoint pages at most 8 tickers per request; this follows every
-    /// page and returns them merged (`has_more` false). Use
-    /// [`Self::orderbook_tickers_page`] to page manually.
+    /// page and returns them merged with `has_more` false. If it stops at its
+    /// page cap first, `has_more` stays true and `next_cursor` resumes with
+    /// [`Self::orderbook_tickers_page`]. A page that reports more without an
+    /// advancing cursor is a [`SdkError::Validation`] error.
     ///
     /// `GET /api/metrics/orderbooks/tickers[?deposit_asset=<mint>&cursor=<orderbook>]`
     pub async fn orderbook_tickers(
         &self,
         deposit_asset: Option<&str>,
     ) -> Result<OrderbookTickersResponse, SdkError> {
-        let mut tickers = Vec::new();
-        let mut cursor: Option<String> = None;
-        for _ in 0..MAX_TICKER_PAGES {
-            let page = self
-                .orderbook_tickers_page(deposit_asset, cursor.as_deref(), None)
-                .await?;
-            tickers.extend(page.tickers);
-            match page.next_cursor {
-                // Stop on a non-advancing cursor instead of looping forever.
-                Some(next) if page.has_more && cursor.as_deref() != Some(next.as_str()) => {
-                    cursor = Some(next);
-                }
-                _ => break,
-            }
-        }
-        Ok(OrderbookTickersResponse {
-            tickers,
-            next_cursor: None,
-            has_more: false,
+        collect_ticker_pages(MAX_TICKER_PAGES, |cursor| async move {
+            self.orderbook_tickers_page(deposit_asset, cursor.as_deref(), None)
+                .await
         })
+        .await
     }
 
     /// One page of [`Self::orderbook_tickers`]. `cursor` is a previous page's
@@ -327,5 +354,82 @@ impl<'a> Metrics<'a> {
             urlencoding::encode(wallet_address)
         );
         self.client.http.get(&url, RetryPolicy::Idempotent).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::metrics::wire::OrderbookTickerEntry;
+    use std::collections::VecDeque;
+
+    fn page(tickers: usize, next_cursor: Option<&str>, has_more: bool) -> OrderbookTickersResponse {
+        let ticker: OrderbookTickerEntry = serde_json::from_value(serde_json::json!({
+            "orderbook_id": "ob",
+            "market_pubkey": "market",
+            "base_deposit_asset": "base",
+            "quote_deposit_asset": "quote"
+        }))
+        .unwrap();
+        OrderbookTickersResponse {
+            tickers: vec![ticker; tickers],
+            next_cursor: next_cursor.map(str::to_string),
+            has_more,
+        }
+    }
+
+    async fn collect(
+        max_pages: usize,
+        pages: Vec<OrderbookTickersResponse>,
+    ) -> (
+        Result<OrderbookTickersResponse, SdkError>,
+        Vec<Option<String>>,
+    ) {
+        let mut pages = VecDeque::from(pages);
+        let mut cursors = Vec::new();
+        let result = collect_ticker_pages(max_pages, |cursor| {
+            cursors.push(cursor);
+            let page = pages.pop_front().expect("unexpected page request");
+            async move { Ok(page) }
+        })
+        .await;
+        (result, cursors)
+    }
+
+    #[tokio::test]
+    async fn ticker_pages_merge_until_the_last_page() {
+        let (result, cursors) = collect(
+            10,
+            vec![
+                page(8, Some("a"), true),
+                page(0, Some("b"), true),
+                page(3, None, false),
+            ],
+        )
+        .await;
+        let merged = result.unwrap();
+        assert_eq!(merged.tickers.len(), 11);
+        assert!(!merged.has_more);
+        assert_eq!(merged.next_cursor, None);
+        assert_eq!(cursors, [None, Some("a".into()), Some("b".into())]);
+    }
+
+    #[tokio::test]
+    async fn ticker_page_cap_reports_the_truncation() {
+        let (result, _) =
+            collect(2, vec![page(8, Some("a"), true), page(8, Some("b"), true)]).await;
+        let merged = result.unwrap();
+        assert_eq!(merged.tickers.len(), 16);
+        assert!(merged.has_more);
+        assert_eq!(merged.next_cursor.as_deref(), Some("b"));
+    }
+
+    #[tokio::test]
+    async fn ticker_pages_without_an_advancing_cursor_fail() {
+        let (result, _) =
+            collect(10, vec![page(8, Some("a"), true), page(8, Some("a"), true)]).await;
+        assert!(matches!(result, Err(SdkError::Validation(_))));
+        let (result, _) = collect(10, vec![page(8, None, true)]).await;
+        assert!(matches!(result, Err(SdkError::Validation(_))));
     }
 }
