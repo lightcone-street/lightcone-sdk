@@ -56,8 +56,7 @@ pub mod prelude {
     pub use crate::program::transaction::{V1ResourceConfig, V1Transaction, V1TransactionContext};
     // Shared newtypes
     pub use crate::shared::{
-        Denominator, DepositSource, ExactDecimal, OrderBookId, PubkeyStr, Resolution, Side,
-        TimeInForce, TriggerType,
+        Denominator, DepositSource, OrderBookId, PubkeyStr, Resolution, Side, TimeInForce,
     };
 
     pub use crate::shared::{ApiRejectedDetails, DecimalText, ErrorCode, RejectionCode};
@@ -86,11 +85,6 @@ pub mod prelude {
         RecoveryCompleted, Role, SubmitOrderResponse, SubmitOrderStatus, UserOpenLimitOrders,
         UserOrder, UserOrderFill, UserOrderFillsResponse, UserOrdersResponse, UserSnapshot,
         UserSnapshotOrder, UserUpdate,
-    };
-    #[cfg(feature = "trigger_orders")]
-    pub use crate::domain::order::{
-        CancelTriggerBody, CancelTriggerSuccess, TriggerOrder, TriggerOrderResponse,
-        UserTriggerOrders,
     };
 
     // Domain types — position (includes portfolio + token balances)
@@ -155,8 +149,6 @@ pub mod prelude {
     };
 
     // Program — order envelopes, trait, payload
-    #[cfg(feature = "trigger_orders")]
-    pub use crate::program::TriggerOrderEnvelope;
     pub use crate::program::{
         generate_cancel_all_salt, LimitOrderEnvelope, OrderEnvelope, OrderPayload,
     };

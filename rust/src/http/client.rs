@@ -154,6 +154,8 @@ impl ApiRequestError {
 /// ```
 pub struct LightconeHttp {
     base_url: String,
+    /// Optional server-side key. Sent only on order submission and cancellation.
+    api_key: Option<Arc<String>>,
     /// Client for API requests. On native it never follows redirects: the API
     /// never legitimately redirects, and following one would let a redirect
     /// target observe the request (and, before this guard, trigger credential
@@ -191,8 +193,38 @@ const CREDENTIAL_RESTORE_TIMEOUT: Duration = Duration::from_secs(30);
 #[cfg(test)]
 const CREDENTIAL_RESTORE_TIMEOUT: Duration = Duration::from_millis(300);
 
+/// Whether a request is one of the API's key-gated trading operations.
+#[cfg(not(target_arch = "wasm32"))]
+fn is_trading_request(method: &reqwest::Method, url: &str) -> bool {
+    *method == reqwest::Method::POST
+        && reqwest::Url::parse(url).is_ok_and(|url| {
+            matches!(
+                url.path(),
+                "/api/orders/submit" | "/api/orders/cancel" | "/api/orders/cancel-all"
+            )
+        })
+}
+
 impl LightconeHttp {
+    /// Keys may traverse TLS or a local development loopback connection only.
+    pub(crate) fn api_key_origin_is_secure(base_url: &str) -> bool {
+        let Ok(url) = reqwest::Url::parse(base_url) else {
+            return false;
+        };
+        url.scheme() == "https"
+            || (url.scheme() == "http"
+                && url.host_str().is_some_and(|host| {
+                    let host = host.trim_start_matches('[').trim_end_matches(']');
+                    host.eq_ignore_ascii_case("localhost") || matches!(host, "127.0.0.1" | "::1")
+                }))
+    }
+
     pub fn new(base_url: &str) -> Self {
+        Self::with_api_key(base_url, None)
+    }
+
+    /// Builds the transport with an optional API key for the API origin.
+    pub fn with_api_key(base_url: &str, api_key: Option<String>) -> Self {
         #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
         let mut builder = Client::builder();
         #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
@@ -210,6 +242,10 @@ impl LightconeHttp {
 
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
+            api_key: api_key
+                .map(|key| key.trim().to_string())
+                .filter(|key| !key.is_empty())
+                .map(Arc::new),
             api_client: api_builder.build().expect("Failed to build HTTP client"),
             client: builder.build().expect("Failed to build HTTP client"),
             user_session: CookieSession::new(USER_COOKIE),
@@ -217,6 +253,11 @@ impl LightconeHttp {
             restoration_epoch: Arc::new(AtomicU64::new(0)),
             restoration_gate: Arc::new(async_lock::Mutex::new(false)),
         }
+    }
+
+    /// True when an API key is configured on this transport.
+    pub fn has_api_key(&self) -> bool {
+        self.api_key.is_some()
     }
 
     /// True when `url` shares the configured API origin (scheme + host +
@@ -774,6 +815,20 @@ impl LightconeHttp {
             req = req.query(query);
         }
 
+        // API keys accompany only the three trading mutations, never public
+        // reads, authentication, redirects, external URLs, or JSON-RPC traffic.
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.is_api_origin(url) && is_trading_request(method, url) {
+            if let Some(api_key) = self.api_key.as_deref() {
+                if !Self::api_key_origin_is_secure(&self.base_url) {
+                    return Err(ApiRequestError::Http(HttpError::BadRequest(
+                        "API keys require HTTPS or a loopback HTTP origin".to_string(),
+                    )));
+                }
+                req = req.header("x-lightcone-api-key", api_key.as_str());
+            }
+        }
+
         // Cookie injection is origin-gated: session credentials only ride to
         // the configured API origin, never to an arbitrary absolute URL a
         // caller (or a redirect target) supplies. On WASM the browser owns
@@ -989,6 +1044,7 @@ impl Clone for LightconeHttp {
     fn clone(&self) -> Self {
         Self {
             base_url: self.base_url.clone(),
+            api_key: self.api_key.clone(),
             api_client: self.api_client.clone(),
             client: self.client.clone(),
             user_session: self.user_session.clone(),
@@ -2095,5 +2151,151 @@ mod tests {
             }
             other => panic!("expected BadRequest, got {other:?}"),
         }
+    }
+    /// The recorded request heads, or an error when the capture lock is poisoned.
+    fn captured_heads(captured: &Arc<Mutex<Vec<String>>>) -> Result<Vec<String>, String> {
+        captured
+            .lock()
+            .map(|heads| heads.clone())
+            .map_err(|error| format!("capture lock poisoned: {error}"))
+    }
+
+    #[tokio::test]
+    async fn api_key_rides_only_to_the_api_origin() -> Result<(), Box<dyn std::error::Error>> {
+        let (base_url, _attempts, captured) = spawn_capturing_server(vec![
+            TestResponse {
+                status: 200,
+                body: r#"{"status":"success","body":{"ok":true}}"#,
+            },
+            TestResponse {
+                status: 200,
+                body: r#"{"status":"success","body":{"ok":true}}"#,
+            },
+        ])
+        .await;
+        let http = LightconeHttp::with_api_key(&base_url, Some("lc_local_key".to_string()));
+        assert!(http.has_api_key());
+
+        let _: serde_json::Value = http
+            .post(
+                &format!("{base_url}/api/orders/submit"),
+                &serde_json::json!({}),
+                RetryPolicy::None,
+            )
+            .await?;
+        // A foreign origin (different port) reaches the same test server through
+        // an absolute URL; the key must not follow the request there.
+        let foreign =
+            LightconeHttp::with_api_key("http://127.0.0.1:1", Some("lc_local_key".to_string()));
+        let _: serde_json::Value = foreign
+            .post(
+                &format!("{base_url}/api/orders/submit"),
+                &serde_json::json!({}),
+                RetryPolicy::None,
+            )
+            .await?;
+
+        let heads = captured_heads(&captured)?;
+        assert!(
+            heads[0].contains("x-lightcone-api-key: lc_local_key"),
+            "{}",
+            heads[0]
+        );
+        assert!(!heads[1].contains("x-lightcone-api-key"), "{}", heads[1]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn api_key_refuses_non_loopback_cleartext_origin() {
+        assert!(LightconeHttp::api_key_origin_is_secure(
+            "https://api.example.com"
+        ));
+        assert!(LightconeHttp::api_key_origin_is_secure(
+            "http://127.0.0.1:3001"
+        ));
+        assert!(!LightconeHttp::api_key_origin_is_secure(
+            "http://api.example.com"
+        ));
+        let http =
+            LightconeHttp::with_api_key("http://api.example.com", Some("test-key".to_string()));
+        let result: Result<serde_json::Value, _> = http
+            .post(
+                "http://api.example.com/api/orders/submit",
+                &serde_json::json!({}),
+                RetryPolicy::None,
+            )
+            .await;
+        assert!(matches!(
+            result,
+            Err(SdkError::Http(HttpError::BadRequest(_)))
+        ));
+    }
+
+    #[tokio::test]
+    async fn without_a_key_no_header_is_sent() -> Result<(), Box<dyn std::error::Error>> {
+        let (base_url, _attempts, captured) = spawn_capturing_server(vec![TestResponse {
+            status: 200,
+            body: r#"{"status":"success","body":{"ok":true}}"#,
+        }])
+        .await;
+        let http = LightconeHttp::with_api_key(&base_url, Some("   ".to_string()));
+        assert!(!http.has_api_key());
+        let _: serde_json::Value = http
+            .post(
+                &format!("{base_url}/api/orders/submit"),
+                &serde_json::json!({}),
+                RetryPolicy::None,
+            )
+            .await?;
+        assert!(!captured_heads(&captured)?[0].contains("x-lightcone-api-key"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn keys_never_accompany_public_reads_or_login() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let (base_url, _, captured) = spawn_capturing_server(vec![
+            TestResponse {
+                status: 200,
+                body: r#"{"status":"success","body":{"ok":true}}"#,
+            },
+            TestResponse {
+                status: 200,
+                body: r#"{"status":"success","body":{"ok":true}}"#,
+            },
+        ])
+        .await;
+        let http = LightconeHttp::with_api_key(&base_url, Some("lc_local_key".into()));
+        let _: serde_json::Value = http
+            .get(&format!("{base_url}/api/markets"), RetryPolicy::None)
+            .await?;
+        let _: serde_json::Value = http
+            .post(
+                &format!("{base_url}/api/auth/login"),
+                &serde_json::json!({}),
+                RetryPolicy::None,
+            )
+            .await?;
+        assert!(captured_heads(&captured)?
+            .iter()
+            .all(|head| !head.contains("x-lightcone-api-key")));
+        Ok(())
+    }
+
+    #[test]
+    fn trading_key_route_classification_is_exact() {
+        for path in [
+            "/api/orders/submit",
+            "/api/orders/cancel",
+            "/api/orders/cancel-all",
+        ] {
+            let url = format!("https://api.example.com{path}");
+            assert!(is_trading_request(&reqwest::Method::POST, &url));
+            assert!(!is_trading_request(&reqwest::Method::GET, &url));
+        }
+        assert!(!is_trading_request(
+            &reqwest::Method::POST,
+            "https://api.example.com/api/auth/login"
+        ));
     }
 }

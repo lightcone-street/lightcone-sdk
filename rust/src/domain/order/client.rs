@@ -5,8 +5,6 @@ use crate::client::LightconeClient;
 use crate::domain::position::wire::FundingAccount;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
-#[cfg(feature = "trigger_orders")]
-use crate::program::envelope::TriggerOrderEnvelope;
 use crate::program::envelope::{LimitOrderEnvelope, OrderEnvelope};
 use crate::program::error::{SdkError as ProgramSdkError, SdkResult};
 use crate::program::instructions;
@@ -16,8 +14,6 @@ use crate::program::types::{CloseOrderStatusParams, OrderSide};
 use crate::shared::{
     validate_raw_amounts, OrderBookId, OrderbookRules, PubkeyStr, SubmitOrderRequest,
 };
-#[cfg(feature = "trigger_orders")]
-use crate::shared::{validate_trigger_price, SubmitTriggerOrderRequest};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use solana_instruction::Instruction;
@@ -125,47 +121,6 @@ impl CancelAllBody {
             signature: hex::encode(sig.as_ref()),
             timestamp,
             salt,
-        }
-    }
-}
-
-#[cfg(feature = "trigger_orders")]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CancelTriggerBody {
-    pub trigger_order_id: String,
-    pub maker: PubkeyStr,
-    pub signature: String,
-}
-
-#[cfg(feature = "trigger_orders")]
-impl CancelTriggerBody {
-    /// Build a cancel-trigger request with a base58-encoded signature (from a wallet adapter).
-    /// Converts base58 to the hex encoding the backend expects.
-    pub fn from_base58(
-        trigger_order_id: String,
-        maker: PubkeyStr,
-        sig_bs58: &str,
-    ) -> SdkResult<Self> {
-        let sig = sig_bs58
-            .parse::<Signature>()
-            .map_err(|_| ProgramSdkError::InvalidSignature)?;
-        Ok(Self {
-            trigger_order_id,
-            maker,
-            signature: hex::encode(sig.as_ref()),
-        })
-    }
-
-    /// Build a signed cancel-trigger request using a native keypair.
-    /// Signs `cancel_trigger_order_message(trigger_order_id)` and hex-encodes the result.
-    #[cfg(feature = "native-auth")]
-    pub fn signed(trigger_order_id: String, maker: PubkeyStr, keypair: &Keypair) -> Self {
-        let message = crate::program::orders::cancel_trigger_order_message(&trigger_order_id);
-        let sig = keypair.sign_message(&message);
-        Self {
-            trigger_order_id,
-            maker,
-            signature: hex::encode(sig.as_ref()),
         }
     }
 }
@@ -347,19 +302,6 @@ pub struct CancelAllSuccess {
     pub message: String,
 }
 
-#[cfg(feature = "trigger_orders")]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TriggerOrderResponse {
-    pub trigger_order_id: String,
-    pub order_hash: String,
-}
-
-#[cfg(feature = "trigger_orders")]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CancelTriggerSuccess {
-    pub trigger_order_id: String,
-}
-
 /// Response of `GET /api/users/orders`: one page of the wallet's open and
 /// pending orders plus one page of its funding accounts.
 ///
@@ -444,16 +386,6 @@ impl<'a> Orders<'a> {
         LimitOrderEnvelope::new().deposit_source(deposit_source)
     }
 
-    /// Create a `TriggerOrderEnvelope` pre-seeded with the client's deposit source.
-    ///
-    /// Users can still override the deposit source on the returned envelope
-    /// by calling `.deposit_source()` before signing.
-    #[cfg(feature = "trigger_orders")]
-    pub async fn trigger_order(&self) -> TriggerOrderEnvelope {
-        let deposit_source = self.client.deposit_source().await;
-        TriggerOrderEnvelope::new().deposit_source(deposit_source)
-    }
-
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /// Generate a random salt for cancel-all replay protection.
@@ -492,24 +424,6 @@ impl<'a> Orders<'a> {
         self.client.http.post(&url, body, RetryPolicy::None).await
     }
 
-    /// Submit a signed trigger order.
-    ///
-    /// The current backend has no trigger orders and rejects this request.
-    #[cfg(feature = "trigger_orders")]
-    pub async fn submit_trigger(
-        &self,
-        request: &SubmitTriggerOrderRequest,
-    ) -> Result<TriggerOrderResponse, SdkError> {
-        let rules = self.preflight_submit(&request.order).await?;
-        validate_trigger_price(request.trigger_price.as_str(), rules.price_decimals)
-            .map_err(ProgramSdkError::from)?;
-        let url = format!("{}/api/orders/submit", self.client.http.base_url());
-        self.client
-            .http
-            .post(&url, request, RetryPolicy::None)
-            .await
-    }
-
     /// Check the signed amounts against the orderbook's fetched admission rules.
     async fn preflight_submit(
         &self,
@@ -528,15 +442,6 @@ impl<'a> Orders<'a> {
         validate_raw_amounts(request.amount_in, request.amount_out, side, &rules)
             .map_err(ProgramSdkError::from)?;
         Ok(rules)
-    }
-
-    #[cfg(feature = "trigger_orders")]
-    pub async fn cancel_trigger(
-        &self,
-        body: &CancelTriggerBody,
-    ) -> Result<CancelTriggerSuccess, SdkError> {
-        let url = format!("{}/api/orders/cancel", self.client.http.base_url());
-        self.client.http.post(&url, body, RetryPolicy::None).await
     }
 
     /// Fetch the authenticated user's open and pending orders, with a first
@@ -800,50 +705,6 @@ impl<'a> Orders<'a> {
                 )
                 .map_err(|error| SdkError::Program(error))?;
                 self.cancel_all(&body).await
-            }
-        }
-    }
-
-    /// Cancel a trigger order using the client's signing strategy.
-    ///
-    /// Signs the cancel message and submits the cancellation request.
-    #[cfg(feature = "trigger_orders")]
-    pub async fn cancel_trigger_signed(
-        &self,
-        trigger_order_id: &str,
-        maker: &PubkeyStr,
-    ) -> Result<CancelTriggerSuccess, SdkError> {
-        use crate::shared::signing::SigningStrategy;
-
-        let strategy = self.client.signing_strategy().await.ok_or_else(|| {
-            SdkError::Validation("signing strategy is not set on the client".into())
-        })?;
-
-        match strategy {
-            #[cfg(feature = "native-auth")]
-            SigningStrategy::Native(keypair) => {
-                let body = CancelTriggerBody::signed(
-                    trigger_order_id.to_string(),
-                    maker.clone(),
-                    &keypair,
-                );
-                self.cancel_trigger(&body).await
-            }
-            SigningStrategy::WalletAdapter(signer) => {
-                let message =
-                    crate::program::orders::cancel_trigger_order_message(trigger_order_id);
-                let sig_bytes = signer
-                    .sign_message(&message)
-                    .await
-                    .map_err(crate::shared::signing::classify_signer_error)?;
-                let sig_bs58 = bs58::encode(&sig_bytes).into_string();
-                let body = CancelTriggerBody::from_base58(
-                    trigger_order_id.to_string(),
-                    maker.clone(),
-                    &sig_bs58,
-                )
-                .map_err(|error| SdkError::Program(error))?;
-                self.cancel_trigger(&body).await
             }
         }
     }

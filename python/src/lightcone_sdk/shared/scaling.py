@@ -5,12 +5,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Union
 
 PRICE_SCALE = 1_000_000
 I64_MAX = 2**63 - 1
 U32_MAX = 2**32 - 1
-ExactDecimal = Union[str, Decimal]
+ExactDecimal = str | Decimal
 
 
 class ScalingError(ValueError):
@@ -21,7 +20,7 @@ class ScalingError(ValueError):
         self.code = code
 
     @classmethod
-    def from_code(cls, code: str, detail: str | None = None) -> "ScalingError":
+    def from_code(cls, code: str, detail: str | None = None) -> ScalingError:
         return cls(f"{code}: {detail}" if detail else code, code=code)
 
 
@@ -79,10 +78,14 @@ def exact_scaled_integer(value: ExactDecimal, decimals: int) -> int:
     if not source:
         raise ScalingError("invalid decimal: empty input")
     if source.startswith("-"):
-        raise ScalingError(f"invalid decimal '{source}': negative values are not supported")
+        raise ScalingError(
+            f"invalid decimal '{source}': negative values are not supported"
+        )
     match = _DECIMAL_RE.fullmatch(source)
     if match is None:
-        raise ScalingError(f"invalid decimal '{source}': expected base-10 decimal syntax")
+        raise ScalingError(
+            f"invalid decimal '{source}': expected base-10 decimal syntax"
+        )
     whole = match.group("whole") or ""
     fraction = match.group("fraction")
     if fraction is None:
@@ -100,7 +103,9 @@ def exact_scaled_integer(value: ExactDecimal, decimals: int) -> int:
         digits = coefficient + "0" * shift
     else:
         remove = -shift
-        if remove > len(coefficient) or any(char != "0" for char in coefficient[-remove:]):
+        if remove > len(coefficient) or any(
+            char != "0" for char in coefficient[-remove:]
+        ):
             raise ScalingError(
                 f"invalid decimal '{source}': cannot be represented exactly at this scale"
             )
@@ -204,23 +209,20 @@ def validate_raw_amounts(
 
 
 def validate_signed_field(value: int, field: str, *, zero_allowed: bool = True) -> None:
-    if not isinstance(value, int) or value < 0 or value > I64_MAX or (not zero_allowed and value == 0):
+    if (
+        not isinstance(value, int)
+        or value < 0
+        or value > I64_MAX
+        or (not zero_allowed and value == 0)
+    ):
         raise ScalingError.from_code("ORDER_FIELD_OUT_OF_RANGE", field)
 
 
-def validate_signed_fields(amount_in: int, amount_out: int, salt: int, nonce: int) -> None:
+def validate_signed_fields(
+    amount_in: int, amount_out: int, salt: int, nonce: int
+) -> None:
     validate_signed_field(amount_in, "amount_in", zero_allowed=False)
     validate_signed_field(amount_out, "amount_out", zero_allowed=False)
     validate_signed_field(salt, "salt")
     if not isinstance(nonce, int) or nonce < 0 or nonce > U32_MAX:
         raise ScalingError.from_code("ORDER_FIELD_OUT_OF_RANGE", "nonce")
-
-
-def validate_trigger_price(value: ExactDecimal, price_decimals: int) -> int:
-    try:
-        raw = exact_scaled_integer(value, price_decimals)
-    except ScalingError as exc:
-        raise ScalingError.from_code("TRIGGER_PRICE_OUT_OF_RANGE") from exc
-    if raw <= 0 or raw > I64_MAX:
-        raise ScalingError.from_code("TRIGGER_PRICE_OUT_OF_RANGE")
-    return raw

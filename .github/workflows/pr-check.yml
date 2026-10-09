@@ -57,16 +57,13 @@ jobs:
           cargo check --features solana-rpc
 
       - name: Clippy
-        run: cargo clippy --all-targets --features native,trigger_orders
+        run: cargo clippy --all-targets --features native
 
       - name: Unit tests (native)
         run: cargo test --features native
 
-      - name: Unit tests (native + trigger_orders)
-        run: cargo test --features native,trigger_orders
-
       - name: Check web-facing WASM feature
-        run: cargo check --no-default-features --features wasm,trigger_orders --target wasm32-unknown-unknown
+        run: cargo check --no-default-features --features wasm --target wasm32-unknown-unknown
 
   typescript_tests:
     name: TypeScript Checks

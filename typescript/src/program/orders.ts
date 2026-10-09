@@ -6,7 +6,6 @@ import type {
   OrderbookRules,
   SubmitOrderRequest,
   TimeInForce,
-  TriggerType,
 } from "../shared";
 import {
   SignedOrder,
@@ -565,29 +564,11 @@ export function cancelOrderMessage(orderHash: string): Uint8Array {
 }
 
 /**
- * Build the message bytes for cancelling a trigger order.
- * The message is the trigger order ID as UTF-8 bytes.
- */
-export function cancelTriggerOrderMessage(triggerOrderId: string): Uint8Array {
-  return Buffer.from(triggerOrderId, "ascii");
-}
-
-/**
  * Sign a cancel order request.
  * Returns the signature as a 128-char hex string.
  */
 export function signCancelOrder(orderHash: string, signer: Keypair): string {
   const message = cancelOrderMessage(orderHash);
-  const signature = sign.detached(message, signer.secretKey);
-  return Buffer.from(signature).toString("hex");
-}
-
-/**
- * Sign a cancel trigger-order request.
- * Returns the signature as a 128-char hex string.
- */
-export function signCancelTriggerOrder(triggerOrderId: string, signer: Keypair): string {
-  const message = cancelTriggerOrderMessage(triggerOrderId);
   const signature = sign.detached(message, signer.secretKey);
   return Buffer.from(signature).toString("hex");
 }
@@ -635,15 +616,14 @@ export function signCancelAll(
 // ============================================================================
 
 /**
- * Convert a SignedOrder to a SubmitOrderRequest-compatible object
+ * Execution policy and collateral source for an ordinary signed order.
  */
 export interface SubmitRequestOptions {
   timeInForce?: TimeInForce;
-  triggerPrice?: number;
-  triggerType?: TriggerType;
   depositSource?: DepositSource;
 }
 
+/** Encodes an ordinary signed order without changing its exact integer fields. */
 export function toSubmitRequest(
   order: SignedOrder,
   orderbookId: string,
@@ -664,8 +644,6 @@ export function toSubmitRequest(
     signature: signatureHex(order),
     orderbook_id: orderbookId,
     tif: options.timeInForce,
-    trigger_price: options.triggerPrice,
-    trigger_type: options.triggerType,
     deposit_source: options.depositSource,
   };
 }
@@ -675,7 +653,6 @@ export const is_order_expired = isOrderExpired;
 export const orders_can_cross = ordersCanCross;
 export const calculate_taker_fill = calculateTakerFill;
 export const cancel_order_message = cancelOrderMessage;
-export const cancel_trigger_order_message = cancelTriggerOrderMessage;
 export const cancel_all_message = cancelAllMessage;
 export const generate_cancel_all_salt = generateCancelAllSalt;
 export const derive_condition_id = deriveConditionId;

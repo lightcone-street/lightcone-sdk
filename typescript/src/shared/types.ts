@@ -138,37 +138,10 @@ export enum TimeInForce {
   Alo = "ALO",
 }
 
-export enum TriggerType {
-  TakeProfit = "TP",
-  StopLoss = "SL",
-}
-
-export enum TriggerStatus {
-  Created = "created",
-  Triggered = "triggered",
-  Failed = "failed",
-  Expired = "expired",
-  Invalidated = "invalidated",
-}
-
 export enum OrderUpdateType {
   Placement = "PLACEMENT",
   Update = "UPDATE",
   Cancellation = "CANCELLATION",
-}
-
-export enum TriggerUpdateType {
-  Created = "CREATED",
-  Triggered = "TRIGGERED",
-  Failed = "FAILED",
-  Expired = "EXPIRED",
-  Invalidated = "INVALIDATED",
-}
-
-export enum TriggerResultStatus {
-  Filled = "filled",
-  Accepted = "accepted",
-  Rejected = "rejected",
 }
 
 export enum DepositSource {
@@ -225,6 +198,7 @@ export function deriveOrderbookId(baseToken: string, quoteToken: string): OrderB
   return `${baseToken.slice(0, 8)}_${quoteToken.slice(0, 8)}` as OrderBookId;
 }
 
+/** Signed ordinary order submitted with exact integer amounts and an optional execution policy. */
 export interface SubmitOrderRequest {
   maker: string;
   nonce: number;
@@ -241,7 +215,5 @@ export interface SubmitOrderRequest {
   signature: string;
   orderbook_id: string;
   tif?: TimeInForce;
-  trigger_price?: number;
-  trigger_type?: TriggerType;
   deposit_source?: DepositSource;
 }

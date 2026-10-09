@@ -1,6 +1,6 @@
 # Orders
 
-Submit, cancel, and track limit and trigger orders.
+Submit, cancel, and track signed limit orders.
 
 [← Overview](../../../README.md#orders)
 
@@ -17,11 +17,11 @@ Submit, cancel, and track limit and trigger orders.
 
 ### `Order` trait
 
-Common interface shared by `LimitOrder` and `TriggerOrder`. Provides accessors for the six fields present on both types:
+Interface implemented by `LimitOrder` and its `AnyOrder` table wrapper:
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `id()` | `&str` | Unique identifier (`order_hash` for limit, `trigger_order_id` for trigger) |
+| `id()` | `&str` | Unique order hash |
 | `order_hash()` | `&str` | Underlying order hash |
 | `market_pubkey()` | `&PubkeyStr` | Parent market |
 | `orderbook_id()` | `&OrderBookId` | Which orderbook |
@@ -58,24 +58,6 @@ A limit order's committed state, built from the WS `user` snapshot, live `order`
 
 `is_live()` is true while the order rests or has fills awaiting confirmation.
 
-### `TriggerOrder`
-
-A take-profit or stop-loss trigger order. Held server-side until the trigger price is hit, then submitted as a limit order.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `trigger_order_id` | `String` | Trigger order ID |
-| `order_hash` | `String` | Underlying order hash |
-| `market_pubkey` | `PubkeyStr` | Parent market |
-| `orderbook_id` | `OrderBookId` | Which orderbook |
-| `trigger_price` | `Decimal` | Price threshold that fires the order |
-| `trigger_type` | `TriggerType` | `TakeProfit` (`"TP"`) or `StopLoss` (`"SL"`) |
-| `side` | `Side` | `Bid` or `Ask` |
-| `amount_in` | `Decimal` | Amount the maker gives |
-| `amount_out` | `Decimal` | Amount the maker receives |
-| `time_in_force` | `TimeInForce` | Execution constraint when triggered |
-| `created_at` | `DateTime<Utc>` | Creation timestamp |
-
 ### `OrderStatus`
 
 Serialized lowercase, as in `GET /api/users/order-fills`. `OrderStatus::derive` applies the backend's precedence: a closure reason wins, then a complete confirmed fill, then pending fills, otherwise open.
@@ -109,13 +91,6 @@ Execution policy of a limit order.
 | `Fok` | `"FOK"` | Fill-or-kill |
 
 The backend has no post-only policy and rejects `"ALO"`.
-
-### `TriggerType`
-
-| Variant | Serializes as | Description |
-|---------|---------------|-------------|
-| `TakeProfit` | `"TP"` | Fires when price rises above trigger |
-| `StopLoss` | `"SL"` | Fires when price falls below trigger |
 
 ### `UserOrderFill`
 
@@ -201,14 +176,6 @@ async fn limit_order(&self) -> LimitOrderEnvelope
 
 Create a `LimitOrderEnvelope` pre-seeded with the client's deposit source. Users can still override the deposit source on the returned envelope by calling `.deposit_source()` before signing.
 
-### `trigger_order`
-
-```rust
-async fn trigger_order(&self) -> TriggerOrderEnvelope
-```
-
-Create a `TriggerOrderEnvelope` pre-seeded with the client's deposit source. Users can still override the deposit source on the returned envelope by calling `.deposit_source()` before signing.
-
 ### `submit`
 
 ```rust
@@ -239,22 +206,6 @@ Cancel all open orders, optionally scoped to a specific orderbook. **Not retried
 - `orderbook_id` in the signed message, using `""` to mean all markets
 - `timestamp` in Unix seconds, within the engine's window (at most 30 seconds) of server time
 - `salt`, a unique UUID-like string for replay protection: non-empty, at most 128 bytes, never reused
-
-### `submit_trigger`
-
-```rust
-async fn submit_trigger(&self, request: &SubmitTriggerOrderRequest) -> Result<TriggerOrderResponse, SdkError>
-```
-
-Submit a signed trigger order (take-profit or stop-loss). `SubmitTriggerOrderRequest` flattens the limit-order `SubmitOrderRequest` and adds `trigger_price` and `trigger_type`; the plain limit request never carries them. The current backend has no trigger orders and rejects this request. **Not retried.**
-
-### `cancel_trigger`
-
-```rust
-async fn cancel_trigger(&self, body: &CancelTriggerBody) -> Result<CancelTriggerSuccess, SdkError>
-```
-
-Cancel a trigger order by its ID. **Not retried.**
 
 ### `get_user_orders`
 
@@ -425,39 +376,9 @@ let request = LimitOrderEnvelope::new()
     .sign(&keypair, &orderbook, &rules)?;
 ```
 
-### `TriggerOrderEnvelope`
-
-> **Feature-gated** (`trigger_orders`): The types and methods below require the `trigger_orders` Cargo feature, which is disabled by default. Trigger orders are under development and not yet available. For internal use only.
-
-For take-profit and stop-loss orders:
-
-```rust
-use lightcone::prelude::*;
-
-// Recommended: factory method pre-seeds client deposit source
-let request = client.orders().trigger_order().await
-    .maker(keypair.pubkey())
-    .market(market_pubkey)
-    .base_mint(base_mint)
-    .quote_mint(quote_mint)
-    .bid()
-    .price("0.55")
-    .size("100")
-    .take_profit("0.65")            // exact decimal string; or .stop_loss("0.45")
-    .gtc()                          // or .ioc(), .fok()
-    // .deposit_source(DepositSource::Global) // override if needed
-    .submit(&client, &orderbook).await?;
-
-// Alternative: standalone use without a client
-let request = TriggerOrderEnvelope::new()
-    .maker(keypair.pubkey())
-    // ... same chain as above
-    .sign(&keypair, &orderbook, &rules)?;
-```
-
 ### `OrderEnvelope` trait
 
-Both envelope types implement the `OrderEnvelope` trait with these shared methods:
+`LimitOrderEnvelope` implements the `OrderEnvelope` trait:
 
 | Method | Description |
 |--------|-------------|
@@ -472,18 +393,10 @@ Both envelope types implement the `OrderEnvelope` trait with these shared method
 | `.salt(u64)` | Set the order's identity salt (any u64). When omitted, a random salt is drawn on the first `payload()`, `sign()`, `finalize()`, or `submit()` and reused, so the hash a wallet signs is the order submitted. |
 | `.expiration(i64)` | Set expiration (0 = none) |
 | `.deposit_source(ds)` | Set collateral source (`Global`, or `Market`, which serializes as `"conditional"`). Pre-seeded by factory methods. |
-| `.sign(&keypair, orderbook, rules)` | Validate exact construction, sign, and produce the envelope's `Request` (`SubmitOrderRequest` for limit orders) |
+| `.sign(&keypair, orderbook, rules)` | Validate exact construction, sign, and produce a `SubmitOrderRequest` |
 | `.finalize(sig_bs58, orderbook, rules)` | Validate and attach an external signature |
 | `.submit(client, orderbook)` | Fetch/cache rules, validate before wallet signing, and submit |
 | `.payload()` | Get the raw `OrderPayload` (for manual signing) |
-
-`TriggerOrderEnvelope` adds:
-
-| Method | Description |
-|--------|-------------|
-| `.take_profit(price)` | Set trigger type to take-profit at the given price |
-| `.stop_loss(price)` | Set trigger type to stop-loss at the given price |
-| `.gtc()` / `.ioc()` / `.fok()` | Set time-in-force |
 
 ### Exact construction
 
@@ -496,18 +409,17 @@ validation completes before hashing or invoking a wallet signer.
 
 ### `AnyOrder`
 
-Enum wrapping either a `LimitOrder` or `TriggerOrder`. Implements the `Order` trait by delegating to the inner type.
+Table wrapper for a `LimitOrder`. Implements `Order` by delegating to the inner value.
 
 ```rust
 pub enum AnyOrder {
     Limit(LimitOrder),
-    Trigger(TriggerOrder),
 }
 ```
 
 | Method | Description |
 |--------|-------------|
-| `vec_from(limit_orders, trigger_orders)` | Combine both types into a sorted `Vec<AnyOrder>` |
+| `vec_from(limit_orders)` | Convert orders to entries sorted by creation time |
 
 ### `UserOpenLimitOrders`
 
@@ -524,21 +436,6 @@ Tracks a wallet's live limit orders (resting, or with fills awaiting confirmatio
 | `apply_closure(&closure_update)` | Close orders in scope up to the cutoff; `None` when the scope needs a refetch |
 | `remove(order_hash)` | Stop tracking an order; older state can add it again |
 | `clear()` | Forget all orders, retired revisions, and closures (before reseeding) |
-
-### `UserTriggerOrders`
-
-Tracks trigger orders grouped by market pubkey and orderbook ID.
-
-| Method | Description |
-|--------|-------------|
-| `new()` | Create empty tracker |
-| `get(&market_pubkey, &orderbook_id)` | Get trigger orders for a specific orderbook |
-| `get_by_market(&market_pubkey)` | Get trigger orders for a market, grouped by orderbook |
-| `get_by_id(trigger_order_id)` | Find a specific trigger order |
-| `insert(order)` | Add a trigger order |
-| `remove(trigger_order_id)` | Remove a trigger order |
-| `all()` | Iterator over all trigger orders |
-| `len()` / `is_empty()` | Count helpers |
 
 ## Examples
 
@@ -610,35 +507,6 @@ async fn market_make(client: &LightconeClient, keypair: &Keypair) -> Result<(), 
         keypair,
     )).await?;
 
-    Ok(())
-}
-```
-
-### Place a take-profit trigger order
-
-```rust
-use lightcone::prelude::*;
-
-async fn place_take_profit(
-    client: &LightconeClient,
-    keypair: &solana_keypair::Keypair,
-    ob: &OrderBookPair,
-) -> Result<(), SdkError> {
-    let rules = client.orderbooks().decimals(ob.orderbook_id.as_str()).await?;
-    let request = client.orders().trigger_order().await
-        .maker(keypair.pubkey())
-        .market(ob.market_pubkey.to_pubkey().unwrap())
-        .base_mint(ob.base.mint.to_pubkey().unwrap())
-        .quote_mint(ob.quote.mint.to_pubkey().unwrap())
-        .ask()
-        .price("0.70")
-        .size("50")
-        .take_profit("0.65")
-        .gtc()
-        .sign(keypair, ob, &rules)?;
-
-    let response = client.orders().submit_trigger(&request).await?;
-    println!("Trigger order placed: {:?}", response);
     Ok(())
 }
 ```

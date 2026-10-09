@@ -71,24 +71,6 @@ class Privy:
             retry_policy=RetryPolicy.NONE,
         )
 
-    async def sign_and_cancel_trigger_order(
-        self,
-        wallet_id: str,
-        trigger_order_id: str,
-        maker: str,
-    ) -> dict:
-        """Cancel a trigger order via Privy signing."""
-        return await self._client._http.post(
-            "/api/privy/sign_and_cancel_order",
-            {
-                "wallet_id": wallet_id,
-                "maker": maker,
-                "cancel_type": "trigger",
-                "trigger_order_id": trigger_order_id,
-            },
-            retry_policy=RetryPolicy.NONE,
-        )
-
     async def sign_and_cancel_all_orders(
         self,
         wallet_id: str,

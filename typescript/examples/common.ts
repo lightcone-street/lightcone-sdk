@@ -35,6 +35,10 @@ export function restClient(): LightconeClient {
         );
     }
   }
+  const apiKey = process.env.LIGHTCONE_API_KEY?.trim();
+  if (apiKey) {
+    builder.apiKey(apiKey);
+  }
   return builder.build();
 }
 

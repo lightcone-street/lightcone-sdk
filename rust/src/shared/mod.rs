@@ -6,7 +6,6 @@
 
 pub mod api_response;
 pub mod decimal_text;
-pub mod exact_decimal;
 pub mod fmt;
 pub mod price;
 pub mod rejection;
@@ -16,13 +15,11 @@ pub mod signing;
 
 pub use api_response::{ApiRejectedDetails, ApiResponse, LinkedIdentityType};
 pub use decimal_text::DecimalText;
-pub use exact_decimal::ExactDecimal;
 pub use price::{format_decimal, parse_decimal};
 pub use rejection::{ErrorCode, RejectionCode};
 pub use scaling::{
     exact_scaled_integer, scale_price_size, validate_raw_amounts, validate_signed_fields,
-    validate_trigger_price, OrderbookRules, ScaledAmounts, ScalingError, TradingRules, I64_MAX_U64,
-    PRICE_SCALE,
+    OrderbookRules, ScaledAmounts, ScalingError, TradingRules, I64_MAX_U64, PRICE_SCALE,
 };
 
 use rust_decimal::Decimal;
@@ -325,46 +322,6 @@ pub enum TimeInForce {
     Fok,
 }
 
-// ─── TriggerType ─────────────────────────────────────────────────────────────
-
-/// Trigger order type.
-///
-/// Serializes as `"TP"` (take-profit) or `"SL"` (stop-loss).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum TriggerType {
-    #[serde(rename = "TP")]
-    TakeProfit,
-    #[serde(rename = "SL")]
-    StopLoss,
-}
-
-impl std::fmt::Display for TriggerType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TriggerType::TakeProfit => write!(f, "TP"),
-            TriggerType::StopLoss => write!(f, "SL"),
-        }
-    }
-}
-
-// ─── TriggerStatus ──────────────────────────────────────────────────────────
-
-/// Lifecycle status of a trigger order from WS updates.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TriggerStatus {
-    /// Trigger order was just created and is now pending.
-    Created,
-    /// Trigger condition met, order was submitted.
-    Triggered,
-    /// Trigger condition met, but order submission failed.
-    Failed,
-    /// Trigger condition met, but the pre-signed order had expired.
-    Expired,
-    /// Trigger order was invalidated.
-    Invalidated,
-}
-
 // ─── OrderUpdateType ────────────────────────────────────────────────────────
 
 /// WS limit order update type.
@@ -375,35 +332,6 @@ pub enum OrderUpdateType {
     #[default]
     Update,
     Cancellation,
-}
-
-// ─── TriggerUpdateType ─────────────────────────────────────────────────────
-
-/// WS trigger order update type (uppercase version of TriggerStatus).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "UPPERCASE")]
-pub enum TriggerUpdateType {
-    /// Trigger order was just created.
-    Created,
-    #[default]
-    Triggered,
-    Failed,
-    Expired,
-    Invalidated,
-}
-
-// ─── TriggerResultStatus ────────────────────────────────────────────────────
-
-/// Result status of a triggered order after matching.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TriggerResultStatus {
-    /// Order matched (at least partially).
-    Filled,
-    /// Order placed on book (GTC with no immediate match).
-    Accepted,
-    /// FOK/IOC that couldn't fill.
-    Rejected,
 }
 
 // ─── DepositSource ──────────────────────────────────────────────────────────
@@ -716,20 +644,6 @@ mod tests {
         assert_eq!(TimeInForce::default(), TimeInForce::Gtc);
     }
 
-    #[test]
-    fn test_trigger_type_serde_roundtrip() {
-        let cases = [
-            (TriggerType::TakeProfit, "\"TP\""),
-            (TriggerType::StopLoss, "\"SL\""),
-        ];
-        for (variant, expected_json) in &cases {
-            let json = serde_json::to_string(variant).unwrap();
-            assert_eq!(&json, expected_json);
-            let back: TriggerType = serde_json::from_str(&json).unwrap();
-            assert_eq!(&back, variant);
-        }
-    }
-
     fn sample_submit_request() -> SubmitOrderRequest {
         SubmitOrderRequest {
             maker: "maker".into(),
@@ -805,20 +719,6 @@ mod tests {
         let legacy: DepositSource = serde_json::from_str("\"market\"").unwrap();
         assert_eq!(legacy, DepositSource::Market);
     }
-
-    #[test]
-    #[cfg(feature = "trigger_orders")]
-    fn trigger_request_flattens_the_limit_request() {
-        let req = SubmitTriggerOrderRequest {
-            order: sample_submit_request(),
-            trigger_price: "0.55".parse().unwrap(),
-            trigger_type: TriggerType::TakeProfit,
-        };
-        let json = serde_json::to_string(&req).unwrap();
-        assert!(json.contains(r#""salt":18446744073709551615,"#));
-        assert!(json.contains(r#""trigger_price":0.55"#));
-        assert!(json.contains(r#""trigger_type":"TP""#));
-    }
 }
 
 // ─── SubmitOrderRequest ──────────────────────────────────────────────────────
@@ -857,19 +757,4 @@ pub struct SubmitOrderRequest {
     /// Omitted means the backend's automatic funding.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deposit_source: Option<DepositSource>,
-}
-
-/// Request for submitting a signed trigger (take-profit / stop-loss) order.
-///
-/// The trigger fields travel beside the plain limit-order request, which is
-/// flattened into the same JSON object. The current backend has no trigger
-/// orders and rejects these fields.
-#[cfg(feature = "trigger_orders")]
-#[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct SubmitTriggerOrderRequest {
-    #[serde(flatten)]
-    pub order: SubmitOrderRequest,
-    /// Trigger price in quote per base, sent as an exact JSON number.
-    pub trigger_price: ExactDecimal,
-    pub trigger_type: TriggerType,
 }

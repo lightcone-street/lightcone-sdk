@@ -500,14 +500,6 @@ pub fn cancel_order_message(order_hash: &str) -> Vec<u8> {
     order_hash.as_bytes().to_vec()
 }
 
-/// Build the message bytes for cancelling a trigger order.
-///
-/// The message is the trigger_order_id as UTF-8 bytes.
-#[cfg(feature = "trigger_orders")]
-pub fn cancel_trigger_order_message(trigger_order_id: &str) -> Vec<u8> {
-    trigger_order_id.as_bytes().to_vec()
-}
-
 /// Build the message string for cancelling all orders.
 ///
 /// Format: `"cancel_all:{pubkey}:{orderbook_id}:{timestamp}:{salt}"`
@@ -1212,14 +1204,6 @@ mod tests {
         let result = order.to_submit_request("test_orderbook", None, None);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("must be signed"),);
-    }
-
-    #[test]
-    #[cfg(feature = "trigger_orders")]
-    fn test_cancel_trigger_order_message() {
-        let id = "trigger-order-uuid-123";
-        let message = cancel_trigger_order_message(id);
-        assert_eq!(message, id.as_bytes());
     }
 
     #[test]

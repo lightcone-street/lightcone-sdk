@@ -14,6 +14,7 @@ TypeScript SDK for the Lightcone impact market protocol on Solana.
      - [Step 6: Exit a Position](#step-6-exit-a-position)
      - [Step 7: Withdraw](#step-7-withdraw)
 - [Authentication](#authentication)
+- [API Key](#api-key)
 - [Environment Configuration](#environment-configuration)
 - [Examples](#examples)
 - [Error Handling](#error-handling)
@@ -519,6 +520,21 @@ const positions = await client
 
 In browsers, use the ordinary methods. The browser supplies the cookie through `credentials: "include"`.
 
+## API Key
+
+Configure an API key for native or server-side submit, cancel, and cancel-all requests. Public reads and authentication need no API key. The key identifies an API Consumer; user authentication, wallet ownership, and signed-order validation still apply.
+
+```ts
+const client = LightconeClient.builder()
+  .env(LightconeEnv.Staging)
+  .apiKey(process.env.LIGHTCONE_API_KEY!)
+  .build();
+```
+
+The SDK attaches `x-lightcone-api-key` only to POST `/api/orders/submit`, `/api/orders/cancel`, and `/api/orders/cancel-all` on the configured API origin. It never forwards the key to another origin or logs it. HTTPS is required except for loopback development. Keep keys out of source control and browsers. Browser builds reject API-key configuration; web users trade with their existing Privy session.
+
+Cloudflare limits these trading attempts by public source IP, not by API key: direct API callers share 500 attempts per 10-second window per IP. A 429 response does not revoke credentials. Public reads and WebSocket messages are outside this trading limit. Revocation reaches all backend process caches within 24 hours; new keys work immediately through a database lookup on cache miss.
+
 ## Environment Configuration
 
 The SDK defaults to the **production** environment. Use `LightconeEnv` to target a different deployment:
@@ -745,6 +761,6 @@ When a request to the API origin fails with HTTP 401 and a restorer is registere
 
 The SDK stays credential-agnostic: what "restore" means belongs to the host. For classifying auth failures in your own code, use `isUnauthorized(error)` from the error module — it covers both bare 401s and 401s carrying a structured rejection envelope (`ApiRejectedDetails.httpStatus`).
 
-## Trigger Orders
+## Supported order responses
 
-Trigger orders (stop-limit, take-profit-limit) are under development and not yet available. Internal types exist in the source for internal use only.
+Refer to the [shared order-response contract](../README.md#supported-order-responses). `normalizeUserSnapshotOrder` normalizes a limit order. REST and WebSocket snapshots contain these orders alongside account metadata. Live order events carry `order_type: "limit"`. `convertSnapshotOrders` returns `UserOpenLimitOrders`.

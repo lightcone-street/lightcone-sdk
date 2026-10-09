@@ -32,6 +32,12 @@ The SDK HTTP transports unwrap successful responses from `{"status":"success","b
 
 Refer to the response declarations for [Rust](rust/src/domain/faucet.rs), [TypeScript](typescript/src/domain/faucet.ts), and [Python](python/src/lightcone_sdk/domain/faucet.py). The published [claim reference](https://github.com/lightcone-street/docs/blob/main/api-reference/endpoint/claim.mdx) and [OpenAPI specification](https://github.com/lightcone-street/docs/blob/main/api-reference/openapi.json) belong to the documentation repository.
 
+### Supported order responses
+
+The SDK decoders model REST orders, WebSocket account snapshots, and live order events as limit orders. They decode these payloads directly and propagate decoding errors. The TypeScript and Python account models retain balances, notifications, and nonce; the Rust SDK models the committed engine contract instead, with committed order state, closures, and funding accounts and no nonce (see the [Rust order guide](rust/src/domain/order/README.md)). REST response models retain the server's pagination metadata. The [published API specification](https://github.com/lightcone-street/docs/blob/main/api-reference/openapi.json) owns backend payload semantics.
+
+The snapshot converters return `UserOpenLimitOrders`: `convert_snapshot_orders` in Rust and Python, and `convertSnapshotOrders` in TypeScript. Market-style execution still uses a signed limit order with its time-in-force policy.
+
 ### On-chain program
 
 The program builders target the [reviewed program ABI](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src). The Rust SDK has moved to the [nonce-free ABI](https://github.com/lightcone-street/lightcone-pinnochio/tree/f1092ae7cc13910528437a8c33bb53c893687a32/src), which removes the per-user order nonce and `IncrementNonce` ([ADR 0005](docs/adr/0005-nonce-free-order-identity.md)); TypeScript and Python still target the reviewed ABI until they are ported. This is a hard cutover. Orderbooks use the 176-byte layout with both collateral mints and a shared outcome. Matching requires both collateral identities. Preparation uses `InitPositionTokens` without a slot. Retired ALT operations and their SDK parameters are removed.
@@ -127,6 +133,7 @@ For Caddy + mkcert TLS setup and running the full local stack, refer to the [web
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `LIGHTCONE_ENV` | Yes | Target environment: `local`, `staging`, or `prod` |
+| `LIGHTCONE_API_KEY` | For direct trading on deployed API hosts | Your own API Key for Rust/Python `api_key(...)` or TypeScript `apiKey(...)`. Shared example builders read it when set. Only submit, cancel, and cancel-all requests send it; public read examples need no key. Keep it server-side. |
 | `SDK_RPC_URL` | Optional | Solana RPC URL. Use a private devnet RPC (e.g. [Helius](https://www.helius.dev/)) to avoid 429 rate-limit errors from the public `api.devnet.solana.com`. Local `wsol_conversion` runs and eligible staging-CI runs may retain it; other fund-moving examples document stricter guards. |
 | `LIGHTCONE_WALLET_PATH` | Yes | Path to Solana keypair JSON for Rust examples |
 | `LIGHTCONE_WALLET_PATH_TS` | Yes | Path to Solana keypair JSON for TypeScript examples |
