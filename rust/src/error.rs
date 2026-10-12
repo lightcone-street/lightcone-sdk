@@ -79,6 +79,11 @@ pub enum SdkError {
 }
 
 impl SdkError {
+    /// Temporary Privy authority failure. Keep credentials and let the user retry.
+    pub fn is_privy_verification_unavailable(&self) -> bool {
+        matches!(self, Self::ApiRejected(details) if details.is_privy_verification_unavailable())
+    }
+
     /// True when the backend rejected the request as unauthenticated (HTTP
     /// 401) — either a bare 401 ([`HttpError::Unauthorized`]) or a 401 that
     /// carried a structured rejection envelope ([`SdkError::ApiRejected`]

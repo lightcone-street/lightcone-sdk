@@ -345,3 +345,8 @@ export function isUnauthorized(error: unknown): boolean {
   }
   return false;
 }
+
+/** Identify the exact temporary-authority rejection without matching display text. */
+export function isPrivyVerificationUnavailable(error: unknown): boolean {
+  return error instanceof SdkError && error.apiRejectedDetails?.isPrivyVerificationUnavailable() === true;
+}

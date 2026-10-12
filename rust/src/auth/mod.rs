@@ -569,6 +569,7 @@ mod tests {
             error_log_id: None,
             request_id: None,
             http_status: Some(409),
+            retry_after_ms: None,
         });
 
         assert_eq!(
@@ -586,6 +587,7 @@ mod tests {
             error_log_id: None,
             request_id: None,
             http_status: Some(409),
+            retry_after_ms: None,
         });
         assert_eq!(classify_register_privy_conflict(&unrelated), None);
     }

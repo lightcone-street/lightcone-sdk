@@ -143,6 +143,20 @@ pub struct ApiRejectedDetails {
     /// without matching on backend error strings.
     #[serde(skip)]
     pub http_status: Option<u16>,
+
+    /// Server-requested delay in milliseconds, measured from receipt of the response.
+    /// Transport metadata only; absent or malformed guidance remains `None`.
+    #[serde(skip)]
+    pub retry_after_ms: Option<u64>,
+}
+
+impl ApiRejectedDetails {
+    /// This pre-execution rejection requires a user decision before another attempt.
+    /// A generic 503 or the same code on another status does not establish that contract.
+    pub fn is_privy_verification_unavailable(&self) -> bool {
+        self.http_status == Some(503)
+            && self.error_code.as_deref() == Some("PRIVY_VERIFICATION_UNAVAILABLE")
+    }
 }
 
 impl fmt::Display for ApiRejectedDetails {
@@ -277,6 +291,7 @@ mod tests {
             error_log_id: Some("LCERR_abc".to_string()),
             request_id: Some("req-123".to_string()),
             http_status: None,
+            retry_after_ms: None,
         };
         let text = format!("{}", details);
         assert!(text.contains("Reason: Not enough funds"));
@@ -295,6 +310,7 @@ mod tests {
             error_log_id: None,
             request_id: None,
             http_status: None,
+            retry_after_ms: None,
         };
         assert_eq!(format!("{}", details), "Reason: Something broke");
     }

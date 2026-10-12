@@ -356,7 +356,16 @@ def is_unauthorized(error: BaseException) -> bool:
     return False
 
 
+def is_privy_verification_unavailable(error: object) -> bool:
+    """Identify the exact temporary-authority rejection without matching display text."""
+    return (
+        isinstance(error, ApiRejected)
+        and error.details.is_privy_verification_unavailable()
+    )
+
+
 __all__ = [
+    "is_privy_verification_unavailable",
     "SdkError",
     "ApiRejected",
     "DeserializationError",

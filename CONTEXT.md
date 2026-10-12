@@ -36,3 +36,7 @@ estimation. Submission may add signatures but may not replace message fields.
 **Canonical WSOL Account**:
 The persistent Tokenkeg associated token account referenced by SOL planning contracts. Use the
 ADR for its lifecycle rather than restating that definition elsewhere.
+
+## Temporary Privy Verification Failure
+
+The SDK preserves a known Privy authority failure as a manual-retry rejection across all three languages. Session checks retain credentials; generic retry policies cannot replay that rejection. See [SDK recovery behavior](README.md#manual-recovery-from-temporary-authentication-failures) for consumer guidance and the owning API response reference.

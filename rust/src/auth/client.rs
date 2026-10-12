@@ -84,7 +84,8 @@ impl<'a> Auth<'a> {
     ///
     /// On success, updates internal `AuthCredentials` so `is_authenticated()`
     /// returns correct results. On failure (401, expired, no cookie), clears
-    /// internal credentials and returns an error.
+    /// internal credentials and returns an error. Temporary Privy unavailability
+    /// retains the cached credentials and returns immediately for a manual retry.
     pub async fn check_session(&self) -> Result<SessionResponse, SdkError> {
         let url = format!("{}/api/auth/me", self.client.http.base_url());
 
@@ -96,7 +97,9 @@ impl<'a> Auth<'a> {
         {
             Ok(body) => body,
             Err(error) => {
-                *self.client.auth_credentials.write().await = None;
+                if !error.is_privy_verification_unavailable() {
+                    *self.client.auth_credentials.write().await = None;
+                }
                 return Err(error);
             }
         };
@@ -352,6 +355,59 @@ mod tests {
             }
         });
         format!("http://{}", addr)
+    }
+
+    #[tokio::test]
+    async fn check_session_keeps_credentials_when_privy_is_unavailable(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let url = spawn_single_response_server(503, r#"{"status":"error","error_details":{"reason":"Unavailable","error_code":"PRIVY_VERIFICATION_UNAVAILABLE"}}"#).await;
+        let client = client_with_token(&url).await;
+        *client.auth_credentials.write().await = Some(crate::auth::AuthCredentials {
+            user_id: "existing-account".into(),
+            wallet_address: "wallet".into(),
+            expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+        });
+        let error = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.auth().check_session(),
+        )
+        .await?
+        .err()
+        .ok_or("session check unexpectedly succeeded")?;
+        assert!(error.is_privy_verification_unavailable());
+        assert_eq!(
+            client
+                .auth_credentials
+                .read()
+                .await
+                .as_ref()
+                .map(|credentials| credentials.user_id.as_str()),
+            Some("existing-account")
+        );
+        assert!(client.auth_token().await.is_some());
+        let request = crate::auth::RegisterPrivyRequest {
+            attempted_identity: crate::auth::LinkedIdentitySelector::Email {
+                email: "fixture@example.test".into(),
+            },
+        };
+        let error = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.auth().register_privy(&request),
+        )
+        .await?
+        .err()
+        .ok_or("registration unexpectedly succeeded")?;
+        assert!(error.is_privy_verification_unavailable());
+        assert_eq!(
+            client
+                .auth_credentials
+                .read()
+                .await
+                .as_ref()
+                .map(|credentials| credentials.user_id.as_str()),
+            Some("existing-account")
+        );
+        Ok(())
     }
 
     async fn client_with_token(base_url: &str) -> LightconeClient {

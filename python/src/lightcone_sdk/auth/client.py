@@ -8,7 +8,12 @@ import base58
 from nacl.signing import SigningKey
 from solders.keypair import Keypair
 
-from ..error import DeserializationError, _require, is_unauthorized
+from ..error import (
+    DeserializationError,
+    _require,
+    is_privy_verification_unavailable,
+    is_unauthorized,
+)
 from ..http.retry import RetryPolicy
 from . import (
     AuthCredentials,
@@ -140,7 +145,8 @@ class Auth:
         """Validate the current session and return the session envelope.
 
         On success, updates internal credentials. On failure, clears
-        credentials and re-raises the error.
+        credentials and re-raises the error, except temporary Privy unavailability
+        retains credentials for a manual retry.
 
         Returns:
             The session envelope with the full user profile
@@ -155,8 +161,9 @@ class Auth:
             )
             session = _session_from_dict(data)
             credentials = _credentials_from_session(session)
-        except Exception:
-            self._credentials = None
+        except Exception as error:
+            if not is_privy_verification_unavailable(error):
+                self._credentials = None
             raise
 
         self._credentials = credentials
