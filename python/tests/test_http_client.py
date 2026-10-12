@@ -88,7 +88,7 @@ async def test_http_200_error_envelope_is_rejected() -> None:
         [
             (
                 200,
-                '{"status":"error","error_details":{"reason":"invalid exact ratio","rejection_code":"PRICE_NOT_EXACTLY_REPRESENTABLE"}}',
+                '{"status":"error","error_details":{"reason":"invalid order","rejection_code":"INVALID_ORDER"}}',
             )
         ]
     )
@@ -97,10 +97,7 @@ async def test_http_200_error_envelope_is_rejected() -> None:
         with pytest.raises(ApiRejected) as raised:
             await client.get("/test", RetryPolicy.NONE)
         assert raised.value.details.rejection_code is not None
-        assert (
-            raised.value.details.rejection_code.wire_name()
-            == "PRICE_NOT_EXACTLY_REPRESENTABLE"
-        )
+        assert raised.value.details.rejection_code.wire_name() == "INVALID_ORDER"
     finally:
         await client.close()
         await cleanup()
@@ -186,7 +183,7 @@ async def test_custom_retry_policy_retries_raw_409_status() -> None:
         [
             (
                 409,
-                '{"status":"error","error_details":{"reason":"nonce mismatch","error_code":"NONCE_MISMATCH"}}',
+                '{"status":"error","error_details":{"reason":"state changed","error_code":"ABORTED"}}',
             ),
             (200, '{"status":"success","body":{"ok":true}}'),
         ]

@@ -13,7 +13,7 @@ from .fmt import (
     to_decimal_value,
 )
 from .price import format_decimal, is_zero, parse_decimal
-from .rejection import RejectionCode
+from .rejection import ErrorCode, RejectionCode
 from .scaling import (
     I64_MAX,
     PRICE_SCALE,
@@ -63,6 +63,7 @@ __all__ = [
     "ApiResponse",
     "ApiRejectedDetails",
     "RejectionCode",
+    "ErrorCode",
     "Side",
     "Denominator",
     "TimeInForce",

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Generic, Literal, Optional, TypeVar, cast
 
-from .rejection import RejectionCode
+from .rejection import ErrorCode, RejectionCode
 
 T = TypeVar("T")
 # Public login-method names exposed in bounded identity conflicts.
@@ -42,6 +42,11 @@ class ApiRejectedDetails:
             existing_method=_linked_identity_type(data.get("existing_method")),
             error_log_id=data.get("error_log_id"),
         )
+
+    def error_code_kind(self) -> Optional[ErrorCode]:
+        """The typed transport ``error_code``, or ``None`` when absent (business
+        rejections carry a ``rejection_code`` instead)."""
+        return ErrorCode.from_wire(self.error_code)
 
     def with_request_id(self, request_id: Optional[str]) -> "ApiRejectedDetails":
         return replace(self, request_id=request_id)

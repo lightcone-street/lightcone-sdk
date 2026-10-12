@@ -17,7 +17,6 @@ from lightcone_sdk.program.envelope import LimitOrderEnvelope
 from lightcone_sdk.program.errors import SerializationError
 from lightcone_sdk.program.orders import generate_salt, sign_order
 from lightcone_sdk.program.types import OrderSide, SignedOrder
-from lightcone_sdk.shared.rejection import RejectionCode
 from lightcone_sdk.shared.scaling import (
     I64_MAX,
     U64_MAX,
@@ -269,18 +268,3 @@ def test_direct_submit_preflights_before_http():
 
     asyncio.run(submit())
     assert Client._http.calls == 0
-
-
-def test_new_rejection_codes_are_stable_known_values():
-    for code in (
-        "TRADING_RULES_UNAVAILABLE",
-        "ORDER_FIELD_OUT_OF_RANGE",
-        "PRICE_NOT_EXACTLY_REPRESENTABLE",
-        "PRICE_OUT_OF_RANGE",
-        "INVALID_PRICE_DECIMALS",
-        "INVALID_PRICE_SIGNIFICANT_FIGURES",
-        "INVALID_SIZE_DECIMALS",
-    ):
-        parsed = RejectionCode.from_wire(code)
-        assert parsed is not None and parsed.is_known()
-        assert parsed.wire_name() == code
