@@ -232,7 +232,7 @@ function validateTradingOrders(
   params: Pick<MatchOrdersMultiParams, "market" | "baseMint" | "quoteMint" | "takerOrder">,
   makers: SignedOrder[]
 ): void {
-  for (const order of [params.takerOrder, ...makers]) {
+  const validate = (order: SignedOrder): void => {
     validateTradingSignature(order);
     if (order.side !== OrderSide.BID && order.side !== OrderSide.ASK) {
       throw ProgramSdkError.invalidSide(order.side);
@@ -240,10 +240,14 @@ function validateTradingOrders(
     if (!order.market.equals(params.market) || !order.baseMint.equals(params.baseMint) || !order.quoteMint.equals(params.quoteMint)) {
       throw ProgramSdkError.invalidOrderbook();
     }
-  }
-  const sameSide = makers.find((order) => order.side === params.takerOrder.side);
-  if (sameSide) {
-    throw ProgramSdkError.invalidSide(sameSide.side);
+  };
+  // As in Rust: the taker, then each maker's context and side in turn.
+  validate(params.takerOrder);
+  for (const order of makers) {
+    validate(order);
+    if (order.side === params.takerOrder.side) {
+      throw ProgramSdkError.invalidSide(order.side);
+    }
   }
 }
 

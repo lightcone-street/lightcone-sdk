@@ -62,19 +62,21 @@ function defaultFields(): OrderFields {
 }
 
 function toUnsignedOrder(fields: OrderFields): Omit<SignedOrder, "signature"> {
+  // The amounts are checked first, then the salt is fixed, then the
+  // identities, in the Rust SDK's order.
+  if (fields.amountIn === undefined) throw ProgramSdkError.missingField("amount_in");
+  if (fields.amountOut === undefined) throw ProgramSdkError.missingField("amount_out");
+  if (fields.amountIn === 0n) throw ProgramSdkError.missingField("amount_in must be greater than 0");
+  if (fields.amountOut === 0n) throw ProgramSdkError.missingField("amount_out must be greater than 0");
+  validateSignedFields(fields.amountIn, fields.amountOut);
+  const salt = fields.salt ?? generateSalt();
+  fields.salt = salt;
   if (!fields.maker) throw ProgramSdkError.missingField("maker");
   if (!fields.market) throw ProgramSdkError.missingField("market");
   if (!fields.baseMint) throw ProgramSdkError.missingField("base_mint");
   if (!fields.quoteMint) throw ProgramSdkError.missingField("quote_mint");
   if (fields.side === undefined) throw ProgramSdkError.missingField("side (call .bid() or .ask())");
-  if (fields.amountIn === undefined) throw ProgramSdkError.missingField("amount_in");
-  if (fields.amountOut === undefined) throw ProgramSdkError.missingField("amount_out");
-  if (fields.amountIn === 0n) throw ProgramSdkError.missingField("amount_in must be greater than 0");
-  if (fields.amountOut === 0n) throw ProgramSdkError.missingField("amount_out must be greater than 0");
 
-  validateSignedFields(fields.amountIn, fields.amountOut);
-  const salt = fields.salt ?? generateSalt();
-  fields.salt = salt;
   return {
     salt,
     maker: fields.maker,
@@ -356,9 +358,10 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
     orderbook: OrderBookPair
   ): Promise<SubmitOrderResponse> {
     const rules = await new Orderbooks(client).decimals(orderbook.orderbookId);
-    const strategy = requireSigningStrategy(client);
+    // Validate the envelope before resolving the signing strategy, as Rust does.
     this.autoFillFromOrderbook(orderbook);
     this.applyRules(rules, orderbook.orderbookId);
+    const strategy = requireSigningStrategy(client);
 
     switch (strategy.type) {
       case "native": {

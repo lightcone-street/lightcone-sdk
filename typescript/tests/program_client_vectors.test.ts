@@ -597,6 +597,20 @@ describe("program client known answers", () => {
 });
 
 describe("local trade rejections", () => {
+  it("checks each maker's context and then its side, as Rust does", () => {
+    const valid = clientMatchParams();
+    const sameSide = { ...valid.makerOrders[0]!, side: valid.takerOrder.side };
+    const wrongMarket = { ...valid.makerOrders[1]!, market: Keypair.generate().publicKey };
+    assert.throws(
+      () =>
+        buildMatchOrdersMultiIx(
+          { ...valid, makerOrders: [sameSide, wrongMarket] },
+          inputs.programId,
+        ),
+      programError("InvalidSide"),
+    );
+  });
+
   it("match orders multi rejects invalid trades", () => {
     const valid = clientMatchParams();
     const build = (params: MatchOrdersMultiParams) => () =>

@@ -19,6 +19,9 @@ import {
   userOrdersResponseFromWire,
 } from "../src/domain/order";
 import { SdkError } from "../src/error";
+import { ProgramSdkError } from "../src/program/error";
+import { cancelAllBodyFromBase58, cancelBodyFromBase58 } from "../src/domain/order/client";
+import bs58 from "bs58";
 import { FundingSource, TimeInForce } from "../src/shared";
 
 const HASH = "4f1a4b1ab1c0c0ffee0000000000000000000000000000000000000000000001";
@@ -137,6 +140,23 @@ describe("order submission response", () => {
     assert.equal(response.initial_cohort?.state, InitialCohortState.Pending);
     assert.equal(response.fills[0]!.fee_estimate_atoms, -12n);
     assert.equal(response.fills_next_cursor, "cursor");
+  });
+});
+
+describe("cancellation request bodies", () => {
+  it("require a 64-byte base58 signature, as Rust's from_base58 does", () => {
+    const wallet = "Wallet1111111111111111111111111111111111111" as never;
+    const good = bs58.encode(Buffer.alloc(64, 7));
+    assert.equal(cancelBodyFromBase58(HASH, wallet, good).signature, "07".repeat(64));
+    const isInvalidSignature = (error: unknown) =>
+      error instanceof ProgramSdkError && error.variant === "InvalidSignature";
+    for (const signature of [bs58.encode(Buffer.alloc(63, 7)), bs58.encode(Buffer.alloc(65, 7)), "0OIl"]) {
+      assert.throws(() => cancelBodyFromBase58(HASH, wallet, signature), isInvalidSignature);
+      assert.throws(
+        () => cancelAllBodyFromBase58(wallet, "" as never, 1, "salt", signature),
+        isInvalidSignature,
+      );
+    }
   });
 });
 

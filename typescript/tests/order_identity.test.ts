@@ -514,6 +514,13 @@ describe("order envelope", () => {
     assert.deepEqual([raw.getAmountIn(), raw.getAmountOut()], [7n, 14n]);
   });
 
+  it("reports missing amounts before identities, as Rust's payload does", () => {
+    const isMissing = (field: string) => (error: unknown) =>
+      error instanceof ProgramSdkError && error.variant === "MissingField" && error.message.endsWith(field);
+    assert.throws(() => LimitOrderEnvelope.new().payload(), isMissing("amount_in"));
+    assert.throws(() => LimitOrderEnvelope.new().amountIn(5n).amountOut(5n).payload(), isMissing("maker"));
+  });
+
   it("reports a missing side with the Rust SDK's message", () => {
     const keypair = Keypair.generate();
     assert.throws(

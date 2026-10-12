@@ -88,6 +88,14 @@ describe("committed wire encodings", () => {
     assert.throws(() => wireSideText(1n, "side"), isSerde);
   });
 
+  it("reads wide integers from text only, as Rust's u64-or-i64 JSON numbers do", () => {
+    assert.equal(wireI128(-(1n << 63n), "fee"), -(1n << 63n));
+    assert.equal(wireI128("-170141183460469231731687303715884105728", "fee"), -(1n << 127n));
+    for (const value of [1n << 64n, -(1n << 63n) - 1n]) {
+      assert.throws(() => wireI128(value, "fee"), isSerde, String(value));
+    }
+  });
+
   it("accepts only JSON numbers for plain u64 values and millisecond times", () => {
     assert.equal(wireU64Number(275, "revision"), 275n);
     assert.equal(wireU64Number(18446744073709551615n, "revision"), 18446744073709551615n);
@@ -105,6 +113,8 @@ describe("committed wire encodings", () => {
       ["2026-09-29 12:00:00Z", "2026-09-29T12:00:00.000Z"],
       ["2026-09-29T14:00:00.987654321+02:00", "2026-09-29T12:00:00.987Z"],
       ["2024-02-29T00:00:00Z", "2024-02-29T00:00:00.000Z"],
+      ["0050-06-01T00:00:00Z", "0050-06-01T00:00:00.000Z"],
+      ["2026-09-29T12:00:00.5Z", "2026-09-29T12:00:00.500Z"],
     ] as const) {
       assert.equal(wireRfc3339(text, "executed_at").toISOString(), iso, text);
     }

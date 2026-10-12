@@ -82,6 +82,18 @@ export interface CancelBody {
   signature: string;
 }
 
+/** Hex of a base58 Ed25519 signature; anything but 64 bytes is `InvalidSignature`, as in Rust. */
+function signatureHexFromBase58(signatureBase58: string): string {
+  let bytes: Uint8Array;
+  try {
+    bytes = bs58.decode(signatureBase58);
+  } catch {
+    throw ProgramSdkError.invalidSignature();
+  }
+  if (bytes.length !== 64) throw ProgramSdkError.invalidSignature();
+  return Buffer.from(bytes).toString("hex");
+}
+
 export function cancelBodyFromBase58(
   orderHash: string,
   maker: PubkeyStr,
@@ -90,7 +102,7 @@ export function cancelBodyFromBase58(
   return {
     order_hash: orderHash,
     maker,
-    signature: Buffer.from(bs58.decode(signatureBase58)).toString("hex"),
+    signature: signatureHexFromBase58(signatureBase58),
   };
 }
 
@@ -121,7 +133,7 @@ export function cancelAllBodyFromBase58(
   return {
     user_pubkey: userPubkey,
     orderbook_id: orderbookId,
-    signature: Buffer.from(bs58.decode(signatureBase58)).toString("hex"),
+    signature: signatureHexFromBase58(signatureBase58),
     timestamp,
     salt,
   };

@@ -125,7 +125,13 @@ export function wireBool(value: unknown, field: string, fallback?: boolean): boo
 }
 
 function integerText(value: unknown, field: string, signed: boolean): bigint {
-  if (typeof value === "bigint") return value;
+  if (typeof value === "bigint") {
+    // Rust reads a JSON number as u64 or i64; wider values must be text.
+    if (value < -(1n << 63n) || value > U64_MAX) {
+      throw wireError(field, `JSON number out of range: ${value}`);
+    }
+    return value;
+  }
   if (typeof value === "number") {
     if (!Number.isSafeInteger(value)) {
       throw wireError(field, `expected an exact integer, got ${describe(value)}`);
@@ -320,9 +326,11 @@ const RFC3339 =
   /^([0-9]{4}-[0-9]{2}-[0-9]{2})[Tt ]([0-9]{2}:[0-9]{2}:[0-9]{2})(\.[0-9]+)?([Zz]|[+-][0-9]{2}:[0-9]{2})$/;
 
 /**
- * An RFC 3339 timestamp with an offset as a `Date`, accepting chrono's
- * relaxed forms (`t` or a space separator, lowercase `z`) as the Rust SDK
- * does. Fractional seconds beyond milliseconds are truncated.
+ * An RFC 3339 timestamp with an offset as a `Date`. It also accepts the
+ * relaxed forms the backend's timestamps can take under chrono (`t` or a
+ * space separator, lowercase `z`); it is stricter than chrono elsewhere (no
+ * leap seconds or offsets without a colon). Fractional seconds beyond
+ * milliseconds are truncated.
  */
 export function wireRfc3339(value: unknown, field: string): Date {
   const text = wireString(value, field);
@@ -336,7 +344,9 @@ export function wireRfc3339(value: unknown, field: string): Date {
   const zone = offset === "Z" || offset === "z" ? "Z" : offset;
   const [offsetHour, offsetMinute] = zone === "Z" ? [0, 0] : zone.slice(1).split(":").map(Number);
   // `Date` rolls invalid fields over (Feb 30 becomes Mar 2); reject them instead.
-  const calendar = new Date(Date.UTC(year, month - 1, day));
+  // `setUTCFullYear` keeps years 0-99 literal, which `Date.UTC` would not.
+  const calendar = new Date(0);
+  calendar.setUTCFullYear(year, month - 1, day);
   const valid =
     calendar.getUTCFullYear() === year &&
     calendar.getUTCMonth() === month - 1 &&
@@ -346,7 +356,9 @@ export function wireRfc3339(value: unknown, field: string): Date {
     second <= 59 &&
     offsetHour <= 23 &&
     offsetMinute <= 59;
-  const parsed = new Date(`${date}T${time}${fraction.slice(0, 4)}${zone}`);
+  // ECMAScript date strings take exactly three fraction digits.
+  const millis = fraction === "" ? "" : `.${fraction.slice(1, 4).padEnd(3, "0")}`;
+  const parsed = new Date(`${date}T${time}${millis}${zone}`);
   if (!valid || Number.isNaN(parsed.getTime())) {
     throw wireError(field, `invalid RFC 3339 timestamp ${describe(value)}`);
   }
