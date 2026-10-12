@@ -182,7 +182,7 @@ describe("user channel decoding", () => {
     assert.equal(update.raw_observed, "18446744073709.551615");
     assert.equal(update.order_reserved, "340282366920938463463374607431768.211455");
     assert.ok(update.signed_remaining && decimalTextIsNegative(update.signed_remaining));
-    assert.ok(decimalTextToDecimal(update.signed_remaining!).eq("-0.000001"));
+    assert.ok(decimalTextToDecimal(update.signed_remaining!)?.eq("-0.000001"));
     assert.equal(update.slot, 7n);
     assert.equal(update.blockhash, undefined);
   });

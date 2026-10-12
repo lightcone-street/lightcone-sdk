@@ -158,6 +158,15 @@ export function wireU64(value: unknown, field: string): bigint {
   return parsed;
 }
 
+/** A plain `u64` JSON number (integer text is rejected, as Rust's plain `u64` does). */
+export function wireU64Number(value: unknown, field: string): bigint {
+  const parsed = jsonInteger(value, field);
+  if (parsed < 0n || parsed > U64_MAX) {
+    throw wireError(field, `integer out of u64 range: ${parsed}`);
+  }
+  return parsed;
+}
+
 /** An optional `u64`; `null` or absent is `undefined`. */
 export function wireOptU64(value: unknown, field: string): bigint | undefined {
   return value === undefined || value === null ? undefined : wireU64(value, field);
@@ -299,18 +308,46 @@ export function wireKnownOrUndefined<T extends string>(
 
 /** Unix epoch milliseconds (`u64`) as a `Date`. */
 export function wireTimestampMs(value: unknown, field: string): Date {
-  const millis = wireU64(value, field);
+  const millis = wireU64Number(value, field);
   if (millis > 8_640_000_000_000_000n) {
     throw wireError(field, `timestamp out of range: ${millis}`);
   }
   return new Date(Number(millis));
 }
 
-/** An RFC 3339 timestamp string as a `Date`. */
+// chrono's relaxed RFC 3339: `T`, `t`, or a space separator; an offset is required.
+const RFC3339 =
+  /^([0-9]{4}-[0-9]{2}-[0-9]{2})[Tt ]([0-9]{2}:[0-9]{2}:[0-9]{2})(\.[0-9]+)?([Zz]|[+-][0-9]{2}:[0-9]{2})$/;
+
+/**
+ * An RFC 3339 timestamp with an offset as a `Date`, accepting chrono's
+ * relaxed forms (`t` or a space separator, lowercase `z`) as the Rust SDK
+ * does. Fractional seconds beyond milliseconds are truncated.
+ */
 export function wireRfc3339(value: unknown, field: string): Date {
   const text = wireString(value, field);
-  const parsed = new Date(text);
-  if (!/^\d{4}-\d{2}-\d{2}T/.test(text) || Number.isNaN(parsed.getTime())) {
+  const match = RFC3339.exec(text);
+  if (match === null) {
+    throw wireError(field, `invalid RFC 3339 timestamp ${describe(value)}`);
+  }
+  const [, date, time, fraction = "", offset] = match;
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute, second] = time.split(":").map(Number);
+  const zone = offset === "Z" || offset === "z" ? "Z" : offset;
+  const [offsetHour, offsetMinute] = zone === "Z" ? [0, 0] : zone.slice(1).split(":").map(Number);
+  // `Date` rolls invalid fields over (Feb 30 becomes Mar 2); reject them instead.
+  const calendar = new Date(Date.UTC(year, month - 1, day));
+  const valid =
+    calendar.getUTCFullYear() === year &&
+    calendar.getUTCMonth() === month - 1 &&
+    calendar.getUTCDate() === day &&
+    hour <= 23 &&
+    minute <= 59 &&
+    second <= 59 &&
+    offsetHour <= 23 &&
+    offsetMinute <= 59;
+  const parsed = new Date(`${date}T${time}${fraction.slice(0, 4)}${zone}`);
+  if (!valid || Number.isNaN(parsed.getTime())) {
     throw wireError(field, `invalid RFC 3339 timestamp ${describe(value)}`);
   }
   return parsed;

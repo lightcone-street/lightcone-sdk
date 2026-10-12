@@ -32,8 +32,20 @@ export function decimalTextIsNegative(text: DecimalText): boolean {
   return text.startsWith("-");
 }
 
-/** The exact value as a `Decimal` (construction never rounds). */
-export function decimalTextToDecimal(text: DecimalText): Decimal {
+const MAX_MANTISSA = (1n << 96n) - 1n;
+const MAX_SCALE = 28;
+
+/**
+ * The exact value as a `Decimal`, or `undefined` beyond the Rust SDK decimal's
+ * range (a 96-bit mantissa and at most 28 fractional digits), judged on the
+ * literal text as Rust's `Decimal::from_str_exact` does.
+ */
+export function decimalTextToDecimal(text: DecimalText): Decimal | undefined {
+  const unsigned = text.startsWith("-") ? text.slice(1) : text;
+  const [whole, fraction = ""] = unsigned.split(".");
+  if (fraction.length > MAX_SCALE || BigInt(`${whole}${fraction}`) > MAX_MANTISSA) {
+    return undefined;
+  }
   return new Decimal(text);
 }
 

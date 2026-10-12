@@ -304,6 +304,11 @@ describe("nonce-free order identity", () => {
         (error) => error instanceof ProgramSdkError && error.variant === "Overflow",
       );
     }
+    // A zero maker amount_in is Overflow, as the Rust SDK reports it.
+    assert.throws(
+      () => calculateTakerFill({ ...maker, amountIn: 0n }, 1n),
+      (error) => error instanceof ProgramSdkError && error.variant === "Overflow",
+    );
   });
 
   it("expires an order only after its expiration second", () => {
@@ -481,6 +486,43 @@ describe("order envelope", () => {
     const raw = order.amountIn(7n).amountOut(14n).sign(keypair, testOrderbook(), unitRules());
     assert.deepEqual([raw.amount_in, raw.amount_out], [7n, 14n]);
     assert.equal(raw.salt, first.salt);
+  });
+
+  it("clears derived amounts on a price, size, or side change", () => {
+    const keypair = Keypair.generate();
+    const isMissingAmountIn = (error: unknown) =>
+      error instanceof ProgramSdkError &&
+      error.variant === "MissingField" &&
+      /amount_in/.test(error.message);
+    for (const change of [
+      (order: LimitOrderEnvelope) => order.price("0.6"),
+      (order: LimitOrderEnvelope) => order.size("20"),
+      (order: LimitOrderEnvelope) => order.ask(),
+      (order: LimitOrderEnvelope) => order.bid(),
+      (order: LimitOrderEnvelope) => order.side(OrderSide.ASK),
+    ]) {
+      const order = LimitOrderEnvelope.new().maker(keypair.publicKey).bid().price("0.5").size("10");
+      order.sign(keypair, testOrderbook(), unitRules());
+      assert.deepEqual([order.getAmountIn(), order.getAmountOut()], [5n, 10n]);
+      change(order);
+      assert.equal(order.getAmountIn(), undefined);
+      assert.throws(() => order.payload(), isMissingAmountIn);
+    }
+    // Raw amounts are kept across price, size, and side changes.
+    const raw = LimitOrderEnvelope.new().maker(keypair.publicKey).bid().amountIn(7n).amountOut(14n);
+    raw.price("0.6").size("20").ask();
+    assert.deepEqual([raw.getAmountIn(), raw.getAmountOut()], [7n, 14n]);
+  });
+
+  it("reports a missing side with the Rust SDK's message", () => {
+    const keypair = Keypair.generate();
+    assert.throws(
+      () => LimitOrderEnvelope.new().maker(keypair.publicKey).price("0.5").size("10").sign(keypair, testOrderbook(), unitRules()),
+      (error) =>
+        error instanceof ProgramSdkError &&
+        error.variant === "MissingField" &&
+        error.message.includes("side (call .bid() or .ask())"),
+    );
   });
 
   it("serializes the conditional deposit source", () => {

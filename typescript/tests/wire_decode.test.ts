@@ -23,10 +23,13 @@ import {
   wireNonEmptyString,
   wireOptI128,
   wireOptU64,
+  wireRfc3339,
   wireSide,
   wireSideText,
   wireStringOr,
+  wireTimestampMs,
   wireU64,
+  wireU64Number,
 } from "../src/shared/wire_decode";
 import { parseJsonExact } from "../src/shared/json";
 import { SdkError } from "../src/error";
@@ -85,6 +88,40 @@ describe("committed wire encodings", () => {
     assert.throws(() => wireSideText(1n, "side"), isSerde);
   });
 
+  it("accepts only JSON numbers for plain u64 values and millisecond times", () => {
+    assert.equal(wireU64Number(275, "revision"), 275n);
+    assert.equal(wireU64Number(18446744073709551615n, "revision"), 18446744073709551615n);
+    assert.equal(wireTimestampMs(1790685521784, "created_at").toISOString(), "2026-09-29T12:38:41.784Z");
+    for (const value of ["275", "1790685521784", -1, 1.5, true]) {
+      assert.throws(() => wireU64Number(value, "revision"), isSerde, String(value));
+      assert.throws(() => wireTimestampMs(value, "created_at"), isSerde, String(value));
+    }
+  });
+
+  it("decodes RFC 3339 with an offset, including chrono's relaxed forms", () => {
+    for (const [text, iso] of [
+      ["2026-09-29T12:00:00Z", "2026-09-29T12:00:00.000Z"],
+      ["2026-09-29t12:00:00z", "2026-09-29T12:00:00.000Z"],
+      ["2026-09-29 12:00:00Z", "2026-09-29T12:00:00.000Z"],
+      ["2026-09-29T14:00:00.987654321+02:00", "2026-09-29T12:00:00.987Z"],
+      ["2024-02-29T00:00:00Z", "2024-02-29T00:00:00.000Z"],
+    ] as const) {
+      assert.equal(wireRfc3339(text, "executed_at").toISOString(), iso, text);
+    }
+    for (const text of [
+      "2026-09-29T12:00:00",
+      "2026-09-29",
+      "20260929T120000Z",
+      "2026-09-29T12:00:00+0000",
+      "2026-02-30T00:00:00Z",
+      "2026-09-29T24:00:00Z",
+      "2026-09-29T12:00:00+24:00",
+      "2026-09-29T12:00:00Z ",
+    ]) {
+      assert.throws(() => wireRfc3339(text, "executed_at"), isSerde, text);
+    }
+  });
+
   it("defaults absent fields but rejects null, as serde(default) does", () => {
     assert.equal(wireBool(undefined, "has_more", false), false);
     assert.deepEqual(wireArray(undefined, "fills", (item) => item, true), []);
@@ -134,17 +171,21 @@ describe("DecimalText", () => {
   it("keeps u128 aggregates exact beyond 96-bit decimal range", () => {
     const text = wireDecimalText("340282366920938463463374607431768.211455", "order_reserved");
     assert.equal(text, "340282366920938463463374607431768.211455");
-    assert.equal(
-      decimalTextToDecimal(text).toFixed(),
-      "340282366920938463463374607431768.211455",
-    );
+    // Beyond the Rust SDK decimal's range, as Rust's `to_decimal()` reports.
+    assert.equal(decimalTextToDecimal(text), undefined);
   });
 
-  it("converts values and reports sign", () => {
+  it("converts values within the 96-bit, 28-scale range judged on the literal text", () => {
     const text = parseDecimalText("-0.000001");
     assert.ok(decimalTextIsNegative(text));
-    assert.ok(decimalTextToDecimal(text).eq(new Decimal("-0.000001")));
-    assert.ok(decimalTextToDecimal(parseDecimalText("40")).eq(40));
+    assert.ok(decimalTextToDecimal(text)?.eq(new Decimal("-0.000001")));
+    assert.ok(decimalTextToDecimal(parseDecimalText("40"))?.eq(40));
+    const maxMantissa = "79228162514264337593543950335";
+    assert.equal(decimalTextToDecimal(parseDecimalText(maxMantissa))?.toFixed(), maxMantissa);
+    assert.equal(decimalTextToDecimal(parseDecimalText("79228162514264337593543950336")), undefined);
+    assert.ok(decimalTextToDecimal(parseDecimalText(`0.${"0".repeat(27)}1`)));
+    // Trailing zeros still count toward the scale, as `from_str_exact` does.
+    assert.equal(decimalTextToDecimal(parseDecimalText(`1.${"0".repeat(29)}`)), undefined);
   });
 
   it("rejects non-canonical text and JSON numbers", () => {

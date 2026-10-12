@@ -66,7 +66,8 @@ describe("positions wire", () => {
     assert.equal(conditional!.source, FundingSource.Conditional);
     assert.equal(conditional!.raw_observed, "0.000100");
     assert.equal(conditional!.order_reserved, "340282366920938463463374607431768.211455");
-    assert.ok(decimalTextToDecimal(conditional!.execution_reserved).eq("0.00004"));
+    assert.ok(decimalTextToDecimal(conditional!.execution_reserved)?.eq("0.00004"));
+    assert.equal(decimalTextToDecimal(conditional!.order_reserved), undefined);
     assert.equal(conditional!.signed_remaining_atoms, -184_467_440_737_095_516_100n);
     assert.equal(conditional!.observed_slot, 7n);
     assert.equal(conditional!.observation_state, ObservationState.Present);

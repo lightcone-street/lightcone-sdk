@@ -2,6 +2,7 @@ import Decimal from "decimal.js";
 import { asOrderBookId } from "../../shared";
 import type { OrderBookId, PubkeyStr } from "../../shared";
 import { display } from "../../shared/fmt/decimal";
+import { addDecimals } from "../../shared/price";
 
 export * from "./builders";
 export * from "./client";
@@ -185,9 +186,12 @@ export interface ConditionalBalanceDelta {
   onBook: string;
 }
 
-/** Full-precision sum of idle + on-book (mirrors the `balance` field). */
+/**
+ * Exact sum of idle + on-book (mirrors the `balance` field), as plain decimal
+ * text at the larger of the two scales, independent of `Decimal.precision`.
+ */
 export function conditionalDeltaTotal(delta: ConditionalBalanceDelta): string {
-  return new Decimal(delta.idle).plus(delta.onBook).toString();
+  return addDecimals(delta.idle, delta.onBook);
 }
 
 /** True when the delta holds nothing idle and nothing resting on the book. */

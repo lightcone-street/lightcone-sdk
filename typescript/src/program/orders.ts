@@ -402,13 +402,15 @@ export function ordersCanCross(
  * mint. The result is the least the taker must give the maker, in atoms of
  * the maker's received mint, rounded up as the program requires:
  * `takerFill >= ceil(makerFill * maker.amountOut / maker.amountIn)`.
+ * Throws `ProgramSdkError` `Overflow` when the maker's `amountIn` is zero or
+ * an amount is outside the `u64` range, as the Rust SDK does.
  */
 export function calculateTakerFill(
   makerOrder: SignedOrder,
   makerFillAmount: bigint
 ): bigint {
   if (makerOrder.amountIn === 0n) {
-    throw ProgramSdkError.divisionByZero();
+    throw ProgramSdkError.overflow("Maker amount_in is zero");
   }
   if (makerFillAmount < 0n || makerFillAmount > U64_MAX) {
     throw ProgramSdkError.overflow("Maker fill amount is outside the u64 range");

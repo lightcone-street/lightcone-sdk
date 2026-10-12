@@ -10,7 +10,7 @@ import {
   wireOptString,
   wireOrderBookId,
   wireString,
-  wireU64,
+  wireU64Number,
 } from "../../shared/wire_decode";
 
 export interface TradingRulesWire {
@@ -166,8 +166,8 @@ export function orderbookDepthFromWire(value: unknown): OrderbookDepthResponse {
     ),
     bids_truncated: wireBool(data.bids_truncated, "orderbook_depth.bids_truncated", false),
     asks_truncated: wireBool(data.asks_truncated, "orderbook_depth.asks_truncated", false),
-    revision: wireU64(data.revision, "orderbook_depth.revision"),
-    captured_at_ms: wireU64(data.captured_at_ms, "orderbook_depth.captured_at_ms"),
+    revision: wireU64Number(data.revision, "orderbook_depth.revision"),
+    captured_at_ms: wireU64Number(data.captured_at_ms, "orderbook_depth.captured_at_ms"),
     bids: wireArray(data.bids, "orderbook_depth.bids", restBookLevelFromWire),
     asks: wireArray(data.asks, "orderbook_depth.asks", restBookLevelFromWire),
     decimals: {

@@ -66,7 +66,7 @@ function toUnsignedOrder(fields: OrderFields): Omit<SignedOrder, "signature"> {
   if (!fields.market) throw ProgramSdkError.missingField("market");
   if (!fields.baseMint) throw ProgramSdkError.missingField("base_mint");
   if (!fields.quoteMint) throw ProgramSdkError.missingField("quote_mint");
-  if (fields.side === undefined) throw ProgramSdkError.missingField("side");
+  if (fields.side === undefined) throw ProgramSdkError.missingField("side (call .bid() or .ask())");
   if (fields.amountIn === undefined) throw ProgramSdkError.missingField("amount_in");
   if (fields.amountOut === undefined) throw ProgramSdkError.missingField("amount_out");
   if (fields.amountIn === 0n) throw ProgramSdkError.missingField("amount_in must be greater than 0");
@@ -142,16 +142,19 @@ class BaseEnvelope {
   }
 
   bid(): this {
+    this.clearDerivedAmounts();
     this.fields.side = OrderSide.BID;
     return this;
   }
 
   ask(): this {
+    this.clearDerivedAmounts();
     this.fields.side = OrderSide.ASK;
     return this;
   }
 
   side(value: OrderSide): this {
+    this.clearDerivedAmounts();
     this.fields.side = value;
     return this;
   }
@@ -174,11 +177,13 @@ class BaseEnvelope {
   }
 
   price(value: string): this {
+    this.clearDerivedAmounts();
     this.fields.priceRaw = value;
     return this;
   }
 
   size(value: string): this {
+    this.clearDerivedAmounts();
     this.fields.sizeRaw = value;
     return this;
   }
@@ -252,7 +257,10 @@ class BaseEnvelope {
     }
   }
 
-  /** Forget amounts derived from price and size by an earlier build. */
+  /**
+   * Forget amounts derived from price and size by an earlier build, so a
+   * price, size, or side change can never leave stale amounts for `payload()`.
+   */
   private clearDerivedAmounts(): void {
     if (this.fields.amountsDerived) {
       this.fields.amountIn = undefined;
@@ -272,7 +280,7 @@ class BaseEnvelope {
         `trading rules for orderbook '${rules.orderbookId}' cannot be used for '${orderbookId}'`
       );
     }
-    if (this.fields.side === undefined) throw ProgramSdkError.missingField("side");
+    if (this.fields.side === undefined) throw ProgramSdkError.missingField("side (call .bid() or .ask())");
     this.clearDerivedAmounts();
     if (this.fields.amountIn !== undefined && this.fields.amountOut !== undefined) {
       validateRawAmounts(this.fields.amountIn, this.fields.amountOut, this.fields.side, rules);

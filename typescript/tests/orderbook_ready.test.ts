@@ -138,6 +138,8 @@ describe("orderbook decoding strictness", () => {
       { ready: "yes" },
       { ready: null },
       { revision: "abc" },
+      { revision: "275" },
+      { captured_at_ms: "1790685521784" },
       { revision: -1 },
       { captured_at_ms: undefined },
       { decimals: { price: 300, size: 8 } },
