@@ -1,170 +1,245 @@
-//! Conversions: supported WS and REST wire orders into app-owned order state.
+//! Conversions: order wire types → [`LimitOrder`].
 
 use super::wire;
-use super::LimitOrder;
-use super::UserOpenLimitOrders;
-use crate::shared::{OrderBookId, PubkeyStr};
-use std::collections::HashMap;
+use super::{LimitOrder, OrderStatus, UserOpenLimitOrders};
+use crate::error::SdkError;
 
-impl From<wire::OrderUpdate> for LimitOrder {
-    fn from(update: wire::OrderUpdate) -> Self {
-        LimitOrder {
+/// Fails when the signed amounts define no limit price (a zero amount).
+impl TryFrom<wire::OrderUpdate> for LimitOrder {
+    type Error = SdkError;
+
+    fn try_from(update: wire::OrderUpdate) -> Result<Self, Self::Error> {
+        let price = update.price().ok_or_else(|| {
+            SdkError::Validation(format!(
+                "order {}: signed amounts define no limit price",
+                update.order_hash
+            ))
+        })?;
+        Ok(LimitOrder {
+            status: OrderStatus::derive(
+                update.closed_reason.as_deref(),
+                update.original_base,
+                update.confirmed_base,
+                update.pending_base,
+            ),
             market_pubkey: update.market_pubkey,
             orderbook_id: update.orderbook_id,
-            base_mint: update.order.base_mint,
-            quote_mint: update.order.quote_mint,
-            order_hash: update.order.order_hash,
-            side: update.order.side,
-            size: update.order.filled + update.order.remaining,
-            price: update.order.price,
-            filled_size: update.order.filled,
-            remaining_size: update.order.remaining,
-            created_at: update.order.created_at,
-            tx_signature: update.tx_signature,
-            status: update.order.status,
-            outcome_index: update.order.outcome_index,
+            base_mint: update.base_mint,
+            quote_mint: update.quote_mint,
+            order_hash: update.order_hash,
+            side: update.side,
+            price,
+            size: update.original_base,
+            filled_size: update.confirmed_base,
+            pending_size: update.pending_base,
+            remaining_size: update.open_base,
+            cancelled_size: update.cancelled_base,
+            time_in_force: Some(update.tif),
+            funding_source: update.funding_source,
+            closed_reason: update.closed_reason,
+            accepted_seq: update.accepted_seq,
+            committed_revision: update.commit.committed_revision,
+            created_at: update.accepted_at,
+            expiration: update.expiration,
+        })
+    }
+}
+
+impl From<wire::UserSnapshotOrder> for LimitOrder {
+    fn from(order: wire::UserSnapshotOrder) -> Self {
+        LimitOrder {
+            status: OrderStatus::derive(
+                order.closed_reason.as_deref(),
+                order.original_base,
+                order.confirmed_base,
+                order.pending_base,
+            ),
+            market_pubkey: order.market_pubkey,
+            orderbook_id: order.orderbook_id,
+            base_mint: order.base_mint,
+            quote_mint: order.quote_mint,
+            order_hash: order.order_hash,
+            side: order.side,
+            price: order.price,
+            size: order.original_base,
+            filled_size: order.confirmed_base,
+            pending_size: order.pending_base,
+            remaining_size: order.open_base,
+            cancelled_size: order.cancelled_base,
+            time_in_force: Some(order.tif),
+            funding_source: order.funding_source,
+            closed_reason: order.closed_reason,
+            accepted_seq: order.accepted_seq,
+            committed_revision: order.committed_revision,
+            created_at: order.created_at,
+            expiration: order.expiration,
         }
     }
 }
 
-/// Preserves snapshot amounts and metadata when constructing an ordinary order.
-pub fn limit_snapshot_to_order(
-    common: wire::UserSnapshotOrderCommon,
-    tx_signature: Option<String>,
-) -> LimitOrder {
-    LimitOrder {
-        market_pubkey: common.market_pubkey,
-        orderbook_id: common.orderbook_id,
-        order_hash: common.order_hash,
-        base_mint: common.base_mint,
-        quote_mint: common.quote_mint,
-        side: common.side,
-        size: common.filled + common.remaining,
-        price: common.price,
-        filled_size: common.filled,
-        remaining_size: common.remaining,
-        created_at: common.created_at,
-        tx_signature,
-        status: common.status,
-        outcome_index: common.outcome_index,
+impl wire::UserOrder {
+    /// Convert a REST order into a [`LimitOrder`]; `None` when the backend
+    /// omitted the recorded quantities.
+    pub fn into_limit_order(self) -> Option<LimitOrder> {
+        let state = self.state?;
+        Some(LimitOrder {
+            status: OrderStatus::derive(
+                state.closed_reason.as_deref(),
+                state.original_base,
+                state.confirmed_base,
+                state.pending_base,
+            ),
+            market_pubkey: self.market_pubkey,
+            orderbook_id: self.orderbook_id,
+            base_mint: self.base_mint,
+            quote_mint: self.quote_mint,
+            order_hash: self.order_hash,
+            side: self.side,
+            price: self.price,
+            size: state.original_base,
+            filled_size: state.confirmed_base,
+            pending_size: state.pending_base,
+            remaining_size: state.open_base,
+            cancelled_size: state.cancelled_base,
+            time_in_force: self.tif,
+            funding_source: self.source,
+            closed_reason: state.closed_reason,
+            accepted_seq: state.accepted_seq,
+            committed_revision: state.committed_revision,
+            created_at: self.created_at,
+            expiration: self.expiration,
+        })
     }
 }
 
-/// Groups supported open orders by market and orderbook, excluding fully filled rows.
+/// Build the open-order container from a WS `user` snapshot page.
+///
+/// Orders that are neither resting nor awaiting fill confirmation are
+/// skipped. The snapshot is the first bounded page only; merge later REST
+/// pages with [`UserOpenLimitOrders::apply_order`].
 pub fn convert_snapshot_orders(orders: Vec<wire::UserSnapshotOrder>) -> UserOpenLimitOrders {
-    let mut open_orders: HashMap<PubkeyStr, HashMap<OrderBookId, Vec<LimitOrder>>> = HashMap::new();
-    for snapshot in orders {
-        let wire::UserSnapshotOrder::Limit {
-            common,
-            tx_signature,
-        } = snapshot;
-        if !common.remaining.is_zero() {
-            open_orders
-                .entry(common.market_pubkey.clone())
-                .or_default()
-                .entry(common.orderbook_id.clone())
-                .or_default()
-                .push(limit_snapshot_to_order(common, tx_signature));
-        }
+    let mut open_orders = UserOpenLimitOrders::new();
+    for order in orders {
+        open_orders.apply_order(LimitOrder::from(order));
     }
-    UserOpenLimitOrders {
-        orders: open_orders,
-    }
+    open_orders
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::order::OrderStatus;
-    use crate::shared::{OrderBookId, OrderUpdateType, PubkeyStr, Side};
-    use chrono::Utc;
+    use crate::domain::order::wire::tests::{live_order, HASH};
+    use crate::shared::FundingSource;
+    use crate::shared::{OrderBookId, PubkeyStr, Side, TimeInForce};
+    use chrono::{DateTime, Utc};
     use rust_decimal::Decimal;
 
-    fn make_limit_snapshot(
-        market: &str,
-        hash: &str,
-        remaining: Decimal,
-    ) -> wire::UserSnapshotOrder {
-        wire::UserSnapshotOrder::Limit {
-            common: wire::UserSnapshotOrderCommon {
-                order_hash: hash.to_string(),
-                market_pubkey: PubkeyStr::from(market),
-                orderbook_id: OrderBookId::from("ob1"),
-                side: Side::Bid,
-                amount_in: Decimal::ZERO,
-                amount_out: Decimal::ZERO,
-                remaining,
-                filled: Decimal::ZERO,
-                price: Decimal::new(50, 1),
-                created_at: Utc::now(),
-                expiration: 0,
-                base_mint: PubkeyStr::from("b"),
-                quote_mint: PubkeyStr::from("q"),
-                outcome_index: 0,
-                status: OrderStatus::Open,
-            },
-            tx_signature: None,
+    fn test_time() -> DateTime<Utc> {
+        DateTime::<Utc>::from_timestamp_millis(1_790_685_521_784).unwrap()
+    }
+
+    fn snapshot_order(hash: &str, open: i64, pending: i64) -> wire::UserSnapshotOrder {
+        wire::UserSnapshotOrder {
+            order_hash: hash.to_string(),
+            market_pubkey: PubkeyStr::from("mkt1"),
+            orderbook_id: OrderBookId::from("ob1"),
+            side: Side::Ask,
+            maker_amount: Decimal::from(10),
+            taker_amount: Decimal::from(5),
+            original_base: Decimal::from(10),
+            confirmed_base: Decimal::from(10 - open - pending),
+            pending_base: Decimal::from(pending),
+            open_base: Decimal::from(open),
+            cancelled_base: Decimal::ZERO,
+            closed_reason: None,
+            committed_revision: 3,
+            accepted_seq: 1,
+            price: Decimal::new(5, 1),
+            created_at: test_time(),
+            expiration: 0,
+            base_mint: PubkeyStr::from("b"),
+            quote_mint: PubkeyStr::from("q"),
+            tif: TimeInForce::Gtc,
+            funding_source: FundingSource::Conditional,
         }
     }
 
     #[test]
-    fn test_order_update_conversion() {
-        let update = wire::OrderUpdate {
-            market_pubkey: PubkeyStr::from("mkt111"),
-            orderbook_id: OrderBookId::from("ob_abc"),
-            timestamp: Utc::now(),
-            tx_signature: Some("sig123".to_string()),
-            update_type: OrderUpdateType::Update,
-            order: wire::WsOrder {
-                order_hash: "hash_xyz".to_string(),
-                price: Decimal::new(55, 1),
-                is_maker: true,
-                remaining: Decimal::new(8, 0),
-                filled: Decimal::new(2, 0),
-                fill_amount: Decimal::new(2, 0),
-                side: Side::Bid,
-                created_at: Utc::now(),
-                base_mint: PubkeyStr::from("base_mint"),
-                quote_mint: PubkeyStr::from("quote_mint"),
-                outcome_index: 0,
-                status: OrderStatus::Open,
-                balance: Some(wire::UserOrderUpdateBalance { outcomes: vec![] }),
-            },
-        };
-        let order: LimitOrder = update.into();
-        assert_eq!(order.order_hash, "hash_xyz");
-        assert_eq!(order.size, Decimal::new(10, 0));
-        assert_eq!(order.filled_size, Decimal::new(2, 0));
-        assert_eq!(order.remaining_size, Decimal::new(8, 0));
-        assert_eq!(order.tx_signature, Some("sig123".to_string()));
+    fn live_order_fact_converts_quantities_and_price() {
+        let order =
+            LimitOrder::try_from(live_order(812, "7.00000000", "1.00000000", None)).unwrap();
+        assert_eq!(order.order_hash, HASH);
+        assert_eq!(order.side, Side::Bid);
+        assert_eq!(order.price, Decimal::new(55, 2));
+        assert_eq!(order.size, Decimal::from(10));
+        assert_eq!(order.filled_size, Decimal::from(2));
+        assert_eq!(order.pending_size, Decimal::from(1));
+        assert_eq!(order.remaining_size, Decimal::from(7));
+        assert_eq!(order.status, OrderStatus::Pending);
+        assert_eq!(order.committed_revision, 812);
+        assert_eq!(order.accepted_seq, 44);
+        assert_eq!(order.funding_source, FundingSource::Global);
     }
 
     #[test]
-    fn test_limit_snapshot_conversion() {
-        let wire::UserSnapshotOrder::Limit {
-            common,
-            tx_signature,
-        } = make_limit_snapshot("mkt222", "snap_hash", Decimal::new(5, 0));
-        let order = limit_snapshot_to_order(common, tx_signature);
-        assert_eq!(order.order_hash, "snap_hash");
-        assert_eq!(order.market_pubkey.as_str(), "mkt222");
+    fn closed_reason_wins_status_precedence() {
+        let order =
+            LimitOrder::try_from(live_order(813, "0.00000000", "1.00000000", Some("expired")))
+                .unwrap();
+        assert_eq!(order.status, OrderStatus::Closed);
+        assert_eq!(order.closed_reason.as_deref(), Some("expired"));
     }
 
     #[test]
-    fn snapshot_groups_open_orders_and_excludes_filled_orders() {
+    fn live_order_fact_without_a_limit_price_is_rejected() {
+        let mut update = live_order(814, "7.00000000", "0.00000000", None);
+        update.taker_amount = Decimal::ZERO;
+        assert!(matches!(
+            LimitOrder::try_from(update.clone()),
+            Err(SdkError::Validation(_))
+        ));
+        let mut open_orders = UserOpenLimitOrders::new();
+        assert!(open_orders.apply(&update).is_err());
+        assert!(open_orders.is_empty());
+    }
+
+    #[test]
+    fn snapshot_conversion_keeps_live_orders_only() {
         let open = convert_snapshot_orders(vec![
-            make_limit_snapshot("mkt1", "o1", Decimal::ONE),
-            make_limit_snapshot("mkt1", "o2", Decimal::ZERO),
-            make_limit_snapshot("mkt2", "o3", Decimal::ONE),
+            snapshot_order("resting", 4, 0),
+            snapshot_order("claiming", 0, 2),
+            snapshot_order("done", 0, 0),
         ]);
-        let orders = open.get(&PubkeyStr::from("mkt1"), &OrderBookId::from("ob1"));
-        assert_eq!(orders.map(Vec::len), Some(1));
-        assert_eq!(
-            orders
-                .and_then(|rows| rows.first())
-                .map(|order| order.order_hash.as_str()),
-            Some("o1")
-        );
-        assert_eq!(open.orders.len(), 2);
+        let orders = open
+            .get(&PubkeyStr::from("mkt1"), &OrderBookId::from("ob1"))
+            .unwrap();
+        let hashes: Vec<_> = orders
+            .iter()
+            .map(|order| order.order_hash.as_str())
+            .collect();
+        assert_eq!(hashes, ["resting", "claiming"]);
+        assert_eq!(orders[0].status, OrderStatus::Open);
+        assert_eq!(orders[1].status, OrderStatus::Pending);
+    }
+
+    #[test]
+    fn rest_order_without_state_does_not_convert() {
+        let order: wire::UserOrder = serde_json::from_value(serde_json::json!({
+            "order_hash": HASH,
+            "market_pubkey": "mkt1",
+            "orderbook_id": "ob1",
+            "side": "ask",
+            "amount_in": "1",
+            "amount_out": "1",
+            "price": "1",
+            "created_at": 1,
+            "base_mint": "b",
+            "quote_mint": "q",
+            "state": null,
+            "tif": "GTC",
+            "source": "conditional"
+        }))
+        .unwrap();
+        assert!(order.into_limit_order().is_none());
     }
 }

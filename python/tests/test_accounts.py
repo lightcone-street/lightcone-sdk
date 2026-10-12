@@ -12,7 +12,6 @@ from lightcone_sdk.program import (
     ORDER_STATUS_DISCRIMINATOR,
     ORDERBOOK_DISCRIMINATOR,
     POSITION_DISCRIMINATOR,
-    USER_NONCE_DISCRIMINATOR,
     InvalidAccountDataError,
     InvalidDiscriminatorError,
     InvalidOrderbookError,
@@ -26,7 +25,6 @@ from lightcone_sdk.program import (
     deserialize_order_status,
     deserialize_orderbook,
     deserialize_position,
-    deserialize_user_nonce,
 )
 
 
@@ -142,14 +140,6 @@ def build_order_status_data(
     data.extend(struct.pack("<Q", base_remaining))
     data.append(1 if is_cancelled else 0)
     data.extend(bytes(7))  # padding
-    return bytes(data)
-
-
-def build_user_nonce_data(nonce: int) -> bytes:
-    """Build UserNonce account data for testing."""
-    data = bytearray()
-    data.extend(USER_NONCE_DISCRIMINATOR)
-    data.extend(struct.pack("<Q", nonce))
     return bytes(data)
 
 
@@ -330,35 +320,6 @@ class TestDeserializeOrderStatus:
 
         with pytest.raises(InvalidDiscriminatorError):
             deserialize_order_status(data)
-
-
-class TestDeserializeUserNonce:
-    def test_deserialize_valid_data(self):
-        data = build_user_nonce_data(42)
-
-        user_nonce = deserialize_user_nonce(data)
-
-        assert user_nonce.nonce == 42
-
-    def test_deserialize_zero_nonce(self):
-        data = build_user_nonce_data(0)
-
-        user_nonce = deserialize_user_nonce(data)
-
-        assert user_nonce.nonce == 0
-
-    def test_deserialize_large_nonce(self):
-        data = build_user_nonce_data(2**64 - 1)
-
-        user_nonce = deserialize_user_nonce(data)
-
-        assert user_nonce.nonce == 2**64 - 1
-
-    def test_invalid_discriminator(self):
-        data = b"badnonce" + bytes(8)
-
-        with pytest.raises(InvalidDiscriminatorError):
-            deserialize_user_nonce(data)
 
 
 class TestDeserializeOrderbook:

@@ -99,7 +99,6 @@ class LightconeClient:
         self._transaction_sponsorship_enabled = transaction_sponsorship_enabled
         self._primary_rpc_url: str | None = primary_rpc_url
         self._backup_rpc_url: str | None = backup_rpc_url
-        self._order_nonce: int | None = None
 
         # Sub-clients (all take self reference)
         self._markets = Markets(self)
@@ -191,22 +190,6 @@ class LightconeClient:
     def set_transaction_sponsorship_enabled(self, enabled: bool) -> None:
         """Replace the capability used by subsequent shared submissions."""
         self._transaction_sponsorship_enabled = enabled
-
-    # ── Nonce cache ───────────────────────────────────────────────────
-
-    @property
-    def order_nonce(self) -> int | None:
-        """Get the cached order nonce, if one has been set."""
-        return self._order_nonce
-
-    def set_order_nonce(self, nonce: int) -> None:
-        """Cache an order nonce. This value will be used as the default nonce
-        for subsequent orders that don't explicitly call ``.nonce()``."""
-        self._order_nonce = nonce
-
-    def clear_order_nonce(self) -> None:
-        """Clear the cached nonce (e.g. on logout)."""
-        self._order_nonce = None
 
     def _active_rpc_url(self) -> str:
         """Resolve the currently-active RPC URL, recovering to primary if cooldown elapsed."""

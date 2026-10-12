@@ -21,8 +21,9 @@ from typing import Any
 
 import aiohttp
 
-from ..error import ApiRejected, HttpError, HttpErrorKind
+from ..error import ApiRejected, DeserializationError, HttpError, HttpErrorKind
 from ..shared.api_response import ApiRejectedDetails, ApiResponse
+from ..shared.wire_decode import parse_json
 from .credential_restorer import CredentialRestorer
 from .retry import RetryConfig, RetryPolicy, delay_for_attempt
 
@@ -287,16 +288,7 @@ class LightconeHttp:
         session = await self._ensure_session()
         async with session.post(url, json=body) as response:
             if 200 <= response.status < 300:
-                try:
-                    return await response.json()
-                except (
-                    ValueError,
-                    json.JSONDecodeError,
-                    aiohttp.ContentTypeError,
-                ) as error:
-                    raise HttpError.request(
-                        f"Failed to parse response: {error}"
-                    ) from error
+                return _decode_json_body(await response.read())
 
             body_text = await response.text()
             raise self._map_status_error(
@@ -660,16 +652,9 @@ class LightconeHttp:
                 # otherwise leak into the SDK's process-wide token slot.
                 if auth_mode is not _AuthMode.COOKIE_OVERRIDE:
                     self._capture_cookies(response.headers)
-                try:
-                    return await response.json()
-                except (
-                    ValueError,
-                    json.JSONDecodeError,
-                    aiohttp.ContentTypeError,
-                ) as error:
-                    raise HttpError.request(
-                        f"Failed to parse response: {error}"
-                    ) from error
+                # A body cut off in transit raises aiohttp.ClientPayloadError
+                # here, which surfaces as HttpError.request (as in Rust).
+                return _decode_json_body(await response.read())
 
             body_text = await response.text()
             raise _HttpStatusError(
@@ -760,16 +745,31 @@ class LightconeHttp:
         body: str, request_id: str, http_status: int
     ) -> ApiRejected | None:
         try:
-            payload = json.loads(body)
-        except (ValueError, json.JSONDecodeError):
+            payload = parse_json(body, "error body")
+            if not isinstance(payload, dict) or payload.get("status") != "error":
+                return None
+            parsed = ApiResponse.from_dict(payload)
+        except DeserializationError:
+            # Not a structured rejection: fall back to the status-mapped error.
             return None
-        if not isinstance(payload, dict) or payload.get("status") != "error":
-            return None
-        parsed = ApiResponse.from_dict(payload)
         details = parsed.details or ApiRejectedDetails(reason="Unknown API rejection")
         return ApiRejected(
             details.with_request_id(request_id).with_http_status(http_status)
         )
+
+
+def _decode_json_body(raw: bytes) -> Any:
+    """Decode a delivered 2xx body as strict JSON.
+
+    A body that is not JSON is a contract mismatch, not a transport failure:
+    it raises :class:`DeserializationError` and is never retried, as does an
+    empty body. ``NaN`` and ``Infinity`` are rejected.
+    """
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise DeserializationError(f"invalid JSON response body: {error}") from None
+    return parse_json(text, "response body")
 
 
 def _retry_after_ms(headers: aiohttp.typedefs.LooseHeaders | None) -> int | None:

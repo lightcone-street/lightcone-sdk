@@ -213,8 +213,9 @@ pub struct User {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connected_x: Option<XAccountData>,
     /// Single-use Telegram group invite URL that the backend assigned to this
-    /// Account. `None` means the Account holds no invite. A missing value from
-    /// an older backend also reads as `None` during a rolling deployment.
+    /// Account. `None` means the Account holds no invite. Backends without
+    /// Telegram invites (including the committed-trading backend) omit the
+    /// field, which also reads as `None`.
     /// The URL is a secret of this Account. Do not write it to a log, an error
     /// report, or an analytics event.
     #[serde(default)]

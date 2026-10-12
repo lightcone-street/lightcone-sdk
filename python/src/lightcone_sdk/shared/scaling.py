@@ -8,7 +8,7 @@ from decimal import Decimal
 
 PRICE_SCALE = 1_000_000
 I64_MAX = 2**63 - 1
-U32_MAX = 2**32 - 1
+U64_MAX = 2**64 - 1
 ExactDecimal = str | Decimal
 
 
@@ -120,7 +120,7 @@ def _significant_digits(value: int) -> int:
 
 
 def _validate_price_raw(price_raw: int, rules: OrderbookRules) -> int:
-    if price_raw <= 0 or price_raw > I64_MAX:
+    if price_raw <= 0 or price_raw > U64_MAX:
         raise ScalingError.from_code("PRICE_OUT_OF_RANGE")
     human_scale = 10**rules.price_decimals
     integer_price = price_raw % human_scale == 0
@@ -139,7 +139,7 @@ def _validate_base_atoms(base_atoms: int, rules: OrderbookRules) -> int:
     quantum = rules.trading_rules.base_size_quantum_raw
     if quantum <= 0 or base_atoms % quantum != 0:
         raise ScalingError.from_code("INVALID_SIZE_DECIMALS")
-    validate_signed_field(base_atoms, "base amount", zero_allowed=False)
+    _assert_atom_range(base_atoms, "base amount")
     return base_atoms
 
 
@@ -162,7 +162,9 @@ def scale_price_size(
     if quote_numerator % PRICE_SCALE:
         raise ScalingError.from_code("PRICE_NOT_EXACTLY_REPRESENTABLE")
     quote_atoms = quote_numerator // PRICE_SCALE
-    validate_signed_field(quote_atoms, "quote amount", zero_allowed=False)
+    _assert_atom_range(quote_atoms, "quote amount")
+    if isinstance(side, bool):
+        raise ScalingError("side must be BID or ASK")
     if int(side) == 0:
         amount_in, amount_out = quote_atoms, base_atoms
     elif int(side) == 1:
@@ -185,8 +187,9 @@ def validate_raw_amounts(
     rules: OrderbookRules,
 ) -> ScaledAmounts:
     """Preflight caller-provided signed amounts against the engine rules."""
-    validate_signed_field(amount_in, "amount_in", zero_allowed=False)
-    validate_signed_field(amount_out, "amount_out", zero_allowed=False)
+    validate_signed_fields(amount_in, amount_out)
+    if isinstance(side, bool):
+        raise ScalingError("side must be BID or ASK")
     if int(side) == 0:
         base_atoms, quote_atoms = amount_out, amount_in
     elif int(side) == 1:
@@ -208,21 +211,23 @@ def validate_raw_amounts(
     )
 
 
-def validate_signed_field(value: int, field: str, *, zero_allowed: bool = True) -> None:
+def _assert_atom_range(value: int, field: str) -> None:
+    """Require a nonzero raw atom amount within u64 (booleans are not amounts)."""
     if (
-        not isinstance(value, int)
-        or value < 0
-        or value > I64_MAX
-        or (not zero_allowed and value == 0)
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value <= 0
+        or value > U64_MAX
     ):
         raise ScalingError.from_code("ORDER_FIELD_OUT_OF_RANGE", field)
 
 
-def validate_signed_fields(
-    amount_in: int, amount_out: int, salt: int, nonce: int
-) -> None:
-    validate_signed_field(amount_in, "amount_in", zero_allowed=False)
-    validate_signed_field(amount_out, "amount_out", zero_allowed=False)
-    validate_signed_field(salt, "salt")
-    if not isinstance(nonce, int) or nonce < 0 or nonce > U32_MAX:
-        raise ScalingError.from_code("ORDER_FIELD_OUT_OF_RANGE", "nonce")
+def validate_signed_fields(amount_in: int, amount_out: int) -> None:
+    """Check the signed amount fields that the program and engine reject outright.
+
+    Amounts are raw token atoms and must be nonzero; the full u64 range is
+    accepted. The salt (any u64) and expiration (any i64, 0 = none) are
+    range-checked where the order is encoded.
+    """
+    _assert_atom_range(amount_in, "amount_in")
+    _assert_atom_range(amount_out, "amount_out")

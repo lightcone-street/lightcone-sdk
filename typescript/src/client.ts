@@ -64,7 +64,6 @@ export class LightconeClient implements ClientContext {
   private depositSourceValue: DepositSource;
   private signingStrategyValue?: SigningStrategy;
   private transactionSponsorshipEnabledValue: boolean;
-  private orderNonceValue: number | undefined;
   private readonly wsConfigValue: WsConfig;
   private readonly authStateStore: AuthState;
   readonly orderbookRulesCache: Map<string, Promise<OrderbookRules>>;
@@ -86,7 +85,6 @@ export class LightconeClient implements ClientContext {
     transactionSponsorshipEnabled?: boolean;
     transactionResources?: V1ResourceConfig;
     rpcFetch?: typeof fetch;
-    orderNonce?: number;
     authCredentials?: AuthCredentials;
     authState?: AuthState;
     orderbookRulesCache?: Map<string, Promise<OrderbookRules>>;
@@ -106,7 +104,6 @@ export class LightconeClient implements ClientContext {
     this.signingStrategyValue = params.signingStrategy;
     this.transactionSponsorshipEnabledValue =
       params.transactionSponsorshipEnabled ?? false;
-    this.orderNonceValue = params.orderNonce;
     this.wsConfigValue = params.wsConfig;
     this.authStateStore =
       params.authState ??
@@ -156,20 +153,6 @@ export class LightconeClient implements ClientContext {
   /** Replace the Transaction Sponsorship Capability for subsequent submissions. */
   setTransactionSponsorshipEnabled(enabled: boolean): void {
     this.transactionSponsorshipEnabledValue = enabled;
-  }
-
-  // ── Nonce cache ──────────────────────────────────────────────────────
-
-  orderNonce(): number | undefined {
-    return this.orderNonceValue;
-  }
-
-  setOrderNonce(nonce: number): void {
-    this.orderNonceValue = nonce;
-  }
-
-  clearOrderNonce(): void {
-    this.orderNonceValue = undefined;
   }
 
   // ── Auth token (cookie) ─────────────────────────────────────────────
@@ -364,7 +347,6 @@ export class LightconeClient implements ClientContext {
       transactionSponsorshipEnabled: this.transactionSponsorshipEnabledValue,
       transactionResources: this.transactionResources,
       rpcFetch: this.rpcFetch,
-      orderNonce: this.orderNonceValue,
       authState: this.authStateStore,
       orderbookRulesCache: this.orderbookRulesCache,
     });

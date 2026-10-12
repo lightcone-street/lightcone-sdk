@@ -88,7 +88,7 @@ describe("LightconeHttp", () => {
       [
         {
           status: 200,
-          body: '{"status":"error","error_details":{"reason":"invalid exact ratio","rejection_code":"PRICE_NOT_EXACTLY_REPRESENTABLE"}}',
+          body: '{"status":"error","error_details":{"reason":"invalid exact ratio","rejection_code":"INVALID_ORDER"}}',
         },
       ],
       async (baseUrl) => {
@@ -98,11 +98,55 @@ describe("LightconeHttp", () => {
           (error) =>
             error instanceof SdkError &&
             error.variant === "ApiRejected" &&
-            error.apiRejectedDetails?.rejectionCode?.wireName() ===
-              "PRICE_NOT_EXACTLY_REPRESENTABLE",
+            error.apiRejectedDetails?.rejectionCode?.wireName() === "INVALID_ORDER" &&
+            error.apiRejectedDetails.rejectionCode.isKnown() &&
+            error.apiRejectedDetails.errorCodeKind() === undefined,
         );
       },
     );
+  });
+
+  it("surfaces a non-JSON 2xx body as Serde without retrying it", async () => {
+    await withServer(
+      [
+        { status: 200, body: "<html>not json</html>" },
+        { status: 200, body: '{"status":"success","body":{}}' },
+      ],
+      async (baseUrl, attempts) => {
+        const client = new LightconeHttp(baseUrl);
+        await assert.rejects(
+          () => client.get(`${baseUrl}/test`, RetryPolicy.Idempotent),
+          (error) => error instanceof SdkError && error.variant === "Serde",
+        );
+        assert.equal(attempts(), 1);
+      },
+    );
+  });
+
+  it("retries a 2xx body cut off in transit as a request failure", async () => {
+    let attempts = 0;
+    const server = createServer((_request, response) => {
+      attempts += 1;
+      if (attempts === 1) {
+        // Headers and part of the body arrive before the connection resets.
+        response.writeHead(200, { "content-type": "application/json", "content-length": "100" });
+        response.write('{"status":"succ');
+        setTimeout(() => response.socket?.destroy(), 50);
+        return;
+      }
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end('{"status":"success","body":{"ok":true}}');
+    });
+    await listen(server);
+    const { port } = server.address() as AddressInfo;
+    try {
+      const client = new LightconeHttp(`http://127.0.0.1:${port}`);
+      const body = await client.get<{ ok: boolean }>(`http://127.0.0.1:${port}/test`, fastRetry([]));
+      assert.deepEqual(body, { ok: true });
+      assert.equal(attempts, 2);
+    } finally {
+      await close(server);
+    }
   });
 
   it("returns structured 500 rejection details", async () => {

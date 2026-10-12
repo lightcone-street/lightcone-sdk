@@ -1,8 +1,7 @@
-import { V1Transaction } from "../src";
+import { submitFilledBase, submitOpenBase, V1Transaction } from "../src";
 import { generateSalt, OrderSide } from "../src/program";
 import { scalePriceSize } from "../src/shared";
 import {
-  freshOrderNonce,
   getKeypair,
   login,
   marketAndOrderbook,
@@ -57,11 +56,7 @@ async function main() {
 
   await waitForGlobalBalance(client, mint, requiredBalance);
 
-  // 2. Submit the limit order. Fetch and cache the on-chain nonce once —
-  //    subsequent orders that omit `.nonce()` use this cached value.
-  const nonce = await freshOrderNonce(client, keypair.publicKey);
-  client.setOrderNonce(nonce);
-
+  // 2. Submit the limit order. The salt is the order's only identity.
   const response = await client
     .orders()
     .limitOrder()
@@ -72,7 +67,7 @@ async function main() {
     .salt(generateSalt())
     .submit(client, orderbook);
   console.log(
-    `submitted: ${response.order_hash} status=${response.status} filled=${response.filled} remaining=${response.remaining} fills=${response.fills.length}`
+    `submitted: ${response.order_hash} status=${response.status} filled=${submitFilledBase(response) ?? "pending"} open=${submitOpenBase(response) ?? "pending"} fills=${response.fills.length}`
   );
 }
 

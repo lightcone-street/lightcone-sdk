@@ -98,7 +98,7 @@ impl LightconeEnv {
     /// `SDK_PROGRAM_ID` override.
     fn default_program_id(&self) -> Pubkey {
         match self {
-            Self::Local => Pubkey::from_str("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago")
+            Self::Local => Pubkey::from_str("Hobw7Fi6SN6YaCA4Bwp5RcbCR3YBXQ9PpGSSw5muEzai")
                 .expect("valid program id"),
             Self::Staging => Pubkey::from_str("5G2fWZGHB5BA8gbABVBuR1bU4Ziri9cRxFoojz5C5Rxk")
                 .expect("valid program id"),
@@ -178,11 +178,11 @@ mod tests {
 
         assert_eq!(
             program_id,
-            Pubkey::from_str("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago").unwrap()
+            Pubkey::from_str("Hobw7Fi6SN6YaCA4Bwp5RcbCR3YBXQ9PpGSSw5muEzai").unwrap()
         );
         assert_eq!(
             exchange_pda,
-            Pubkey::from_str("B6Y3DF25exUTk2j7ocjYfoBY6r3tc6shyXTVhnHhrbk9").unwrap()
+            Pubkey::from_str("3QpkVHKRzdzj2uXdSH6TYXBYfgd4cwKK6Dmx8V78gx37").unwrap()
         );
     }
 }

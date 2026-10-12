@@ -48,12 +48,6 @@ async fn main() -> ExampleResult {
                 .amount(amount)
                 .build_tx(&context)?,
         ),
-        (
-            "increment_nonce",
-            client
-                .orders()
-                .increment_nonce_tx(&keypair.pubkey(), &context)?,
-        ),
     ];
 
     for (name, tx) in &transactions {

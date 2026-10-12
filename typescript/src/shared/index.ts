@@ -10,6 +10,7 @@ export {
   denominatorToken,
   DepositSource,
   deriveOrderbookId,
+  FundingSource,
   parseResolution,
   parseSide,
   receiveDenominator,
@@ -22,6 +23,7 @@ export {
   Side,
   TimeInForce,
   type Branded,
+  type CommitInfo,
   type OrderBookId,
   type PubkeyStr,
   type SubmitOrderRequest,
@@ -34,19 +36,29 @@ export {
   type ApiResponse,
 } from "./api_response";
 
-export { RejectionCode } from "./rejection";
+export {
+  ErrorCode,
+  RejectionCode,
+  type KnownErrorCode,
+  type KnownRejectionCode,
+} from "./rejection";
 
 export { formatDecimal, isZero, parseDecimal } from "./price";
+export {
+  decimalTextIsNegative,
+  decimalTextToDecimal,
+  parseDecimalText,
+  type DecimalText,
+} from "./decimal_text";
 export { parseJsonExact, stringifyJsonExact } from "./json";
 
 export {
-  assertSignedRange,
   exactScaledInteger,
   I64_MAX,
   PRICE_SCALE,
   scalePriceSize,
   ScalingError,
-  U32_MAX,
+  U64_MAX,
   validateRawAmounts,
   validateSignedFields,
   type OrderbookRules,

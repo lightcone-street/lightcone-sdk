@@ -172,6 +172,11 @@ Depth responses and WebSocket state expose `bids_truncated` and
 must not be presented as exhaustive liquidity. REST depth also exposes required
 `revision` and `captured_at_ms` freshness metadata.
 
+REST depth (`OrderbookDepthResponse::ready`), WebSocket frames
+(`OrderBook::ready`), and `OrderbookState::ready` report whether the engine's
+committed book is live for matching. A book that is not ready may show stale or
+empty depth; resync frames carry neither `seq` nor `ready`.
+
 REST depth is a coherent projection and may briefly lag an authoritative book
 mutation. Compare `revision` and `captured_at_ms` when freshness matters; do not
 poll for the next consecutive integer because projection revisions may jump.

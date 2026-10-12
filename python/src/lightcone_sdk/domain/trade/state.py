@@ -1,83 +1,86 @@
-"""Trade history state (ring buffer)."""
+"""Trade history state — app-owned, SDK-provided update logic."""
 
-from collections import deque
-from dataclasses import dataclass, field
-from typing import Optional
+from __future__ import annotations
+
+import dataclasses
+
 from . import Trade
 
 
-@dataclass
 class TradeHistory:
-    """Ring buffer of recent trades."""
-    orderbook_id: str = ""
-    max_size: int = 100
-    _trades: deque = field(default_factory=lambda: deque(maxlen=100))
+    """Rolling trade history buffer for an orderbook, newest first.
 
-    def __post_init__(self):
-        self._trades = deque(maxlen=self.max_size)
+    The app owns instances of this type. The SDK provides update methods. The
+    history stores copies and never changes a pushed :class:`Trade`.
+    """
+
+    def __init__(self, orderbook_id: str = "", max_size: int = 100):
+        self.orderbook_id = orderbook_id
+        self.max_size = max_size
+        self._trades: list[Trade] = []
 
     def push(self, trade: Trade) -> None:
-        """Insert a trade in ascending sequence order (oldest first, newest last).
+        """Push a trade, keeping the buffer newest-first by execution time.
 
-        Trades with ``sequence > 0`` are placed at the correct position so the
-        buffer stays sorted. Trades with ``sequence == 0`` (REST) are appended
-        to the end as before.
+        Trades are deduplicated by ``trade_id``, which REST and WS share, so
+        live trades can be merged into REST history (a duplicate only fills in
+        a missing REST ``cursor_id``). Equal timestamps keep arrival order,
+        newest first. When full, a trade older than everything retained is
+        dropped.
         """
         # Treat a zero-capacity history as disabled.
-        if self.max_size == 0:
+        if self.max_size <= 0:
             return
-        if trade.sequence == 0:
-            # REST trades do not carry ordering metadata, so preserve the legacy
-            # append behavior and let deque(maxlen=...) handle capacity eviction.
-            self._trades.append(trade)
-            return
-        # Default to "older than everything we currently keep". We scan from the
-        # end because that is the newest side in this ascending buffer.
-        insert_at = 0
-        # Find the insertion point immediately after the newest trade with a
-        # sequence less than or equal to the incoming one.
-        for index in range(len(self._trades) - 1, -1, -1):
-            if self._trades[index].sequence <= trade.sequence:
-                insert_at = index + 1
-                break
-        # deque.insert() raises IndexError at maxlen, so only evict once we know
-        # the new trade belongs in the retained window.
-        if len(self._trades) >= self.max_size:
-            if insert_at == 0:
-                # The buffer is full and the new trade is older than everything
-                # we already keep, so dropping it preserves the newest window.
+        for index, existing in enumerate(self._trades):
+            if existing.trade_id == trade.trade_id:
+                if existing.cursor_id is None and trade.cursor_id is not None:
+                    self._trades[index] = dataclasses.replace(
+                        existing, cursor_id=trade.cursor_id
+                    )
                 return
-            # The new trade belongs in the retained window, so evict the oldest
-            # trade from the front and adjust the insertion index.
-            self._trades.popleft()
-            insert_at -= 1
-        self._trades.insert(insert_at, trade)
+        position = next(
+            (
+                index
+                for index, existing in enumerate(self._trades)
+                if existing.timestamp <= trade.timestamp
+            ),
+            len(self._trades),
+        )
+        if len(self._trades) >= self.max_size and position == len(self._trades):
+            return
+        self._trades.insert(position, dataclasses.replace(trade))
+        if len(self._trades) > self.max_size:
+            self._trades.pop()
 
     def add(self, trade: Trade) -> None:
-        """Alias for push()."""
+        """Alias for :meth:`push`."""
         self.push(trade)
 
     def replace(self, trades: list[Trade]) -> None:
-        """Replace all trades."""
-        self._trades.clear()
-        for t in trades:
-            self._trades.append(t)
+        """Replace all trades (e.g. from a REST fetch), keeping at most ``max_size``."""
+        self._trades = [
+            dataclasses.replace(trade) for trade in trades[: max(self.max_size, 0)]
+        ]
 
     def trades(self) -> list[Trade]:
+        """The retained trades, newest first."""
         return list(self._trades)
 
     def all(self) -> list[Trade]:
-        """Alias for trades()."""
+        """Alias for :meth:`trades`."""
         return self.trades()
 
-    def latest(self) -> Optional[Trade]:
-        return self._trades[-1] if self._trades else None
+    def latest(self) -> Trade | None:
+        return self._trades[0] if self._trades else None
 
     def __len__(self) -> int:
         return len(self._trades)
 
     def is_empty(self) -> bool:
-        return len(self._trades) == 0
+        return not self._trades
 
     def clear(self) -> None:
         self._trades.clear()
+
+
+__all__ = ["TradeHistory"]

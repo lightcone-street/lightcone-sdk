@@ -65,7 +65,11 @@ import {
   type SolBalanceBreakdown,
   type WalletDepositBalancesState,
 } from "./state";
-import type { MarketPositionsResponse, PositionsResponse } from "./wire";
+import {
+  positionsResponseFromWire,
+  type MarketPositionsResponse,
+  type PositionsResponse,
+} from "./wire";
 import {
   DepositBuilder,
   MergeBuilder,
@@ -204,26 +208,35 @@ export class Positions {
 
   // ── HTTP methods ─────────────────────────────────────────────────────
 
+  /**
+   * Get a wallet's committed funding accounts (global deposit accounts and
+   * conditional-token accounts) across all markets. Public route; it returns
+   * the first page only because it rejects query strings. Page further with
+   * {@link positionsPage} as the authenticated owner.
+   */
   async get(userPubkey: string): Promise<PositionsResponse> {
     const url = `${this.client.http.baseUrl()}/api/users/${encodeURIComponent(userPubkey)}/positions`;
-    return this.client.http.get<PositionsResponse>(url, RetryPolicy.Idempotent);
-  }
-
-  async getForMarket(userPubkey: string, marketPubkey: string): Promise<MarketPositionsResponse> {
-    const url = `${this.client.http.baseUrl()}/api/users/${encodeURIComponent(userPubkey)}/markets/${encodeURIComponent(marketPubkey)}/positions`;
-    return this.client.http.get<MarketPositionsResponse>(url, RetryPolicy.Idempotent);
+    return positionsResponseFromWire(await this.client.http.get<unknown>(url, RetryPolicy.Idempotent));
   }
 
   /**
-   * Get all conditional-token positions for the authenticated user across
-   * every market. The wallet is resolved server-side from the auth cookie,
-   * so no parameter is required. Same response shape as `get()`.
+   * Get a wallet's global accounts and its conditional accounts in one market
+   * (first page; public route).
+   */
+  async getForMarket(userPubkey: string, marketPubkey: string): Promise<MarketPositionsResponse> {
+    const url = `${this.client.http.baseUrl()}/api/users/${encodeURIComponent(userPubkey)}/markets/${encodeURIComponent(marketPubkey)}/positions`;
+    return positionsResponseFromWire(await this.client.http.get<unknown>(url, RetryPolicy.Idempotent));
+  }
+
+  /**
+   * Get the authenticated user's funding accounts across every market (first
+   * page, default limit). The wallet is resolved server-side from the auth
+   * cookie. Same response shape as `get()`.
    *
    * `GET /api/users/positions`
    */
   async positions(): Promise<PositionsResponse> {
-    const url = `${this.client.http.baseUrl()}/api/users/positions`;
-    return this.client.http.get<PositionsResponse>(url, RetryPolicy.Idempotent);
+    return this.positionsPage();
   }
 
   /**
@@ -237,23 +250,18 @@ export class Positions {
    * `credentials: "include"`.
    */
   async positionsWithCookies(cookieHeader: string): Promise<PositionsResponse> {
-    const url = `${this.client.http.baseUrl()}/api/users/positions`;
-    return this.client.http.getWithCookies<PositionsResponse>(
-      url,
-      RetryPolicy.Idempotent,
-      cookieHeader,
-    );
+    return this.positionsPageWithCookies(undefined, undefined, undefined, cookieHeader);
   }
 
   /**
-   * Get the authenticated user's positions in a specific market. The wallet
-   * is resolved server-side from the auth cookie.
+   * Get the authenticated user's global accounts and conditional accounts in
+   * a specific market (first page). The wallet is resolved server-side from
+   * the auth cookie.
    *
    * `GET /api/users/markets/{market_pubkey}/positions`
    */
   async positionsForMarket(marketPubkey: string): Promise<MarketPositionsResponse> {
-    const url = `${this.client.http.baseUrl()}/api/users/markets/${encodeURIComponent(marketPubkey)}/positions`;
-    return this.client.http.get<MarketPositionsResponse>(url, RetryPolicy.Idempotent);
+    return this.positionsPage(marketPubkey);
   }
 
   /**
@@ -265,12 +273,52 @@ export class Positions {
     marketPubkey: string,
     cookieHeader: string,
   ): Promise<MarketPositionsResponse> {
-    const url = `${this.client.http.baseUrl()}/api/users/markets/${encodeURIComponent(marketPubkey)}/positions`;
-    return this.client.http.getWithCookies<MarketPositionsResponse>(
-      url,
-      RetryPolicy.Idempotent,
-      cookieHeader,
+    return this.positionsPageWithCookies(marketPubkey, undefined, undefined, cookieHeader);
+  }
+
+  /**
+   * One page of the authenticated user's funding accounts, optionally scoped
+   * to a market. `cursor` is a previous `next_cursor` (also the
+   * `next_funding_cursor` of user orders); `limit` defaults to 200 and is
+   * clamped to 1..256 server-side. Pages are filtered after a bounded scan,
+   * so a page can be empty while `has_more` is true.
+   */
+  async positionsPage(
+    marketPubkey?: string,
+    cursor?: string,
+    limit?: number,
+  ): Promise<PositionsResponse> {
+    const url = this.positionsUrl(marketPubkey, cursor, limit);
+    return positionsResponseFromWire(await this.client.http.get<unknown>(url, RetryPolicy.Idempotent));
+  }
+
+  /**
+   * Same as {@link positionsPage}, forwarding the supplied raw `Cookie` header
+   * for server-side cookie forwarding.
+   */
+  async positionsPageWithCookies(
+    marketPubkey: string | undefined,
+    cursor: string | undefined,
+    limit: number | undefined,
+    cookieHeader: string,
+  ): Promise<PositionsResponse> {
+    const url = this.positionsUrl(marketPubkey, cursor, limit);
+    return positionsResponseFromWire(
+      await this.client.http.getWithCookies<unknown>(url, RetryPolicy.Idempotent, cookieHeader),
     );
+  }
+
+  /** Authenticated positions URL; the routes reject unknown query keys. */
+  private positionsUrl(marketPubkey?: string, cursor?: string, limit?: number): string {
+    const base = this.client.http.baseUrl();
+    const path = marketPubkey === undefined
+      ? `${base}/api/users/positions`
+      : `${base}/api/users/markets/${encodeURIComponent(marketPubkey)}/positions`;
+    const query = new URLSearchParams();
+    if (cursor !== undefined) query.set("cursor", cursor);
+    if (limit !== undefined) query.set("limit", String(limit));
+    const qs = query.toString();
+    return qs.length === 0 ? path : `${path}?${qs}`;
   }
 
   /**

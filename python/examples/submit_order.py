@@ -59,11 +59,9 @@ async def main():
 
     await wait_for_global_balance(client, mint, required_balance)
 
-    # 2. Submit the limit order. Fetch and cache the on-chain nonce once —
-    #    subsequent orders that omit .nonce() use this cached value.
-    nonce = await client.orders().current_nonce(keypair.pubkey())
-    client.set_order_nonce(nonce)
-
+    # 2. Submit the limit order. The salt is the order's only identity; if
+    #    the outcome is unknown, resubmit the same envelope (same salt) rather
+    #    than signing a new order.
     response = await (
         client.orders()
         .limit_order()
@@ -76,8 +74,8 @@ async def main():
     )
     print(
         f"submitted: {response.order_hash} "
-        f"status={response.status.value} filled={response.filled} remaining={response.remaining} "
-        f"fills={len(response.fills)}"
+        f"status={response.status.value} filled={response.filled_base()} "
+        f"open={response.open_base()} fills={len(response.fills)}"
     )
 
     await client.close()

@@ -125,6 +125,25 @@ describe("wallet deposit balance wire contract", () => {
     ) {
       assert.equal(status.data.code, "METADATA_UNAVAILABLE");
     }
+
+    // A status this SDK version does not know decodes without failing the frame.
+    const unknown = parseMessageIn(
+      JSON.stringify({
+        type: "wallet_deposit_balances",
+        version: 0.1,
+        data: {
+          event_type: "wallet_deposit_balance_status",
+          wallet_address: wallet,
+          status: "throttled",
+          code: "THROTTLED",
+        },
+      })
+    );
+    assert.ok(
+      unknown.type === "wallet_deposit_balances" &&
+        unknown.data.event_type === "wallet_deposit_balance_status" &&
+        unknown.data.status === "unknown"
+    );
   });
 
   it("rejects unknown events and non-string native SOL", () => {

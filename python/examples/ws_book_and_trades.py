@@ -11,8 +11,7 @@ from lightcone_sdk.ws import WsEventType, MessageInType
 from lightcone_sdk.ws.subscriptions import BookUpdateParams, TradesParams
 from lightcone_sdk.domain.orderbook.aggregation import BookAggregation
 from lightcone_sdk.domain.orderbook.state import OrderbookState
-from lightcone_sdk.domain.trade.state import TradeHistory
-from lightcone_sdk.domain.trade import Trade
+from lightcone_sdk.domain.trade import TradeHistory, trade_from_ws
 
 
 async def main():
@@ -80,6 +79,7 @@ async def main():
                 book.apply(update)
                 print(
                     f"book[{aggregation.key_suffix()}]: seq={book.sequence} "
+                    f"ready={book.ready} "
                     f"bid={book.best_bid()} "
                     f"ask={book.best_ask()}"
                 )
@@ -87,16 +87,12 @@ async def main():
 
             elif msg.type == MessageInType.TRADES.value:
                 ws_trade = msg.data
-                trades.push(Trade(
-                    orderbook_id=orderbook_id,
-                    trade_id=ws_trade.trade_id,
-                    timestamp=ws_trade.timestamp,
-                    price=ws_trade.price,
-                    size=ws_trade.size,
-                    side=ws_trade.side,
-                    sequence=ws_trade.sequence,
-                ))
-                print(f"trade: {ws_trade.size} {ws_trade.side} @ {ws_trade.price} seq={ws_trade.sequence}")
+                trade = trade_from_ws(ws_trade)
+                trades.push(trade)
+                print(
+                    f"trade: {trade.size} {trade.side.as_wire()} @ {trade.price} "
+                    f"revision={ws_trade.commit.committed_revision}"
+                )
                 hits += 1
 
         elif event.type == WsEventType.CONNECTED:

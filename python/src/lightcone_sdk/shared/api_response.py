@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Generic, Literal, Optional, TypeVar, cast
 
-from .rejection import RejectionCode
+from .rejection import ErrorCode, RejectionCode
 
 T = TypeVar("T")
 # Public login-method names exposed in bounded identity conflicts.
@@ -35,13 +35,32 @@ class ApiRejectedDetails:
 
     @staticmethod
     def from_dict(data: dict) -> "ApiRejectedDetails":
+        """Decode ``error_details`` as the Rust SDK does: ``reason`` is a
+        required string and the codes are optional strings. A malformed
+        envelope raises :class:`~lightcone_sdk.error.DeserializationError`."""
+        from .wire_decode import take, wire_object, wire_opt_str, wire_str
+
+        details = wire_object(data, "error_details")
         return ApiRejectedDetails(
-            reason=str(data.get("reason", "")),
-            rejection_code=RejectionCode.from_wire(data.get("rejection_code")),
-            error_code=data.get("error_code"),
-            existing_method=_linked_identity_type(data.get("existing_method")),
-            error_log_id=data.get("error_log_id"),
+            reason=wire_str(take(details, "reason"), "error_details.reason"),
+            rejection_code=RejectionCode.from_wire(
+                wire_opt_str(
+                    take(details, "rejection_code"), "error_details.rejection_code"
+                )
+            ),
+            error_code=wire_opt_str(
+                take(details, "error_code"), "error_details.error_code"
+            ),
+            existing_method=_linked_identity_type(details.get("existing_method")),
+            error_log_id=wire_opt_str(
+                take(details, "error_log_id"), "error_details.error_log_id"
+            ),
         )
+
+    def error_code_kind(self) -> Optional[ErrorCode]:
+        """The typed transport ``error_code``, or ``None`` when absent (business
+        rejections carry a ``rejection_code`` instead)."""
+        return ErrorCode.from_wire(self.error_code)
 
     def with_request_id(self, request_id: Optional[str]) -> "ApiRejectedDetails":
         return replace(self, request_id=request_id)
@@ -92,8 +111,9 @@ class ApiResponse(Generic[T]):
         if status == "success":
             return cls(status=status, body=data.get("body"))
         if status == "error":
+            # ``error_details`` is required (a missing or null value raises).
             return cls(
                 status=status,
-                details=ApiRejectedDetails.from_dict(data.get("error_details") or {}),
+                details=ApiRejectedDetails.from_dict(data.get("error_details")),
             )
         raise ValueError(f"Unsupported ApiResponse status: {status}")

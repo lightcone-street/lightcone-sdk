@@ -1,6 +1,6 @@
 # Orders
 
-Submit, cancel, and track ordinary signed orders. REST and WebSocket collections expose supported limit-order entries under the [shared response contract](../../../../README.md#supported-order-responses).
+Submit, cancel, and track signed limit orders.
 
 [← Overview](../../../README.md#orders)
 
@@ -32,7 +32,7 @@ Also implemented on `AnyOrder` (delegates to the inner variant).
 
 ### `LimitOrder`
 
-A validated, domain-level limit order.
+A limit order's committed state, built from the WS `user` snapshot, live `order` facts, or REST pages. Size fields are in base-token units and satisfy `size = filled_size + pending_size + remaining_size + cancelled_size`.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -40,26 +40,35 @@ A validated, domain-level limit order.
 | `market_pubkey` | `PubkeyStr` | Parent market |
 | `orderbook_id` | `OrderBookId` | Which orderbook |
 | `side` | `Side` | `Bid` (buy) or `Ask` (sell) |
-| `price` | `Decimal` | Order price |
-| `size` | `Decimal` | Total size |
-| `filled_size` | `Decimal` | Amount filled so far |
-| `remaining_size` | `Decimal` | Amount remaining |
-| `status` | `OrderStatus` | Current status |
-| `base_mint` | `PubkeyStr` | Base token mint |
-| `quote_mint` | `PubkeyStr` | Quote token mint |
-| `outcome_index` | `i16` | Which outcome |
-| `tx_signature` | `Option<String>` | On-chain transaction signature |
-| `created_at` | `DateTime<Utc>` | Creation timestamp |
+| `price` | `Decimal` | Limit price, quote units per base unit |
+| `size` | `Decimal` | Original order size |
+| `filled_size` | `Decimal` | Base filled by confirmed (on-chain authenticated) executions |
+| `pending_size` | `Decimal` | Base matched but awaiting on-chain confirmation |
+| `remaining_size` | `Decimal` | Base still resting on the book |
+| `cancelled_size` | `Decimal` | Base cancelled (explicitly, by expiry, IOC/FOK remainder, or closure) |
+| `time_in_force` | `Option<TimeInForce>` | `Gtc`, `Ioc`, or `Fok`; `None` when the backend reports a policy this SDK version does not know |
+| `funding_source` | `FundingSource` | `Global` or `Conditional` custody account (`Unknown` for a source this SDK version does not know) |
+| `closed_reason` | `Option<String>` | Why the order stopped resting |
+| `status` | `OrderStatus` | Derived committed status |
+| `accepted_seq` | `u64` | Engine acceptance sequence (closure cutoffs compare against it) |
+| `committed_revision` | `u64` | Revision of this state; newer revisions supersede older ones |
+| `base_mint` / `quote_mint` | `PubkeyStr` | Token mints |
+| `created_at` | `DateTime<Utc>` | Acceptance time |
+| `expiration` | `i64` | Unix seconds; `0` = none |
+
+`is_live()` is true while the order rests or has fills awaiting confirmation.
 
 ### `OrderStatus`
 
+Serialized lowercase, as in `GET /api/users/order-fills`. `OrderStatus::derive` applies the backend's precedence: a closure reason wins, then a complete confirmed fill, then pending fills, otherwise open.
+
 | Variant | Description |
 |---------|-------------|
-| `Open` | Resting on the book |
-| `Matching` | Currently being matched |
-| `Filled` | Fully filled |
-| `Cancelled` | Cancelled by user or system |
-| `Pending` | Awaiting processing |
+| `Open` | Resting, or awaiting its first match |
+| `Pending` | Some matched base awaits on-chain confirmation |
+| `Filled` | The whole original base is confirmed filled |
+| `Closed` | Stopped resting (cancelled, expired, closure cutoff, IOC/FOK remainder) |
+| `Unknown` | A status this SDK version does not know (decoded only, never derived) |
 
 ### `OrderType`
 
@@ -72,83 +81,87 @@ A validated, domain-level limit order.
 
 ### `TimeInForce`
 
-Execution policy for signed orders. For market-style execution, set `TimeInForce::Ioc` through `LimitOrderEnvelope::time_in_force`. The SDK does not select IOC automatically.
+Execution policy of a limit order.
 
 | Variant | Serializes as | Description |
 |---------|---------------|-------------|
 | `Gtc` | `"GTC"` | Good-til-cancelled (default) |
 | `Ioc` | `"IOC"` | Immediate-or-cancel |
 | `Fok` | `"FOK"` | Fill-or-kill |
-| `Alo` | `"ALO"` | Add-liquidity-only (post-only) |
+
+The backend has no post-only policy and rejects `"ALO"`.
 
 ### `UserOrderFill`
 
-An order the user participated in (as maker or taker), with nested fill events.
+An order the wallet participated in (as maker or taker) with its oldest-first page of at most 16 fills. Quantities are base-token units.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `order_hash` | `String` | Unique order identifier |
-| `market_pubkey` | `PubkeyStr` | Parent market |
-| `orderbook_id` | `OrderBookId` | Which orderbook |
-| `side` | `Side` | User's side: `Bid` or `Ask` |
-| `role` | `Role` | `Maker` or `Taker` |
-| `price` | `Decimal` | Order price |
-| `size` | `Decimal` | Total order size |
-| `filled_size` | `Decimal` | Amount filled |
-| `remaining_size` | `Decimal` | Amount remaining |
-| `base_mint` | `PubkeyStr` | Base token mint |
-| `quote_mint` | `PubkeyStr` | Quote token mint |
-| `outcome_index` | `i16` | Which outcome |
-| `status` | `OrderStatus` | `Filled`, `Cancelled`, or partially filled |
-| `created_at` | `DateTime<Utc>` | Order creation timestamp |
-| `fills` | `Vec<OrderFillEvent>` | Individual fill events |
+| `market_pubkey` / `orderbook_id` | | Order location |
+| `side` | `Side` | The wallet's order side |
+| `original_base` / `confirmed_base` / `pending_base` / `open_base` / `cancelled_base` | `Decimal` | Committed quantities |
+| `confirmed_quote` | `Decimal` | Quote exchanged by confirmed fills (quote-token units) |
+| `status` | `OrderStatus` | `closed`, `filled`, `pending`, or `open` |
+| `closed_reason` | `Option<String>` | Why the order closed |
+| `created_at` | `DateTime<Utc>` | Acceptance time |
+| `fills` | `Vec<OrderFillEvent>` | First fill page |
+| `fills_has_more` / `fills_next_cursor` | | Continue with `get_order_fill_page(order_hash, fill_cursor, fills)` |
 
 ### `OrderFillEvent`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `fill_amount` | `Decimal` | Amount filled in this event |
-| `tx_signature` | `String` | On-chain transaction signature |
-| `filled_at` | `DateTime<Utc>` | When the fill occurred |
-
-### `Role`
-
-| Variant | Description |
-|---------|-------------|
-| `Maker` | User placed the order |
-| `Taker` | User filled against the order |
+| `fill_id` | `String` | `"<execution_id>:<leg_index>:<projection_generation>"` (same as REST `trade_id`) |
+| `counterparty` / `counterparty_order_hash` | | Other side of the fill |
+| `role` | `Role` | This order's role: `Maker` or `Taker` (`Unknown` for a role this SDK version does not know) |
+| `base_amount` / `quote_amount` | `Decimal` | Filled size (base units) and notional (quote units); `price()` = quote / base |
+| `fee_estimate_atoms` | `i128` | Signed fee estimate in raw `fee_mint` atoms (negative = rebate) |
+| `fee_mint` | `PubkeyStr` | Fee token |
+| `maker_fee_bps` / `taker_fee_bps` | `i16` | Captured fee rates |
+| `tx_signature` | `String` | Settlement transaction |
+| `filled_at` | `DateTime<Utc>` | Fill time |
 
 ### `SubmitOrderStatus`
 
-Status of a successfully submitted order.
-
 | Variant | Serializes as | Description |
 |---------|---------------|-------------|
-| `Accepted` | `"accepted"` | Order resting on the book, no immediate fills |
-| `PartialFill` | `"partial_fill"` | Order partially filled, remainder resting |
-| `Filled` | `"filled"` | Order fully filled immediately |
+| `Accepted` | `"accepted"` | Accepted, no fill awaiting confirmation (IOC with no fill: `cancelled_base == original_base`) |
+| `AcceptedPending` | `"accepted_pending"` | Matched base awaits confirmation, or the committed view is not yet readable (`state`/`initial_cohort` are `None`) |
+| `Filled` | `"filled"` | The whole original base is confirmed filled |
+| `Unknown` | any other value | An accepted status this SDK version does not know; the order hash is still returned |
 
 ### `SubmitOrderResponse`
-
-Response from a successful order submission.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `order_hash` | `String` | Unique order identifier |
 | `status` | `SubmitOrderStatus` | Outcome of the submission |
-| `remaining` | `Decimal` | Remaining size after any immediate fills |
-| `filled` | `Decimal` | Size filled immediately |
-| `fills` | `Vec<FillInfo>` | Details of each immediate fill |
+| `state` | `Option<OrderState>` | Committed cumulative state (`original/confirmed/pending/open/executable/cancelled_base`, `ready`, `closed_reason`, `committed_revision`, `accepted_seq`) |
+| `initial_cohort` | `Option<InitialCohort>` | Executions selected at acceptance (`state`, `selected_base`, `known_confirmed_base`, `known_failed_unfilled_base`, `unresolved_base`) |
+| `fills` | `Vec<FillInfo>` | Up to 16 authenticated fills |
+| `fills_complete` | `bool` | False when more fills exist or a newer revision prevented capture |
+| `fills_next_cursor` | `Option<String>` | Continue with `get_order_fill_page` |
+
+`filled_base()` and `open_base()` read the corresponding `state` quantities. Business rejections arrive as `SdkError::ApiRejected` with a `RejectionCode`; an `ENGINE_UNAVAILABLE` error means the outcome is unknown (see [`submit`](#submit)).
 
 ### `FillInfo`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `counterparty` | `PubkeyStr` | Counterparty maker pubkey |
-| `counterparty_order_hash` | `String` | Hash of the matched order |
-| `fill_amount` | `Decimal` | Amount filled |
-| `price` | `Decimal` | Effective fill price |
-| `is_maker` | `bool` | Whether this order was the maker |
+| `fill_id` / `execution_id` | `String` | Fill identity |
+| `counterparty` / `counterparty_order_hash` | | Other side of the fill |
+| `base_amount` / `quote_amount` | `Decimal` | Base-unit size and quote-unit notional; `price()` = quote / base |
+| `is_maker` | `bool` | Whether the submitted order was the maker |
+| `fee_estimate_atoms` | `i128` | Signed fee estimate in raw `fee_mint` atoms |
+| `fee_bps` | `i16` | Captured fee rate in basis points (negative = rebate) |
+| `fee_mint` | `PubkeyStr` | Fee token |
+
+### `CancelSuccess` / `CancelAllSuccess`
+
+`CancelSuccess` has `status` (`Cancelled`, `AlreadyClosed`, `AlreadyFilled`, or `Unknown` for a disposition this SDK version does not know), `order_hash`, `quantities: Option<CancelQuantities>` (raw base atoms: `newly_cancelled_base`, `confirmed_base`, `pending_base`, `remaining_open_base`), `quantity_unit` (`"base_atoms"`), `revision`, and `closed_reason`. An unknown hash is rejected with `RejectionCode::OrderNotFound`.
+
+`CancelAllSuccess` has `status`, `user_pubkey`, `orderbook_id`, `message`, and `closure: Option<ClosureAck>` (`operation_id`, `committed_revision`, `scope` — `"Wallet:<w>"` or `"WalletBook:<w>:<book>"` — `accepted_seq_cutoff`, `cleanup_pending`). It commits an accepted-order cutoff; per-order facts follow on the WS `user` channel.
 
 ## Client Methods
 
@@ -168,7 +181,9 @@ Create a `LimitOrderEnvelope` pre-seeded with the client's deposit source. Users
 async fn submit(&self, request: &SubmitOrderRequest) -> Result<SubmitOrderResponse, SdkError>
 ```
 
-Submit a signed limit order. The `request` is typically a `SubmitOrderRequest` produced by an order envelope's `.sign()` or `.finalize()` method. **Not retried** -- non-idempotent.
+Submit a signed limit order, typically the `SubmitOrderRequest` produced by an order envelope's `.sign()` or `.finalize()` method. **Not retried.**
+
+An `ENGINE_UNAVAILABLE` error means the outcome is unknown. Keep the signed `SubmitOrderRequest` (it is `Clone`) and submit that identical request again: a `DUPLICATE_ORDER` rejection or an `ALREADY_EXISTS` (409) error proves the first submission was accepted, and any other result is the outcome of this one. Never sign a replacement with a new salt, which is a different order. `get_user_orders` lists only open and pending orders, so it cannot prove an order was never accepted.
 
 ### `cancel`
 
@@ -188,7 +203,8 @@ Cancel all open orders, optionally scoped to a specific orderbook. **Not retried
 
 `CancelAllBody` must include:
 - `orderbook_id` in the signed message, using `""` to mean all markets
-- `salt`, a unique UUID-like string for replay protection
+- `timestamp` in Unix seconds, within the engine's window (at most 30 seconds) of server time
+- `salt`, a unique UUID-like string for replay protection: non-empty, at most 128 bytes, never reused
 
 ### `get_user_orders`
 
@@ -200,7 +216,7 @@ async fn get_user_orders(
 ) -> Result<UserOrdersResponse, SdkError>
 ```
 
-Fetch the authenticated user's supported open orders with cursor-based pagination. The server resolves the wallet from the session cookie. Refer to `get_user_orders_with_cookies` for server-side cookie forwarding.
+Fetch the **authenticated** user's open and pending orders (`UserOrder`, with nested `RecordedOrderState`) plus a first page of `FundingAccount`s, with cursor-based pagination (`limit` defaults to 200, clamped to 1..=256; a page can be empty while `has_more` is true). Convert entries with `UserOrder::into_limit_order()`. Continue funding pages with `positions().positions_page(None, next_funding_cursor, ..)`. See `get_user_orders_with_cookies` for the SSR variant.
 
 ### `get_user_order_fills`
 
@@ -210,14 +226,28 @@ async fn get_user_order_fills(
     market_pubkey: Option<&str>,
     limit: Option<u32>,
     cursor: Option<&str>,
+    fills: Option<u32>,
 ) -> Result<UserOrderFillsResponse, SdkError>
 ```
 
-Fetch the **authenticated** user's filled orders (with nested fill events). See `get_user_order_fills_with_cookies` for the SSR variant and `get_user_order_fills_by_wallet` for the public path-based variant.
+Fetch the **authenticated** user's filled orders (with nested fill events; `limit` clamped to 1..=100). `fills` is how many of each order's fills to embed (default and maximum 16); `Some(0)` reads none and only reports `fills_has_more`. See `get_user_order_fills_with_cookies` for the SSR variant and `get_user_order_fills_by_wallet` for the public path-based variant.
+
+### `get_order_fill_page`
+
+```rust
+async fn get_order_fill_page(
+    &self,
+    order_hash: &str,
+    fill_cursor: Option<&str>,
+    fills: Option<u32>,
+) -> Result<UserOrderFillsResponse, SdkError>
+```
+
+Fetch one order with the next page of its fills (continue a submission's or an order's `fills_next_cursor`). `fills` is the page size (default and maximum 16; a `fill_cursor` needs at least 1). `order_hash` must be 64 lowercase hex characters. Variants: `get_order_fill_page_with_cookies` and the public `get_order_fill_page_by_wallet`.
 
 ### `get_user_orders_with_cookies` / `get_user_order_fills_with_cookies`
 
-SSR / server-function variants — accept an explicit `auth_token: &str` instead of using the SDK's process-wide token store. Same wire contract, different credentials path. See [the top-level Authentication section](../../../README.md#authentication).
+SSR / server-function variants — take the request's raw `Cookie` header (`cookie_header: &str`, carrying `privy-token` and/or `lightcone-token`) instead of using the SDK's process-wide token store. Same wire contract, different credentials path. See [the top-level Authentication section](../../../README.md#authentication).
 
 ### `get_user_order_fills_by_wallet`
 
@@ -228,6 +258,7 @@ async fn get_user_order_fills_by_wallet(
     market_pubkey: Option<&str>,
     limit: Option<u32>,
     cursor: Option<&str>,
+    fills: Option<u32>,
 ) -> Result<UserOrderFillsResponse, SdkError>
 ```
 
@@ -242,20 +273,11 @@ Each operation has an `_ix` method returning an `Instruction` and a `_tx` conven
 #### `cancel_order_ix` / `cancel_order_tx`
 
 ```rust
-fn cancel_order_ix(&self, maker: &Pubkey, market: &Pubkey, order: &OrderPayload) -> Instruction
-fn cancel_order_tx(&self, maker: &Pubkey, market: &Pubkey, order: &OrderPayload, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
+fn cancel_order_ix(&self, operator: &Pubkey, market: &Pubkey, order: &OrderPayload) -> Instruction
+fn cancel_order_tx(&self, operator: &Pubkey, market: &Pubkey, order: &OrderPayload, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
-Build a CancelOrder instruction/transaction for on-chain order cancellation.
-
-#### `increment_nonce_ix` / `increment_nonce_tx`
-
-```rust
-fn increment_nonce_ix(&self, user: &Pubkey) -> Instruction
-fn increment_nonce_tx(&self, user: &Pubkey, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
-```
-
-Build an IncrementNonce instruction/transaction — invalidates all orders with a nonce lower than the new value.
+Build a CancelOrder instruction/transaction for on-chain order cancellation. The program requires the exchange operator to sign, so a maker cannot use this directly; makers cancel through `cancel`.
 
 #### `close_order_status_ix` / `close_order_status_tx`
 
@@ -303,7 +325,7 @@ Preflight and sign orders in one step. Requires fetched trading rules and the
 fn hash_order(&self, order: &OrderPayload) -> [u8; 32]
 ```
 
-Compute the Keccak256 hash of an order (excludes the signature field).
+Compute the Keccak256 hash of an order's 161-byte signing preimage (salt first; the signature is excluded). There is no per-user nonce, so the salt is the order's only identity.
 
 #### `sign_order`
 
@@ -341,7 +363,6 @@ let response = client.orders().limit_order().await
     .bid()                          // or .ask()
     .price("0.55")                  // human-readable price
     .size("100")                    // human-readable size
-    .nonce(nonce)
     .expiration(0)                  // 0 = no expiration
     // .deposit_source(DepositSource::Global) // override if needed
     .submit(&client, &orderbook).await?; // fetch/cache rules, validate, sign, submit
@@ -356,7 +377,7 @@ let request = LimitOrderEnvelope::new()
 
 ### `OrderEnvelope` trait
 
-`LimitOrderEnvelope` implements the `OrderEnvelope` trait with these methods:
+`LimitOrderEnvelope` implements the `OrderEnvelope` trait:
 
 | Method | Description |
 |--------|-------------|
@@ -368,28 +389,26 @@ let request = LimitOrderEnvelope::new()
 | `.bid()` / `.ask()` | Set the order side |
 | `.price(str)` | Set the human-readable price |
 | `.size(str)` | Set the human-readable size |
-| `.nonce(u32)` | Set the order nonce. When using `submit()`, auto-populated from `client.order_nonce()` if omitted (falls back to 0). |
+| `.salt(u64)` | Set the order's identity salt (any u64). When omitted, a random salt is drawn on the first `payload()`, `sign()`, `finalize()`, or `submit()` and reused, so the hash a wallet signs is the order submitted. |
 | `.expiration(i64)` | Set expiration (0 = none) |
-| `.deposit_source(ds)` | Set collateral source (`Global` or `Market`). Pre-seeded by factory methods. |
-| `.sign(&keypair, orderbook, rules)` | Validate exact construction, sign, and produce `SubmitOrderRequest` |
+| `.deposit_source(ds)` | Set collateral source (`Global`, or `Market`, which serializes as `"conditional"`). Pre-seeded by factory methods. |
+| `.sign(&keypair, orderbook, rules)` | Validate exact construction, sign, and produce a `SubmitOrderRequest` |
 | `.finalize(sig_bs58, orderbook, rules)` | Validate and attach an external signature |
 | `.submit(client, orderbook)` | Fetch/cache rules, validate before wallet signing, and submit |
 | `.payload()` | Get the raw `OrderPayload` (for manual signing) |
-
-Use `LimitOrderEnvelope::time_in_force` to select an execution policy.
 
 ### Exact construction
 
 `client.orderbooks().decimals()` returns the mandatory `OrderbookRules`.
 Human values are parsed as exact decimal strings; raw amount callers are
-preflighted against the same price, size, ratio, and signed-64-bit rules. All
+preflighted against the same price, size, ratio, and nonzero-u64 rules. All
 validation completes before hashing or invoking a wallet signer.
 
 ## State Containers
 
 ### `AnyOrder`
 
-Table wrapper for a supported `LimitOrder`. Implements `Order` by delegating to the inner value.
+Table wrapper for a `LimitOrder`. Implements `Order` by delegating to the inner value.
 
 ```rust
 pub enum AnyOrder {
@@ -399,20 +418,23 @@ pub enum AnyOrder {
 
 | Method | Description |
 |--------|-------------|
-| `vec_from(limit_orders)` | Convert supported orders to entries sorted by creation time |
+| `vec_from(limit_orders)` | Convert orders to entries sorted by creation time |
 
 ### `UserOpenLimitOrders`
 
-Tracks a user's open limit orders grouped by market pubkey and orderbook ID. Updated from WebSocket user events.
+Tracks a wallet's live limit orders (resting, or with fills awaiting confirmation) grouped by market pubkey and orderbook ID. Seed it with `convert_snapshot_orders(snapshot.orders)`, then apply every live `order` fact: each fact carries the complete order state, so application is a revision-guarded replace. The tracker remembers the revision at which each order stopped being live, and every applied closure, so older state (a REST page or snapshot racing live facts) cannot reopen a closed order.
 
 | Method | Description |
 |--------|-------------|
 | `new()` | Create empty tracker |
 | `get(&market_pubkey, &orderbook_id)` | Get orders for a specific orderbook |
 | `get_by_market(&market_pubkey)` | Get orders for a market, grouped by orderbook |
-| `upsert(&order_update)` | Insert or update an order from a WS event |
-| `remove(order_hash)` | Remove a cancelled/filled order |
-| `clear()` | Remove all tracked orders |
+| `get_by_hash(order_hash)` / `all()` | Lookup and iteration |
+| `apply(&order_update) -> Result<ApplyOutcome, SdkError>` | Apply a live WS `order` fact (`Inserted`, `Updated`, `Removed`, `Stale`, `Ignored`); fails, changing nothing, when its amounts define no limit price |
+| `apply_order(limit_order)` | Same for converted snapshot or REST orders |
+| `apply_closure(&closure_update)` | Close orders in scope up to the cutoff; `None` when the scope needs a refetch |
+| `remove(order_hash)` | Stop tracking an order; older state can add it again |
+| `clear()` | Forget all orders, retired revisions, and closures (before reseeding) |
 
 ## Examples
 
@@ -438,7 +460,6 @@ async fn market_make(client: &LightconeClient, keypair: &Keypair) -> Result<(), 
     let decimals = client.orderbooks().decimals(ob.orderbook_id.as_str()).await?;
 
     // 3. Place a bid
-    let order_nonce = 1u32;
     let bid_request = client.orders().limit_order().await
         .maker(keypair.pubkey())
         .market(market.pubkey.to_pubkey().unwrap())
@@ -447,7 +468,6 @@ async fn market_make(client: &LightconeClient, keypair: &Keypair) -> Result<(), 
         .bid()
         .price("0.50")
         .size("100")
-        .nonce(order_nonce.into())
         .sign(keypair, ob, &decimals)?;
 
     let response = client.orders().submit(&bid_request).await?;
@@ -465,22 +485,26 @@ async fn market_make(client: &LightconeClient, keypair: &Keypair) -> Result<(), 
 
     while let Some(event) = stream.next().await {
         match event {
-            WsEvent::Message(Kind::User(UserUpdate::Order(OrderEvent::Limit(update)))) => {
-                open_orders.upsert(&update);
-                println!("Order update: {} -> {:?}", update.order.order_hash, update.order.status);
+            WsEvent::Message(Kind::User(UserUpdate::Snapshot(snapshot))) => {
+                open_orders = convert_snapshot_orders(snapshot.orders);
+            }
+            WsEvent::Message(Kind::User(UserUpdate::Order(update))) => {
+                let outcome = open_orders.apply(&update)?;
+                println!("Order {}: open={} ({outcome:?})", update.order_hash, update.open_base);
             }
             _ => {}
         }
     }
 
     // 5. Cancel all orders
-    client.orders().cancel_all(&CancelAllBody {
-        user_pubkey: keypair.pubkey().into(),
-        orderbook_id: OrderBookId::from(""),
-        signature: "...".into(),
-        timestamp: 1_710_300_000,
-        salt: generate_cancel_all_salt(),
-    }).await?;
+    // The timestamp must be current (within the engine's window of at most 30 s).
+    client.orders().cancel_all(&CancelAllBody::signed(
+        keypair.pubkey().into(),
+        OrderBookId::from(""),
+        chrono::Utc::now().timestamp(),
+        generate_cancel_all_salt(),
+        keypair,
+    )).await?;
 
     Ok(())
 }
@@ -501,14 +525,15 @@ async fn show_fill_history(
         Some(market_pubkey),
         Some(20),
         None,
+        None, // default: up to 16 fills per order
     ).await?;
 
     for order in &response.orders {
-        println!("{} {} ({:?}) @ {} — {}/{} filled",
-            order.side, order.role, order.status,
-            order.price, order.filled_size, order.size);
+        println!("{} ({:?}) — {}/{} confirmed",
+            order.side, order.status, order.confirmed_base, order.original_base);
         for fill in &order.fills {
-            println!("  fill: {} at {}", fill.fill_amount, fill.filled_at);
+            println!("  {:?} fill: {} @ {:?} at {}",
+                fill.role, fill.base_amount, fill.price(), fill.filled_at);
         }
     }
 
@@ -518,6 +543,7 @@ async fn show_fill_history(
             Some(market_pubkey),
             Some(20),
             response.next_cursor.as_deref(),
+            None,
         ).await?;
     }
 
@@ -527,7 +553,7 @@ async fn show_fill_history(
 
 ## Wire Types
 
-The `wire` module provides limit-order updates, account snapshots, balances, authentication updates, and fill-history types. REST and snapshot decoding construct `UserSnapshotOrder` directly. Invalid limit payloads fail the response. Live order updates use `OrderEvent::Limit`. `convert_snapshot_orders` returns `UserOpenLimitOrders`.
+Raw types in `lightcone::domain::order::wire` include `OrderState`, `RecordedOrderState`, `InitialCohort`, `UserOrder`, `UserOrderFillsResponse`, `UserOrderFill`, `OrderFillEvent`, `Role`, and the WS `user` channel types `UserUpdate`, `UserSnapshot`, `UserSnapshotOrder`, `OrderUpdate`, `ClosureUpdate`, `RecoveryCompleted`, `NotificationUpdate`, and `AuthUpdate`. Funding types (`FundingAccount`, `FundingUpdate`) live in `lightcone::domain::position::wire`. `CommitInfo` and `FundingSource` are shared by the order, trade, and position payloads, so they are defined in `lightcone::shared` and re-exported from those wire modules. Integer revisions and sequences accept both the string (REST/snapshot) and number (live fact) encodings. Response enums decode a value this SDK version does not know as `Unknown` (`UserOrder.tif` as `None`), so a new backend value never fails the surrounding page.
 
 ---
 

@@ -22,13 +22,16 @@ the SDK never automatically rebuilds, re-signs, or resubmits them.
 The existing Privy backend transaction endpoint returns only a transaction hash,
 so it cannot meet the signed-message validation contract. Its transaction helpers
 fail before sending any request. A v1-capable external signer returning signed
-bytes is the supported wallet integration. Privy off-chain order signing remains
-available. Unsponsored external signers must expose the fee-payer identity.
+bytes is the supported wallet integration. The SDKs do not sign or cancel
+orders through Privy ([ADR 0005](0005-nonce-free-order-identity.md)). Unsponsored
+external signers must expose the fee-payer identity.
 
 ## Compatibility
 
 The program ABI from SDK PR #164 remains unchanged, including eleven-maker u16
-masks, canonical GlobalDepositToken accounts, and the 176-byte orderbook. This
+masks, canonical GlobalDepositToken accounts, and the 176-byte orderbook.
+[ADR 0005](0005-nonce-free-order-identity.md) later removes the per-user order
+nonce from that ABI. This
 decision changes the outer Solana transaction format and the APIs that own it.
 Rust uses the upstream Solana compiler and wincode codec. TypeScript matches
 Rust's account privilege merging and raw-address ordering while using Solana Kit

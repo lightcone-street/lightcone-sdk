@@ -332,9 +332,8 @@ pub struct ActivateMarketParams {
 /// Parameters for creating a bid order
 #[derive(Debug, Clone)]
 pub struct BidOrderParams {
-    /// Order nonce (unique per user)
-    pub nonce: u64,
-    /// Random salt for order uniqueness
+    /// Salt that gives this order its identity. Any u64, including 0, is valid;
+    /// use a distinct salt for each distinct order.
     pub salt: u64,
     /// Maker pubkey
     pub maker: Pubkey,
@@ -355,9 +354,8 @@ pub struct BidOrderParams {
 /// Parameters for creating an ask order
 #[derive(Debug, Clone)]
 pub struct AskOrderParams {
-    /// Order nonce (unique per user)
-    pub nonce: u64,
-    /// Random salt for order uniqueness
+    /// Salt that gives this order its identity. Any u64, including 0, is valid;
+    /// use a distinct salt for each distinct order.
     pub salt: u64,
     /// Maker pubkey
     pub maker: Pubkey,

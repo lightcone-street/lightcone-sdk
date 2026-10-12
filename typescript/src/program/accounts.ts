@@ -8,7 +8,6 @@ import {
   MarketStatus,
   PendingRoleKind,
   OrderStatus,
-  UserNonce,
   Position,
   Orderbook,
 } from "./types";
@@ -73,14 +72,6 @@ export function isMarketAccount(data: Buffer): boolean {
 export function isOrderStatusAccount(data: Buffer): boolean {
   if (data.length < 8) return false;
   return data.subarray(0, 8).equals(DISCRIMINATOR.ORDER_STATUS);
-}
-
-/**
- * Check if a buffer has a valid UserNonce discriminator
- */
-export function isUserNonceAccount(data: Buffer): boolean {
-  if (data.length < 8) return false;
-  return data.subarray(0, 8).equals(DISCRIMINATOR.USER_NONCE);
 }
 
 /**
@@ -333,34 +324,6 @@ export function deserializeOrderStatus(data: Buffer): OrderStatus {
     remaining,
     baseRemaining,
     isCancelled,
-  };
-}
-
-/**
- * Deserialize UserNonce account data
- *
- * Layout (16 bytes):
- * - discriminator: [u8; 8]
- * - nonce: u64 (8 bytes)
- */
-export function deserializeUserNonce(data: Buffer): UserNonce {
-  if (data.length < ACCOUNT_SIZE.USER_NONCE) {
-    throw ProgramSdkError.invalidDataLength("UserNonce", ACCOUNT_SIZE.USER_NONCE, data.length);
-  }
-
-  validateDiscriminator(data, DISCRIMINATOR.USER_NONCE, "UserNonce");
-
-  let offset = 0;
-
-  const discriminator = data.subarray(offset, offset + 8);
-  offset += 8;
-
-  const nonce = fromLeBytes(data.subarray(offset, offset + 8));
-  offset += 8;
-
-  return {
-    discriminator,
-    nonce,
   };
 }
 

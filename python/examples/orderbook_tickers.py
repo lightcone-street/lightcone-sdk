@@ -13,6 +13,9 @@ async def main():
     response = await client.metrics().orderbook_tickers(deposit_asset)
 
     print(f"orderbooks with tickers: {len(response.tickers)}")
+    if response.has_more:
+        # The page cap was reached; resume with orderbook_tickers_page().
+        print(f"more tickers after cursor {response.next_cursor}")
     for entry in response.tickers[:10]:
         mid = entry.midpoint or "—"
         print(

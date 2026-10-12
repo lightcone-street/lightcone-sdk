@@ -231,6 +231,28 @@ class WsClient:
             except Exception as e:
                 logger.warning(f"Send failed: {e}")
 
+    def _handle_text(self, text: str) -> None:
+        """Decode one text frame and emit it.
+
+        A frame that fails to decode is isolated: it is logged and emitted as
+        a :attr:`WsEventType.ERROR` event (``"Deserialization error: …"``),
+        never as a message, and the connection keeps receiving later frames.
+        """
+        try:
+            parsed = parse_message_in(text)
+        except Exception as e:
+            logger.warning(f"Message parse error: {e}")
+            self._emit(
+                WsEvent(type=WsEventType.ERROR, error=f"Deserialization error: {e}")
+            )
+            return
+        # Reset pong tracking on pong
+        if parsed.type == MessageInType.PONG:
+            self._awaiting_pong = False
+            self._cancel_task("_pong_timeout_task")
+            self._reconnect_attempts = 0
+        self._emit(WsEvent(type=WsEventType.MESSAGE, message=parsed))
+
     async def _receive_loop(self) -> None:
         """Main receive loop."""
         if not self._ws:
@@ -242,18 +264,7 @@ class WsClient:
         try:
             async for msg in self._ws:
                 if msg.type == aiohttp.WSMsgType.TEXT:
-                    try:
-                        parsed = parse_message_in(msg.data)
-                        # Reset pong tracking on pong
-                        if parsed.type == MessageInType.PONG:
-                            self._awaiting_pong = False
-                            self._cancel_task("_pong_timeout_task")
-                            self._reconnect_attempts = 0
-                        self._emit(WsEvent(type=WsEventType.MESSAGE, message=parsed))
-                    except Exception as e:
-                        # Malformed frames are isolated: never emit them as a
-                        # normal message and keep receiving later valid frames.
-                        logger.warning(f"Message parse error: {e}")
+                    self._handle_text(msg.data)
                 elif msg.type == aiohttp.WSMsgType.ERROR:
                     self._emit(
                         WsEvent(

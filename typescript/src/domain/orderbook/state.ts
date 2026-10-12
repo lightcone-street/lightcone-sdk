@@ -39,6 +39,11 @@ export class OrderbookState {
    */
   seq: bigint;
   private lastSeq: bigint | undefined;
+  /**
+   * `ready` flag of the last accepted frame: whether the engine's committed
+   * book is live for matching.
+   */
+  ready: boolean;
   bidsTruncated: boolean;
   asksTruncated: boolean;
   private readonly bidsMap: Map<string, string>;
@@ -51,6 +56,7 @@ export class OrderbookState {
     this.aggregation = normalizeAggregation(aggregation);
     this.seq = 0n;
     this.lastSeq = undefined;
+    this.ready = false;
     this.bidsTruncated = false;
     this.asksTruncated = false;
     this.bidsMap = new Map();
@@ -101,6 +107,7 @@ export class OrderbookState {
     }
     this.seq = book.seq;
     this.lastSeq = book.seq;
+    this.ready = book.ready;
     this.bidsTruncated = book.bids_truncated ?? false;
     this.asksTruncated = book.asks_truncated ?? false;
     this.cachedBestBid = null;
@@ -180,6 +187,7 @@ export class OrderbookState {
     this.asksMap.clear();
     this.seq = 0n;
     this.lastSeq = undefined;
+    this.ready = false;
     this.bidsTruncated = false;
     this.asksTruncated = false;
     this.cachedBestBid = null;

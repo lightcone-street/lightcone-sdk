@@ -1,4 +1,17 @@
 import type { OrderBookId, OrderbookRules, Side, TradingRules } from "../../shared";
+import { SdkError } from "../../error";
+import {
+  wireArray,
+  wireBool,
+  wireDecimal,
+  wireInt,
+  wireObject,
+  wireOptDecimal,
+  wireOptString,
+  wireOrderBookId,
+  wireString,
+  wireU64Number,
+} from "../../shared/wire_decode";
 
 export interface TradingRulesWire {
   base_size_decimals: number;
@@ -61,6 +74,11 @@ export interface OrderbookDepthResponse {
   asks: RestBookLevel[];
   /** Required display decimals; size is base-token on-chain precision. */
   decimals: OrderbookDepthDecimals;
+  /**
+   * Whether the engine's committed book is ready (matching live). A book that
+   * is not ready may show stale or empty depth.
+   */
+  ready: boolean;
 }
 
 /**
@@ -94,7 +112,7 @@ export function tradingRulesFromWire(wire: TradingRulesWire): TradingRules {
     !/^\d+$/.test(wire.price_quantum_raw) ||
     !/^\d+$/.test(wire.base_size_quantum_raw)
   ) {
-    throw new Error("invalid trading_rules response");
+    throw SdkError.serde("trading_rules: invalid trading_rules response");
   }
   return {
     baseSizeDecimals: wire.base_size_decimals,
@@ -108,6 +126,58 @@ export function tradingRulesFromWire(wire: TradingRulesWire): TradingRules {
   };
 }
 
+function restBookLevelFromWire(value: unknown, field: string): RestBookLevel {
+  const data = wireObject(value, field);
+  const orders = data.orders === undefined || data.orders === null
+    ? undefined
+    : wireInt(data.orders, `${field}.orders`, 0, 0xffff_ffff);
+  return {
+    price: wireDecimal(data.price, `${field}.price`),
+    size: wireDecimal(data.size, `${field}.size`),
+    ...(orders === undefined ? {} : { orders }),
+  };
+}
+
+/**
+ * Decode `GET /api/orderbook/{id}`. A body that does not match the Rust
+ * SDK's `OrderbookDepthResponse` throws `SdkError` `Serde`.
+ */
+export function orderbookDepthFromWire(value: unknown): OrderbookDepthResponse {
+  const data = wireObject(value, "orderbook_depth");
+  const decimals = wireObject(data.decimals, "orderbook_depth.decimals");
+  const optional = (key: string): Record<string, string> => {
+    const text = wireOptString(data[key], `orderbook_depth.${key}`);
+    return text === undefined ? {} : { [key]: text };
+  };
+  const optionalDecimal = (key: string): Record<string, string> => {
+    const text = wireOptDecimal(data[key], `orderbook_depth.${key}`);
+    return text === undefined ? {} : { [key]: text };
+  };
+  return {
+    orderbook_id: wireOrderBookId(data.orderbook_id, "orderbook_depth.orderbook_id"),
+    ...optional("market_pubkey"),
+    ...optionalDecimal("best_bid"),
+    ...optionalDecimal("best_ask"),
+    ...optionalDecimal("spread"),
+    ...optional("tick_size"),
+    price_quantum: wireString(data.price_quantum, "orderbook_depth.price_quantum"),
+    trading_rules: tradingRulesFromWire(
+      wireObject(data.trading_rules, "orderbook_depth.trading_rules") as unknown as TradingRulesWire,
+    ),
+    bids_truncated: wireBool(data.bids_truncated, "orderbook_depth.bids_truncated", false),
+    asks_truncated: wireBool(data.asks_truncated, "orderbook_depth.asks_truncated", false),
+    revision: wireU64Number(data.revision, "orderbook_depth.revision"),
+    captured_at_ms: wireU64Number(data.captured_at_ms, "orderbook_depth.captured_at_ms"),
+    bids: wireArray(data.bids, "orderbook_depth.bids", restBookLevelFromWire),
+    asks: wireArray(data.asks, "orderbook_depth.asks", restBookLevelFromWire),
+    decimals: {
+      price: wireInt(decimals.price, "orderbook_depth.decimals.price", 0, 255),
+      size: wireInt(decimals.size, "orderbook_depth.decimals.size", 0, 255),
+    },
+    ready: wireBool(data.ready, "orderbook_depth.ready", false),
+  };
+}
+
 export function orderbookRulesFromWire(wire: DecimalsResponse): OrderbookRules {
   if (
     !wire ||
@@ -117,7 +187,7 @@ export function orderbookRulesFromWire(wire: DecimalsResponse): OrderbookRules {
     !isNonNegativeSafeInteger(wire.price_decimals) ||
     !wire.trading_rules
   ) {
-    throw new Error("invalid orderbook decimals response");
+    throw SdkError.serde("orderbook_decimals: invalid orderbook decimals response");
   }
   return {
     orderbookId: wire.orderbook_id,
@@ -148,12 +218,19 @@ export interface WsBookLevel {
  *
  * The stream is snapshot-only: every data frame carries the full top-20
  * levels per side and replaces the previous book wholesale. `seq` is the
- * engine depth revision and is monotonic only within one subscription generation.
+ * engine depth revision and is monotonic only within one subscription
+ * generation: drop frames with `seq <=` the last applied one. Resync frames
+ * (`resync: true`) carry no `seq` and read as `0n`.
  */
 export interface OrderBook {
   orderbook_id: OrderBookId;
   is_snapshot?: boolean;
   seq: bigint;
+  /**
+   * Whether the engine's committed book is ready (matching live). Absent
+   * (`false`) on resync frames.
+   */
+  ready: boolean;
   resync?: boolean;
   timestamp?: string;
   bids: WsBookLevel[];

@@ -61,7 +61,6 @@ import {
   getConditionalMintPda,
   getAllConditionalMintPdas,
   getOrderStatusPda,
-  getUserNoncePda,
   getPositionPda,
   getConditionTombstonePda,
   getOrderbookPda,
@@ -233,7 +232,7 @@ function validateTradingOrders(
   params: Pick<MatchOrdersMultiParams, "market" | "baseMint" | "quoteMint" | "takerOrder">,
   makers: SignedOrder[]
 ): void {
-  for (const order of [params.takerOrder, ...makers]) {
+  const validate = (order: SignedOrder): void => {
     validateTradingSignature(order);
     if (order.side !== OrderSide.BID && order.side !== OrderSide.ASK) {
       throw ProgramSdkError.invalidSide(order.side);
@@ -241,9 +240,14 @@ function validateTradingOrders(
     if (!order.market.equals(params.market) || !order.baseMint.equals(params.baseMint) || !order.quoteMint.equals(params.quoteMint)) {
       throw ProgramSdkError.invalidOrderbook();
     }
-  }
-  if (makers.some((order) => order.side === params.takerOrder.side)) {
-    throw ProgramSdkError.serialization("Maker orders must trade the opposite side of the taker");
+  };
+  // As in Rust: the taker, then each maker's context and side in turn.
+  validate(params.takerOrder);
+  for (const order of makers) {
+    validate(order);
+    if (order.side === params.takerOrder.side) {
+      throw ProgramSdkError.invalidSide(order.side);
+    }
   }
 }
 
@@ -566,7 +570,7 @@ export function buildMergeIx(
  * 2. market (readonly)
  * 3. order_status (mut)
  *
- * Data: [discriminator, order_hash (32), signed_order (233)]
+ * Data: [discriminator, order_hash (32), signed_order (225)] = 258 bytes
  */
 export function buildCancelOrderIx(
   operator: PublicKey,
@@ -590,36 +594,6 @@ export function buildCancelOrderIx(
     orderHash,
     serializeSignedOrder(order),
   ]);
-
-  return publicInstruction(programId, keys, data);
-}
-
-/**
- * Build IncrementNonce instruction
- *
- * Accounts:
- * 0. user (signer, mut)
- * 1. user_nonce (mut)
- * 2. system_program (readonly)
- * 3. exchange (readonly)
- *
- * Data: [discriminator]
- */
-export function buildIncrementNonceIx(
-  user: PublicKey,
-  programId: PublicKey = PROGRAM_ID
-): TransactionInstruction {
-  const [userNonce] = getUserNoncePda(user, programId);
-  const [exchange] = getExchangePda(programId);
-
-  const keys: AccountMeta[] = [
-    signerMut(user),
-    writable(userNonce),
-    readonly(SYSTEM_PROGRAM_ID),
-    readonly(exchange),
-  ];
-
-  const data = Buffer.from([INSTRUCTION.INCREMENT_NONCE]);
 
   return publicInstruction(programId, keys, data);
 }
@@ -881,13 +855,14 @@ export function buildActivateMarketIx(
  * The fixed prefix starts with operator, exchange, market, orderbook, GDT A, GDT B.
  * GDTs follow canonical conditional-mint ordering regardless of trade direction.
  * Each clear mask bit includes a writable OrderStatus account. Bit 15 selects the taker.
- * Positions and nonces are read-only. Settlement ATAs are writable.
+ * Positions are read-only. Settlement ATAs are writable.
  *
- * Full instruction data: discriminator, 37-byte taker order, 64-byte signature,
- * maker count:u8, full-fill mask:u16 LE, then 117 bytes per maker.
- * Each maker record holds its compact order, signature, and two u64 fill amounts.
- * Fill amounts use integer units of the asset given by that participant.
- * Business accounts total 18 + 5*M - popcount(fullFillBitmask), followed by two trailers.
+ * Full instruction data (101 + 113*M bytes): discriminator, 33-byte taker
+ * order, 64-byte signature, maker count:u8, full-fill mask:u16 LE, then
+ * 113 bytes per maker. Each maker record holds its compact order, signature,
+ * and two u64 fill amounts. Fill amounts use integer units of the asset
+ * given by that participant.
+ * Business accounts total 17 + 4*M - popcount(fullFillBitmask), followed by two trailers.
  * Eleven makers is a parser ceiling. The outer transaction must fit execution limits.
  */
 export function buildMatchOrdersMultiIx(
@@ -895,26 +870,25 @@ export function buildMatchOrdersMultiIx(
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
   if (params.makerOrders.length === 0) {
-    throw ProgramSdkError.missingField("makers");
+    throw ProgramSdkError.missingField("maker_orders");
   }
   if (params.makerOrders.length > MAX_MAKERS) {
     throw ProgramSdkError.tooManyMakers(params.makerOrders.length);
   }
   if (params.makerOrders.length !== params.makerFillAmounts.length) {
-    throw ProgramSdkError.invalidDataLength("makerFillAmounts", params.makerOrders.length, params.makerFillAmounts.length);
+    throw ProgramSdkError.missingField("maker_fill_amounts");
   }
   if (params.makerOrders.length !== params.takerFillAmounts.length) {
-    throw ProgramSdkError.invalidDataLength("takerFillAmounts", params.makerOrders.length, params.takerFillAmounts.length);
+    throw ProgramSdkError.missingField("taker_fill_amounts");
   }
 
-  const maskBytes = participantMaskBytes(params.fullFillBitmask, params.makerOrders.length);
   validateTradingOrders(params, params.makerOrders);
+  const maskBytes = participantMaskBytes(params.fullFillBitmask, params.makerOrders.length);
   const [gdtA, gdtB] = tradingDepositTokens(params, programId);
 
   const [exchange] = getExchangePda(programId);
   const [orderbook] = getOrderbookPda(params.baseMint, params.quoteMint, programId);
   const takerOrderHash = hashOrder(params.takerOrder);
-  const [takerNonce] = getUserNoncePda(params.takerOrder.maker, programId);
   const [takerPosition] = getPositionPda(
     params.takerOrder.maker,
     params.market,
@@ -943,7 +917,6 @@ export function buildMatchOrdersMultiIx(
     keys.push(writable(takerOrderStatus));
   }
 
-  keys.push(readonly(takerNonce));
   keys.push(readonly(takerPosition));
   keys.push(readonly(params.baseMint));
   keys.push(readonly(params.quoteMint));
@@ -966,7 +939,6 @@ export function buildMatchOrdersMultiIx(
       keys.push(writable(makerOrderStatus));
     }
 
-    const [makerNonce] = getUserNoncePda(makerOrder.maker, programId);
     const [makerPosition] = getPositionPda(
       makerOrder.maker,
       params.market,
@@ -975,7 +947,6 @@ export function buildMatchOrdersMultiIx(
     const makerBaseAta = getConditionalTokenAta(params.baseMint, makerPosition);
     const makerQuoteAta = getConditionalTokenAta(params.quoteMint, makerPosition);
 
-    keys.push(readonly(makerNonce));
     keys.push(readonly(makerPosition));
     keys.push(writable(makerBaseAta));
     keys.push(writable(makerQuoteAta));
@@ -1430,7 +1401,7 @@ export function buildSetDepositTokenStatusIx(
  *
  * Business accounts: user, GDT, collateral mint, user global custody, source ATA,
  * Token program, System program, and exchange. Two event trailers follow.
- * Data is exactly discriminator 17 and amount:u64 LE. Nonce initialization is separate.
+ * Data is exactly discriminator 17 and amount:u64 LE.
  */
 export function buildDepositToGlobalIx(
   params: DepositToGlobalParams,
@@ -1607,8 +1578,8 @@ export function buildInitPositionTokensIx(
  * Maker settlement ATAs follow the taker's receive/give order on both funding paths.
  *
  * The full-fill and funding masks are independent u16 LE values, with taker bit 15.
- * Data length is 107 + 117*M. Fill amounts use integer units given by each participant.
- * Business references total 19 + 5*M - F + D*(4 + 2*O), then two event trailers.
+ * Data length is 103 + 113*M. Fill amounts use integer units given by each participant.
+ * Business references total 18 + 4*M - F + D*(4 + 2*O), then two event trailers.
  * Repeated GDT and mint addresses retain their positions in this sequence.
  */
 export function buildDepositAndSwapIx(
@@ -1634,7 +1605,6 @@ export function buildDepositAndSwapIx(
   const [exchange] = getExchangePda(programId);
   const [orderbook] = getOrderbookPda(params.baseMint, params.quoteMint, programId);
   const [mintAuthority] = getMintAuthorityPda(params.market, programId);
-  const [takerNonce] = getUserNoncePda(params.takerOrder.maker, programId);
   const [takerPosition] = getPositionPda(params.takerOrder.maker, params.market, programId);
   const feeReceiverQuoteAta = getConditionalTokenAta(
     params.quoteMint,
@@ -1685,7 +1655,6 @@ export function buildDepositAndSwapIx(
     keys.push(writable(takerOrderStatus));
   }
 
-  keys.push(readonly(takerNonce));
   keys.push(readonly(takerPosition));
   keys.push(readonly(params.baseMint));
   keys.push(readonly(params.quoteMint));
@@ -1726,7 +1695,6 @@ export function buildDepositAndSwapIx(
   }
 
   for (const maker of params.makers) {
-    const [makerNonce] = getUserNoncePda(maker.order.maker, programId);
     const [makerPosition] = getPositionPda(maker.order.maker, params.market, programId);
 
     if (!maker.isFullFill) {
@@ -1735,7 +1703,6 @@ export function buildDepositAndSwapIx(
       keys.push(writable(makerOrderStatus));
     }
 
-    keys.push(readonly(makerNonce));
     keys.push(readonly(makerPosition));
 
     if (maker.isDeposit) {
@@ -2003,15 +1970,6 @@ export function buildCancelOrderTx(
 ): V1Transaction {
   const ix = buildCancelOrderIx(operator, market, order, programId);
   return V1Transaction.compile([ix], operator, context);
-}
-
-export function buildIncrementNonceTx(
-  user: PublicKey,
-  context: V1TransactionContext,
-  programId: PublicKey = PROGRAM_ID
-): V1Transaction {
-  const ix = buildIncrementNonceIx(user, programId);
-  return V1Transaction.compile([ix], user, context);
 }
 
 export function buildSettleMarketTx(

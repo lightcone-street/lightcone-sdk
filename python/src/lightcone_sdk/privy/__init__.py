@@ -1,54 +1,11 @@
-"""Privy wallet integration types for the Lightcone SDK."""
+"""Privy wallet integration types for the Lightcone SDK.
+
+Privy order signing and cancellation are not supported: the committed backend
+has no Privy order route. Submit and cancel orders with a native signer or an
+``ExternalSigner``.
+"""
 
 from dataclasses import dataclass
-from typing import Literal
-
-from ..shared.types import DepositSource
-
-
-@dataclass
-class PrivyOrderEnvelope:
-    """Wire type for the backend's Privy sign-and-send-order endpoint.
-
-    Matches the backend's OrderForSigning struct.
-
-    Use ``client.orders().limit_order()`` to pre-seed the deposit source.
-    ``privy_order_from_limit_envelope`` converts the resulting ordinary order.
-    """
-
-    maker: str = ""
-    nonce: int = 0
-    salt: int = 0
-    market_pubkey: str = ""
-    base_token: str = ""
-    quote_token: str = ""
-    side: int = 0
-    amount_in: int = 0
-    amount_out: int = 0
-    expiration: int = 0
-    orderbook_id: str = ""
-    time_in_force: str | None = None
-    deposit_source: DepositSource | None = None
-
-    def to_dict(self) -> dict:
-        d: dict = {
-            "maker": self.maker,
-            "nonce": self.nonce,
-            "salt": self.salt,
-            "market_pubkey": self.market_pubkey,
-            "base_token": self.base_token,
-            "quote_token": self.quote_token,
-            "side": self.side,
-            "amount_in": self.amount_in,
-            "amount_out": self.amount_out,
-            "expiration": self.expiration,
-            "orderbook_id": self.orderbook_id,
-        }
-        if self.time_in_force is not None:
-            d["tif"] = self.time_in_force
-        if self.deposit_source is not None:
-            d["deposit_source"] = self.deposit_source.as_str()
-        return d
 
 
 @dataclass
@@ -64,47 +21,6 @@ class SignAndSendTxResponse:
     """Response from Privy transaction signing."""
 
     hash: str = ""
-
-
-@dataclass
-class SignAndSendOrderRequest:
-    """Request to sign and send an order via Privy."""
-
-    wallet_id: str = ""
-    order: PrivyOrderEnvelope | None = None
-
-
-@dataclass
-class SignAndCancelOrderRequest:
-    """Ordinary-order cancellation through Privy. Unsupported target kinds are rejected."""
-
-    wallet_id: str = ""
-    maker: str = ""
-    cancel_type: Literal["limit"] = "limit"
-    order_hash: str | None = None
-
-    def to_dict(self) -> dict:
-        if self.cancel_type != "limit":
-            raise ValueError("unsupported cancellation target")
-        d: dict = {
-            "wallet_id": self.wallet_id,
-            "maker": self.maker,
-            "cancel_type": self.cancel_type,
-        }
-        if self.order_hash is not None:
-            d["order_hash"] = self.order_hash
-        return d
-
-
-@dataclass
-class SignAndCancelAllRequest:
-    """Request to cancel all orders via Privy signing."""
-
-    wallet_id: str = ""
-    user_pubkey: str = ""
-    orderbook_id: str = ""
-    timestamp: int = 0
-    salt: str = ""
 
 
 @dataclass
@@ -124,41 +40,9 @@ class ExportWalletResponse:
     encapsulated_key: str = ""
 
 
-def privy_order_from_limit_envelope(envelope, orderbook) -> PrivyOrderEnvelope:
-    """Build a PrivyOrderEnvelope from a LimitOrderEnvelope.
-
-    Args:
-        envelope: A LimitOrderEnvelope instance (from program.envelope)
-        orderbook: The OrderBookPair for the order
-
-    Returns:
-        PrivyOrderEnvelope ready to send to the backend
-    """
-    order = envelope.payload()
-    return PrivyOrderEnvelope(
-        maker=str(order.maker),
-        nonce=order.nonce,
-        salt=order.salt,
-        market_pubkey=str(order.market),
-        base_token=str(order.base_mint),
-        quote_token=str(order.quote_mint),
-        side=int(order.side),
-        amount_in=order.amount_in,
-        amount_out=order.amount_out,
-        expiration=order.expiration,
-        orderbook_id=orderbook.orderbook_id,
-        deposit_source=envelope.get_deposit_source,
-    )
-
-
 __all__ = [
-    "PrivyOrderEnvelope",
     "SignAndSendTxRequest",
     "SignAndSendTxResponse",
-    "SignAndSendOrderRequest",
-    "SignAndCancelOrderRequest",
-    "SignAndCancelAllRequest",
     "ExportWalletRequest",
     "ExportWalletResponse",
-    "privy_order_from_limit_envelope",
 ]

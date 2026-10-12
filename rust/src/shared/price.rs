@@ -33,6 +33,17 @@ pub fn format_decimal(value: f64, precision: usize) -> String {
     format!("{:.precision$}", value, precision = precision)
 }
 
+/// Exact quote per base, normalized; `None` for a zero base amount.
+pub(crate) fn quote_per_base(
+    quote: rust_decimal::Decimal,
+    base: rust_decimal::Decimal,
+) -> Option<rust_decimal::Decimal> {
+    if base.is_zero() {
+        return None;
+    }
+    quote.checked_div(base).map(|price| price.normalize())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

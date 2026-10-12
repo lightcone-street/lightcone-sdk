@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 // ─── Orderbook tickers (batch) ───────────────────────────────────────────────
 
 /// One entry in `GET /api/metrics/orderbooks/tickers`. Same shape (BBO +
-/// midpoint) as the WS `Ticker` stream, delivered in batch over REST.
-/// Price fields are `None` when the orderbook has no liquidity yet.
+/// midpoint) as the WS `Ticker` stream, delivered in batch over REST. Only
+/// ready orderbooks are listed. Price fields are `None` when the orderbook has
+/// no liquidity yet (the backend omits them).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OrderbookTickerEntry {
     pub orderbook_id: OrderBookId,
@@ -36,10 +37,16 @@ pub struct OrderbookTickerEntry {
     pub computed_at: Option<DateTime<Utc>>,
 }
 
-/// `GET /api/metrics/orderbooks/tickers` response.
+/// `GET /api/metrics/orderbooks/tickers` response: one page of at most 8
+/// tickers. A page can be empty while `has_more` is true.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OrderbookTickersResponse {
     pub tickers: Vec<OrderbookTickerEntry>,
+    /// Orderbook pubkey to pass as `cursor` for the next page.
+    #[serde(default)]
+    pub next_cursor: Option<String>,
+    #[serde(default)]
+    pub has_more: bool,
 }
 
 // ─── Platform ────────────────────────────────────────────────────────────────
@@ -673,6 +680,37 @@ mod tests {
 
     fn date(year: i32, month: u32, day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(year, month, day).unwrap()
+    }
+
+    #[test]
+    fn orderbook_tickers_page_decodes_cursor_and_omitted_prices() {
+        // Live committed-backend page: empty books omit every price field.
+        let page: OrderbookTickersResponse = serde_json::from_value(json!({
+            "tickers": [{
+                "orderbook_id": "j749bQAbDsBAiyDs2Tj868heQj1b5KVp98ZrjiZd56a",
+                "market_pubkey": "A9Bxkkc4nah517EjgjwSafwspGnmU9s1Ei5PTo5ZkJd9",
+                "outcome_index": 1,
+                "outcome_name": "Republicans Sweep",
+                "base_deposit_asset": "4o5Vsd7iPu97qkKypojXDbpu8BR3t5poD8ThGo8hnUKy",
+                "quote_deposit_asset": "7SrxsoXjNR7Y8T3koJCt1yV4FrNUumoAUrJExDt6tQez",
+                "computed_at": "2026-09-29T12:38:41.952+00:00"
+            }],
+            "next_cursor": "j749bQAbDsBAiyDs2Tj868heQj1b5KVp98ZrjiZd56a",
+            "has_more": true
+        }))
+        .unwrap();
+        assert!(page.has_more);
+        assert_eq!(
+            page.next_cursor.as_deref(),
+            Some("j749bQAbDsBAiyDs2Tj868heQj1b5KVp98ZrjiZd56a")
+        );
+        assert_eq!(page.tickers[0].best_bid, None);
+        assert_eq!(page.tickers[0].midpoint, None);
+
+        let last: OrderbookTickersResponse =
+            serde_json::from_value(json!({"tickers": [], "next_cursor": null, "has_more": false}))
+                .unwrap();
+        assert!(last.tickers.is_empty() && !last.has_more);
     }
 
     #[test]

@@ -21,7 +21,7 @@
 //!     .await?;
 //! ```
 
-use super::rejection::RejectionCode;
+use super::rejection::{ErrorCode, RejectionCode};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
 
@@ -145,6 +145,14 @@ pub struct ApiRejectedDetails {
     pub http_status: Option<u16>,
 }
 
+impl ApiRejectedDetails {
+    /// Typed view of [`Self::error_code`]; unrecognized codes are
+    /// [`ErrorCode::Unknown`].
+    pub fn error_code_kind(&self) -> Option<ErrorCode> {
+        self.error_code.as_deref().map(ErrorCode::from_wire)
+    }
+}
+
 impl fmt::Display for ApiRejectedDetails {
     /// Formats all present fields as a multi-line report.
     ///
@@ -240,6 +248,49 @@ mod tests {
             }
             ApiResponse::Success { .. } => panic!("expected error"),
         }
+    }
+
+    #[test]
+    fn engine_error_codes_are_typed() {
+        for (code, expected) in [
+            ("ABORTED", ErrorCode::Aborted),
+            ("RESOURCE_EXHAUSTED", ErrorCode::ResourceExhausted),
+            ("ENGINE_UNAVAILABLE", ErrorCode::EngineUnavailable),
+            ("TRADING_UNAVAILABLE", ErrorCode::TradingUnavailable),
+            ("AUTH_WALLET_MISMATCH", ErrorCode::AuthWalletMismatch),
+            ("FORBIDDEN", ErrorCode::Forbidden),
+            ("ALREADY_EXISTS", ErrorCode::AlreadyExists),
+            ("INVALID_ARGUMENT", ErrorCode::InvalidArgument),
+        ] {
+            let json = serde_json::json!({
+                "status": "error",
+                "error_details": {
+                    "reason": "Engine temporarily unavailable",
+                    "error_code": code,
+                    "error_log_id": "LCERR_1"
+                }
+            });
+            let resp: ApiResponse<serde_json::Value> = serde_json::from_value(json).unwrap();
+            let ApiResponse::Rejected { details } = resp else {
+                panic!("expected error");
+            };
+            assert_eq!(details.error_code.as_deref(), Some(code));
+            assert_eq!(details.error_code_kind(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn business_rejection_rides_a_200_envelope() {
+        let json = r#"{"status":"error","error_details":{"reason":"The full original BASE target is not executable","rejection_code":"FOK_INSUFFICIENT_LIQUIDITY","error_log_id":"LCERR_2"}}"#;
+        let resp: ApiResponse<serde_json::Value> = serde_json::from_str(json).unwrap();
+        let ApiResponse::Rejected { details } = resp else {
+            panic!("expected error");
+        };
+        assert_eq!(
+            details.rejection_code,
+            Some(RejectionCode::FokInsufficientLiquidity)
+        );
+        assert_eq!(details.error_code_kind(), None);
     }
 
     /// Proves a future method tag cannot hide the surrounding backend rejection.

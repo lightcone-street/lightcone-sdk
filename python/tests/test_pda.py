@@ -15,7 +15,6 @@ from lightcone_sdk import (
     get_order_status_pda,
     get_orderbook_pda,
     get_position_pda,
-    get_user_nonce_pda,
     get_vault_pda,
 )
 
@@ -144,24 +143,6 @@ class TestGetOrderStatusPda:
 
         pda1, _ = get_order_status_pda(hash1)
         pda2, _ = get_order_status_pda(hash2)
-
-        assert pda1 != pda2
-
-
-class TestGetUserNoncePda:
-    def test_derives_valid_pda(self):
-        user = Pubkey.new_unique()
-        pda, bump = get_user_nonce_pda(user)
-
-        assert isinstance(pda, Pubkey)
-        assert isinstance(bump, int)
-
-    def test_different_users_produce_different_pdas(self):
-        user1 = Pubkey.new_unique()
-        user2 = Pubkey.new_unique()
-
-        pda1, _ = get_user_nonce_pda(user1)
-        pda2, _ = get_user_nonce_pda(user2)
 
         assert pda1 != pda2
 

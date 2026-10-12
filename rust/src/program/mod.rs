@@ -15,7 +15,6 @@ pub mod utils;
 // Re-export commonly used items
 pub use accounts::{
     Exchange, GlobalDepositToken, Market, OrderStatus, Orderbook, PendingRoleKind, Position,
-    UserNonce,
 };
 pub use constants::*;
 pub use envelope::{LimitOrderEnvelope, OrderEnvelope};

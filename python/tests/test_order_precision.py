@@ -14,17 +14,12 @@ from lightcone_sdk.domain.orderbook.client import Orderbooks
 from lightcone_sdk.domain.orderbook.wire import DecimalsResponse, OrderbookDepthResponse
 from lightcone_sdk.error import DeserializationError
 from lightcone_sdk.program.envelope import LimitOrderEnvelope
-from lightcone_sdk.program.errors import InvalidOrderError
-from lightcone_sdk.program.orders import (
-    generate_salt,
-    hash_order_hex,
-    serialize_order_for_hashing,
-    sign_order,
-)
+from lightcone_sdk.program.errors import SerializationError
+from lightcone_sdk.program.orders import generate_salt, sign_order
 from lightcone_sdk.program.types import OrderSide, SignedOrder
-from lightcone_sdk.shared.rejection import RejectionCode
 from lightcone_sdk.shared.scaling import (
     I64_MAX,
+    U64_MAX,
     ScalingError,
     scale_price_size,
     validate_raw_amounts,
@@ -61,16 +56,6 @@ INVALID_ORDERS = (
     ("150250.1", "1", "INVALID_PRICE_SIGNIFICANT_FIGURES"),
 )
 
-SIGNING_CASE = {
-    "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-    "maker": "FAe4sisG95oZ42w7buUn5qEE4TAnfTTFPiguZUHmhiF",
-    "market": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
-    "base_mint": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
-    "quote_mint": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
-    "hash_hex": "17228fe4bdf93c14714367454e948206bb4f001917d59e132e4aaad097819eac",
-    "signature_hex": "1e68fe672f919085ed34333c86facf9ad816ae30ab23d3d6ccef0aeb4c40b161f841c8f68355c9720252fc9ab4d859e64416d81ffa170e5a6cd17dfe41038808",
-}
-
 
 def test_valid_and_invalid_precision_cases():
     for side, price, size, amount_in, amount_out in VALID_ORDERS:
@@ -87,34 +72,32 @@ def test_valid_and_invalid_precision_cases():
 def test_raw_ratio_ranges_and_salts():
     with pytest.raises(ScalingError, match="PRICE_NOT_EXACTLY_REPRESENTABLE"):
         validate_raw_amounts(1, 3_000, int(OrderSide.BID), RULES)
-    validate_signed_fields(I64_MAX, I64_MAX, I64_MAX, 2**32 - 1)
-    with pytest.raises(ScalingError):
-        validate_signed_fields(I64_MAX + 1, 1, 0, 0)
-    assert all(0 <= generate_salt() <= I64_MAX for _ in range(10_000))
+    validate_signed_fields(U64_MAX, U64_MAX)
+    validate_signed_fields(1, 1)
+    for amount_in, amount_out in ((0, 1), (1, 0), (U64_MAX + 1, 1), (True, 1)):
+        with pytest.raises(ScalingError, match="ORDER_FIELD_OUT_OF_RANGE"):
+            validate_signed_fields(amount_in, amount_out)
+    salts = [generate_salt() for _ in range(256)]
+    assert all(0 <= salt <= U64_MAX for salt in salts)
+    assert any(salt > I64_MAX for salt in salts), "256 draws never exceeded i64::MAX"
 
 
-def test_known_signing_contract_is_unchanged():
-    keypair = Keypair.from_seed(bytes.fromhex(SIGNING_CASE["seed_hex"]))
+def test_signing_rejects_unencodable_salts_and_inexact_ratios():
+    keypair = Keypair.from_seed(bytes(range(32)))
     order = SignedOrder(
-        nonce=42,
-        salt=123,
+        salt=U64_MAX + 1,
         maker=keypair.pubkey(),
-        market=Pubkey.from_string(SIGNING_CASE["market"]),
-        base_mint=Pubkey.from_string(SIGNING_CASE["base_mint"]),
-        quote_mint=Pubkey.from_string(SIGNING_CASE["quote_mint"]),
+        market=Pubkey.from_bytes(bytes([1]) * 32),
+        base_mint=Pubkey.from_bytes(bytes([2]) * 32),
+        quote_mint=Pubkey.from_bytes(bytes([3]) * 32),
         side=OrderSide.BID,
         amount_in=15_185_088,
         amount_out=123_456_000,
         expiration=0,
     )
-    assert str(keypair.pubkey()) == SIGNING_CASE["maker"]
-    assert len(serialize_order_for_hashing(order)) == 169
-    assert hash_order_hex(order) == SIGNING_CASE["hash_hex"]
-    sign_order(order, keypair, RULES)
-    assert order.signature.hex() == SIGNING_CASE["signature_hex"]
-    order.salt = I64_MAX + 1
-    with pytest.raises(InvalidOrderError):
+    with pytest.raises(SerializationError, match="u64 value out of range"):
         sign_order(order, keypair, RULES)
+    assert order.signature == bytes(64)
     order.salt = 0
     order.amount_in = 1
     order.amount_out = 3_000
@@ -132,7 +115,6 @@ def test_high_level_signed_order_path_requires_and_applies_rules():
     )
     request = (
         LimitOrderEnvelope()
-        .nonce(1)
         .salt(0)
         .maker(keypair.pubkey())
         .bid()
@@ -146,7 +128,6 @@ def test_high_level_signed_order_path_requires_and_applies_rules():
     with pytest.raises(ScalingError, match="cannot be used"):
         (
             LimitOrderEnvelope()
-            .nonce(1)
             .salt(0)
             .maker(keypair.pubkey())
             .bid()
@@ -158,7 +139,6 @@ def test_high_level_signed_order_path_requires_and_applies_rules():
     with pytest.raises(ScalingError, match="PRICE_NOT_EXACTLY_REPRESENTABLE"):
         (
             LimitOrderEnvelope()
-            .nonce(1)
             .salt(0)
             .maker(keypair.pubkey())
             .bid()
@@ -187,6 +167,7 @@ def test_depth_metadata_defaults_and_rules_cache_deduplicates():
     assert depth.asks_truncated is False
     assert depth.revision == 1842
     assert depth.captured_at_ms == 1785776400123
+    assert depth.ready is False
 
     class Http:
         calls = 0
@@ -270,7 +251,6 @@ def test_direct_submit_preflights_before_http():
 
     request = SubmitOrderRequest(
         maker="maker",
-        nonce=0,
         salt=0,
         market_pubkey="market",
         base_token="base",
@@ -289,18 +269,3 @@ def test_direct_submit_preflights_before_http():
 
     asyncio.run(submit())
     assert Client._http.calls == 0
-
-
-def test_new_rejection_codes_are_stable_known_values():
-    for code in (
-        "TRADING_RULES_UNAVAILABLE",
-        "ORDER_FIELD_OUT_OF_RANGE",
-        "PRICE_NOT_EXACTLY_REPRESENTABLE",
-        "PRICE_OUT_OF_RANGE",
-        "INVALID_PRICE_DECIMALS",
-        "INVALID_PRICE_SIGNIFICANT_FIGURES",
-        "INVALID_SIZE_DECIMALS",
-    ):
-        parsed = RejectionCode.from_wire(code)
-        assert parsed is not None and parsed.is_known()
-        assert parsed.wire_name() == code

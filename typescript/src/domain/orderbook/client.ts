@@ -20,11 +20,10 @@ import {
 } from "./aggregation";
 import type { OrderbookRules } from "../../shared";
 import {
+  orderbookDepthFromWire,
   orderbookRulesFromWire,
-  tradingRulesFromWire,
   type DecimalsResponse,
   type OrderbookDepthResponse,
-  type TradingRulesWire,
 } from "./wire";
 
 export class Orderbooks {
@@ -69,49 +68,8 @@ export class Orderbooks {
     }
     const queryString = query.toString();
     const url = `${this.client.http.baseUrl()}/api/orderbook/${encodeURIComponent(orderbookId)}${queryString ? `?${queryString}` : ""}`;
-    const raw = await this.client.http.get<
-      Omit<OrderbookDepthResponse, "trading_rules" | "revision" | "captured_at_ms" | "bids_truncated" | "asks_truncated"> & {
-        trading_rules: TradingRulesWire;
-        revision: number | bigint | null;
-        captured_at_ms: number | bigint | null;
-        bids_truncated?: boolean;
-        asks_truncated?: boolean;
-      }
-    >(url, RetryPolicy.Idempotent);
-    if (
-      typeof raw.price_quantum !== "string" ||
-      !raw.trading_rules ||
-      !raw.decimals ||
-      !Number.isSafeInteger(raw.decimals.price) ||
-      !Number.isSafeInteger(raw.decimals.size) ||
-      raw.decimals.price < 0 ||
-      raw.decimals.size < 0 ||
-      (raw.bids_truncated !== undefined && typeof raw.bids_truncated !== "boolean") ||
-      (raw.asks_truncated !== undefined && typeof raw.asks_truncated !== "boolean") ||
-      raw.revision === undefined ||
-      raw.revision === null ||
-      raw.captured_at_ms === undefined ||
-      raw.captured_at_ms === null
-    ) {
-      throw ProgramSdkError.serialization(
-        "orderbook depth is missing required projection or trading-rule metadata"
-      );
-    }
-    const revision = BigInt(raw.revision);
-    const capturedAtMs = BigInt(raw.captured_at_ms);
-    if (revision < 0n || capturedAtMs < 0n) {
-      throw ProgramSdkError.serialization(
-        "orderbook projection revision and capture time must be non-negative"
-      );
-    }
-    return {
-      ...raw,
-      trading_rules: tradingRulesFromWire(raw.trading_rules),
-      revision,
-      captured_at_ms: capturedAtMs,
-      bids_truncated: raw.bids_truncated ?? false,
-      asks_truncated: raw.asks_truncated ?? false,
-    };
+    const raw = await this.client.http.get<unknown>(url, RetryPolicy.Idempotent);
+    return orderbookDepthFromWire(raw);
   }
 
   /** Fetch and cache the immutable exact admission rules for an active book. */

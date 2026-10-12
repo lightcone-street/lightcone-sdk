@@ -59,6 +59,8 @@ pub mod prelude {
         Denominator, DepositSource, OrderBookId, PubkeyStr, Resolution, Side, TimeInForce,
     };
 
+    pub use crate::shared::{ApiRejectedDetails, DecimalText, ErrorCode, RejectionCode};
+
     // Domain types — market (includes outcome + tokens)
     pub use crate::domain::market::outcome::Outcome;
     pub use crate::domain::market::tokens::{
@@ -76,21 +78,25 @@ pub mod prelude {
 
     // Domain types — order
     pub use crate::domain::order::{
-        AnyOrder, CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, ConditionalBalance,
-        FillInfo, GlobalDepositBalance, GlobalDepositUpdate, LimitOrder, Order, OrderEvent,
-        OrderStatus, OrderType, SubmitOrderResponse, SubmitOrderStatus, UserBalanceUpdate,
-        UserDepositAssetBalance, UserMarketBalance, UserOpenLimitOrders, UserOrdersResponse,
-        UserOutcomeBalance, UserSnapshotOrder, UserSnapshotOrderCommon, UserUpdate,
+        convert_snapshot_orders, AnyOrder, ApplyOutcome, CancelAllBody, CancelAllSuccess,
+        CancelBody, CancelQuantities, CancelStatus, CancelSuccess, ClosureAck, ClosureScope,
+        ClosureUpdate, CommitInfo, FillInfo, InitialCohort, InitialCohortState, LimitOrder, Order,
+        OrderFillEvent, OrderState, OrderStatus, OrderType, OrderUpdate, RecordedOrderState,
+        RecoveryCompleted, Role, SubmitOrderResponse, SubmitOrderStatus, UserOpenLimitOrders,
+        UserOrder, UserOrderFill, UserOrderFillsResponse, UserOrdersResponse, UserSnapshot,
+        UserSnapshotOrder, UserUpdate,
     };
 
     // Domain types — position (includes portfolio + token balances)
     pub use crate::domain::position::{
         CanonicalWsolAccountInfo, DepositAssetMetadata, DepositTokenBalance,
-        DepositTokenBalancesSnapshot, Portfolio, Position, PositionOutcome, SolActionCosts,
-        SolActionKind, SolActionPlan, SolBalanceAvailability, SolBalanceBreakdown, SolBalanceDelta,
-        TokenBalance, TokenBalanceComputedBase, TokenBalanceTokenType, WalletDepositBalanceStatus,
-        WalletDepositBalancesApplyResult, WalletDepositBalancesEvent, WalletDepositBalancesState,
-        WalletHolding, WRAPPED_SOL_MINT_ADDRESS,
+        DepositTokenBalancesSnapshot, FundingAccount, FundingSource, FundingUpdate,
+        MarketPositionsResponse, ObservationState, Portfolio, Position, PositionOutcome,
+        PositionsResponse, SolActionCosts, SolActionKind, SolActionPlan, SolBalanceAvailability,
+        SolBalanceBreakdown, SolBalanceDelta, TokenBalance, TokenBalanceComputedBase,
+        TokenBalanceTokenType, WalletDepositBalanceStatus, WalletDepositBalancesApplyResult,
+        WalletDepositBalancesEvent, WalletDepositBalancesState, WalletHolding,
+        WRAPPED_SOL_MINT_ADDRESS,
     };
 
     // Domain types — trade, price history
@@ -103,6 +109,7 @@ pub mod prelude {
         OrderbookPriceHistoryQuery, OrderbookPriceHistoryResponse, PriceHistoryDecimals,
         PriceHistoryState,
     };
+    pub use crate::domain::trade::wire::WsTrade;
     pub use crate::domain::trade::Trade;
 
     // Domain types — metrics

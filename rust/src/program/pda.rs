@@ -7,8 +7,7 @@ use solana_pubkey::Pubkey;
 use crate::program::constants::{
     CONDITIONAL_MINT_SEED, CONDITION_SEED, EVENT_AUTHORITY_SEED, EXCHANGE_SEED,
     GLOBAL_DEPOSIT_TOKEN_SEED, MARKET_SEED, MINT_AUTHORITY_SEED, MPL_METADATA_SEED,
-    MPL_TOKEN_METADATA_PROGRAM_ID, ORDERBOOK_SEED, ORDER_STATUS_SEED, POSITION_SEED,
-    USER_NONCE_SEED, VAULT_SEED,
+    MPL_TOKEN_METADATA_PROGRAM_ID, ORDERBOOK_SEED, ORDER_STATUS_SEED, POSITION_SEED, VAULT_SEED,
 };
 
 /// Get the Exchange PDA.
@@ -113,13 +112,6 @@ pub fn get_mpl_metadata_pda(conditional_mint: &Pubkey) -> (Pubkey, u8) {
 /// Seeds: ["order_status", order_hash (32 bytes)]
 pub fn get_order_status_pda(order_hash: &[u8; 32], program_id: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[ORDER_STATUS_SEED, order_hash], program_id)
-}
-
-/// Get a User Nonce PDA.
-///
-/// Seeds: ["user_nonce", user]
-pub fn get_user_nonce_pda(user: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[USER_NONCE_SEED, user.as_ref()], program_id)
 }
 
 /// Get a Position PDA.
@@ -344,12 +336,12 @@ mod tests {
 
     #[test]
     fn test_event_authority_pda_pinned_for_local_program() {
-        let program_id = Pubkey::from_str("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago").unwrap();
+        let program_id = Pubkey::from_str("Hobw7Fi6SN6YaCA4Bwp5RcbCR3YBXQ9PpGSSw5muEzai").unwrap();
         let (pda, _) = get_event_authority_pda(&program_id);
 
         assert_eq!(
             pda.to_string(),
-            "2V5fevrqDyZYEWEkvuaX8ceQUHNpfiTaSi6CYkuEw6BK"
+            "8VqAxBFSt2PzRu2VjitjGZhWFaKKkjkd3kZpb3jtSkN8"
         );
     }
 }

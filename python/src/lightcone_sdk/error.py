@@ -47,7 +47,22 @@ class ApiRejected(SdkError):
 
 
 class DeserializationError(SdkError):
-    """Raised when a required field is missing during wire type deserialization."""
+    """Raised when a wire payload does not match the expected shape.
+
+    Covers a missing, ``null``, or malformed field (the message names it) and
+    a 2xx response body that is not valid JSON. Never retried: resending the
+    request cannot change a contract mismatch.
+    """
+
+    pass
+
+
+class ValidationError(SdkError):
+    """Raised when local input or a decoded value fails SDK validation.
+
+    Examples: an order whose signed amounts define no limit price, a paging
+    cursor that does not advance, or an unsupported signing strategy.
+    """
 
     pass
 
@@ -360,6 +375,7 @@ __all__ = [
     "SdkError",
     "ApiRejected",
     "DeserializationError",
+    "ValidationError",
     "MissingMarketContext",
     "SigningError",
     "UserCancelled",

@@ -37,7 +37,11 @@ impl<'a> Trades<'a> {
             .await?;
 
         Ok(TradesPage {
-            trades: resp.trades.into_iter().map(Trade::from).collect(),
+            trades: resp
+                .trades
+                .into_iter()
+                .map(Trade::try_from)
+                .collect::<Result<_, _>>()?,
             next_cursor: resp.next_cursor,
             has_more: resp.has_more,
         })
@@ -70,7 +74,11 @@ impl<'a> Trades<'a> {
             .await?;
 
         Ok(TradesPage {
-            trades: resp.trades.into_iter().map(Trade::from).collect(),
+            trades: resp
+                .trades
+                .into_iter()
+                .map(Trade::try_from)
+                .collect::<Result<_, _>>()?,
             next_cursor: resp.next_cursor,
             has_more: resp.has_more,
         })

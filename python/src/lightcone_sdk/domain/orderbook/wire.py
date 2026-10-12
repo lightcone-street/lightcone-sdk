@@ -1,25 +1,58 @@
 """Orderbook wire types."""
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from ...error import _require
 from ...shared.scaling import OrderbookRules, TradingRules
+from ...shared.wire_decode import (
+    MISSING,
+    U8,
+    U32,
+    take,
+    wire_array,
+    wire_bool,
+    wire_decimal,
+    wire_int,
+    wire_object,
+    wire_opt_int,
+    wire_opt_str,
+    wire_orderbook_id,
+    wire_side_text,
+    wire_str,
+    wire_u64_number,
+)
+
+
+def _opt_decimal_text(value: Any, name: str) -> str | None:
+    """Optional plain decimal text, validated and kept as text."""
+    if value is MISSING or value is None:
+        return None
+    wire_decimal(value, name)
+    return value
 
 
 @dataclass
 class PriceLevel:
+    """One REST depth level. ``price`` (quote per base) and ``size`` (base
+    units) are plain decimal text."""
+
     price: str
     size: str
     orders: Optional[int] = None
 
     @staticmethod
-    def from_dict(d: dict) -> "PriceLevel":
-        return PriceLevel(price=d.get("price", "0"), size=d.get("size", "0"), orders=d.get("orders"))
-
-    @staticmethod
-    def from_list(lst: list) -> "PriceLevel":
-        return PriceLevel(price=str(lst[0]) if lst else "0", size=str(lst[1]) if len(lst) > 1 else "0")
+    def from_dict(value: Any, name: str = "level") -> "PriceLevel":
+        data = wire_object(value, name)
+        price = wire_str(take(data, "price"), f"{name}.price")
+        size = wire_str(take(data, "size"), f"{name}.size")
+        wire_decimal(price, f"{name}.price")
+        wire_decimal(size, f"{name}.size")
+        return PriceLevel(
+            price=price,
+            size=size,
+            orders=wire_opt_int(take(data, "orders"), f"{name}.orders", *U32),
+        )
 
 
 @dataclass
@@ -31,23 +64,12 @@ class OrderbookDepthDecimals:
     size: int
 
     @staticmethod
-    def from_dict(d: dict) -> "OrderbookDepthDecimals":
-        price = _require(d, "price", "OrderbookDepthDecimals")
-        size = _require(d, "size", "OrderbookDepthDecimals")
-        if (
-            not isinstance(price, int)
-            or isinstance(price, bool)
-            or price < 0
-            or not isinstance(size, int)
-            or isinstance(size, bool)
-            or size < 0
-        ):
-            from ...error import DeserializationError
-
-            raise DeserializationError(
-                "OrderbookDepthDecimals price and size must be non-negative integers"
-            )
-        return OrderbookDepthDecimals(price=price, size=size)
+    def from_dict(value: Any, name: str = "decimals") -> "OrderbookDepthDecimals":
+        data = wire_object(value, name)
+        return OrderbookDepthDecimals(
+            price=wire_int(take(data, "price"), f"{name}.price", *U8),
+            size=wire_int(take(data, "size"), f"{name}.size", *U8),
+        )
 
 
 @dataclass
@@ -70,59 +92,53 @@ class OrderbookDepthResponse:
     tick_size: Optional[str] = None
     bids_truncated: bool = False
     asks_truncated: bool = False
+    #: Whether the engine's committed book is ready (matching live). A book
+    #: that is not ready may show stale or empty depth.
+    ready: bool = False
 
     @staticmethod
-    def from_dict(d: dict) -> "OrderbookDepthResponse":
-        decimals_raw = _require(d, "decimals", "OrderbookDepthResponse")
-        if not isinstance(decimals_raw, dict):
-            from ...error import DeserializationError
+    def from_dict(value: Any) -> "OrderbookDepthResponse":
+        """Decode ``GET /api/orderbook/{id}``.
 
-            raise DeserializationError("OrderbookDepthResponse decimals must be an object")
-        revision = _require(d, "revision", "OrderbookDepthResponse")
-        captured_at_ms = _require(d, "captured_at_ms", "OrderbookDepthResponse")
-        if (
-            not isinstance(revision, int)
-            or isinstance(revision, bool)
-            or revision < 0
-            or not isinstance(captured_at_ms, int)
-            or isinstance(captured_at_ms, bool)
-            or captured_at_ms < 0
-        ):
-            from ...error import DeserializationError
-
-            raise DeserializationError(
-                "OrderbookDepthResponse revision and captured_at_ms must be non-negative integers"
-            )
-        rules_raw = _require(d, "trading_rules", "OrderbookDepthResponse")
-        price_quantum = _require(d, "price_quantum", "OrderbookDepthResponse")
-        bids_truncated = d.get("bids_truncated", False)
-        asks_truncated = d.get("asks_truncated", False)
-        if (
-            not isinstance(price_quantum, str)
-            or not isinstance(bids_truncated, bool)
-            or not isinstance(asks_truncated, bool)
-        ):
-            from ...error import DeserializationError
-
-            raise DeserializationError(
-                "OrderbookDepthResponse quantum and truncation metadata have invalid types"
-            )
+        A body that does not match the Rust SDK's ``OrderbookDepthResponse``
+        raises :class:`~lightcone_sdk.error.DeserializationError` naming the
+        field.
+        """
+        name = "orderbook_depth"
+        data = wire_object(value, name)
         return OrderbookDepthResponse(
-            bids=[PriceLevel.from_dict(b) if isinstance(b, dict) else PriceLevel.from_list(b) for b in d.get("bids", [])],
-            asks=[PriceLevel.from_dict(a) if isinstance(a, dict) else PriceLevel.from_list(a) for a in d.get("asks", [])],
-            orderbook_id=_require(d, "orderbook_id", "OrderbookDepthResponse"),
-            market_pubkey=d.get("market_pubkey"),
-            best_bid=d.get("best_bid"),
-            best_ask=d.get("best_ask"),
-            spread=d.get("spread"),
-            tick_size=d.get("tick_size"),
-            price_quantum=price_quantum,
-            trading_rules=_trading_rules_from_dict(rules_raw),
-            bids_truncated=bids_truncated,
-            asks_truncated=asks_truncated,
-            revision=revision,
-            captured_at_ms=captured_at_ms,
-            decimals=OrderbookDepthDecimals.from_dict(decimals_raw),
+            orderbook_id=wire_orderbook_id(
+                take(data, "orderbook_id"), f"{name}.orderbook_id"
+            ),
+            market_pubkey=wire_opt_str(
+                take(data, "market_pubkey"), f"{name}.market_pubkey"
+            ),
+            best_bid=_opt_decimal_text(take(data, "best_bid"), f"{name}.best_bid"),
+            best_ask=_opt_decimal_text(take(data, "best_ask"), f"{name}.best_ask"),
+            spread=_opt_decimal_text(take(data, "spread"), f"{name}.spread"),
+            tick_size=wire_opt_str(take(data, "tick_size"), f"{name}.tick_size"),
+            price_quantum=wire_str(
+                take(data, "price_quantum"), f"{name}.price_quantum"
+            ),
+            trading_rules=_trading_rules_from_dict(
+                wire_object(take(data, "trading_rules"), f"{name}.trading_rules")
+            ),
+            bids_truncated=wire_bool(
+                take(data, "bids_truncated"), f"{name}.bids_truncated", default=False
+            ),
+            asks_truncated=wire_bool(
+                take(data, "asks_truncated"), f"{name}.asks_truncated", default=False
+            ),
+            revision=wire_u64_number(take(data, "revision"), f"{name}.revision"),
+            captured_at_ms=wire_u64_number(
+                take(data, "captured_at_ms"), f"{name}.captured_at_ms"
+            ),
+            bids=wire_array(take(data, "bids"), f"{name}.bids", PriceLevel.from_dict),
+            asks=wire_array(take(data, "asks"), f"{name}.asks", PriceLevel.from_dict),
+            decimals=OrderbookDepthDecimals.from_dict(
+                take(data, "decimals"), f"{name}.decimals"
+            ),
+            ready=wire_bool(take(data, "ready"), f"{name}.ready", default=False),
         )
 
 
@@ -188,19 +204,17 @@ class WsBookLevel:
     quote_notional: str
 
     @staticmethod
-    def from_dict(d: dict) -> "WsBookLevel":
-        quote_notional = _require(d, "quote_notional", "WsBookLevel")
-        if not isinstance(quote_notional, str):
-            from ...error import DeserializationError
-
-            raise DeserializationError(
-                "WsBookLevel quote_notional must be a decimal string"
-            )
+    def from_dict(value: Any, name: str = "level") -> "WsBookLevel":
+        """Decode one level: a text side and plain decimal-text ``price``,
+        ``size``, and ``quote_notional``, all required as in the Rust SDK."""
+        data = wire_object(value, name)
         return WsBookLevel(
-            side=d.get("side", 0),
-            price=str(d.get("price", "0")),
-            size=str(d.get("size", "0")),
-            quote_notional=quote_notional,
+            side=wire_side_text(take(data, "side"), f"{name}.side"),
+            price=_decimal_text(take(data, "price"), f"{name}.price"),
+            size=_decimal_text(take(data, "size"), f"{name}.size"),
+            quote_notional=_decimal_text(
+                take(data, "quote_notional"), f"{name}.quote_notional"
+            ),
         )
 
 
@@ -210,10 +224,12 @@ class WsOrderBook:
 
     The stream is snapshot-only: every data frame carries the full top-20
     levels per side and replaces the previous book wholesale. ``seq`` is the
-    real engine depth revision and is gated within one subscription generation.
+    real engine depth revision and is gated within one subscription
+    generation. Resync frames (``resync: true``) carry no ``seq``, ``ready``,
+    or levels; they read as ``0``, ``False``, and ``[]``.
     """
     orderbook_id: str
-    seq: int
+    seq: int = 0
     is_snapshot: bool = False
     resync: bool = False
     timestamp: Optional[str] = None
@@ -225,6 +241,9 @@ class WsOrderBook:
     #: Always normalized server-side ((5, none) arrives as (5, 1)).
     n_sig_figs: Optional[int] = None
     mantissa: Optional[int] = None
+    #: Whether the engine's committed book is ready (matching live). Absent
+    #: (``False``) on resync frames.
+    ready: bool = False
 
     def aggregation(self) -> "BookAggregation":
         """The aggregation view this frame belongs to (untagged = full
@@ -237,34 +256,46 @@ class WsOrderBook:
 
     @staticmethod
     def from_dict(d: dict) -> "WsOrderBook":
+        name = "book_update"
         ob_id = d.get("orderbook_id") or d.get("id")
         if ob_id is None:
             from ...error import DeserializationError
             raise DeserializationError("Missing required field 'orderbook_id' in WsOrderBook")
-        seq = _require(d, "seq", "WsOrderBook")
-        if not isinstance(seq, int) or isinstance(seq, bool) or seq < 0:
-            from ...error import DeserializationError
-
-            raise DeserializationError("WsOrderBook seq must be a non-negative integer")
-        bids_truncated = d.get("bids_truncated", False)
-        asks_truncated = d.get("asks_truncated", False)
-        if not isinstance(bids_truncated, bool) or not isinstance(asks_truncated, bool):
-            from ...error import DeserializationError
-
-            raise DeserializationError("WsOrderBook truncation flags must be booleans")
+        seq = take(d, "seq")
         return WsOrderBook(
-            orderbook_id=ob_id,
-            is_snapshot=d.get("is_snapshot", False),
-            seq=seq,
-            resync=d.get("resync", False),
-            timestamp=d.get("timestamp"),
-            bids=[WsBookLevel.from_dict(b) for b in d.get("bids", [])],
-            asks=[WsBookLevel.from_dict(a) for a in d.get("asks", [])],
-            bids_truncated=bids_truncated,
-            asks_truncated=asks_truncated,
-            n_sig_figs=d.get("n_sig_figs"),
-            mantissa=d.get("mantissa"),
+            orderbook_id=wire_str(ob_id, f"{name}.orderbook_id"),
+            is_snapshot=wire_bool(
+                take(d, "is_snapshot"), f"{name}.is_snapshot", default=False
+            ),
+            seq=0 if seq is MISSING else wire_u64_number(seq, f"{name}.seq"),
+            ready=wire_bool(take(d, "ready"), f"{name}.ready", default=False),
+            resync=wire_bool(take(d, "resync"), f"{name}.resync", default=False),
+            timestamp=wire_opt_str(take(d, "timestamp"), f"{name}.timestamp"),
+            bids=wire_array(
+                take(d, "bids"), f"{name}.bids", _ws_book_level, default_empty=True
+            ),
+            asks=wire_array(
+                take(d, "asks"), f"{name}.asks", _ws_book_level, default_empty=True
+            ),
+            bids_truncated=wire_bool(
+                take(d, "bids_truncated"), f"{name}.bids_truncated", default=False
+            ),
+            asks_truncated=wire_bool(
+                take(d, "asks_truncated"), f"{name}.asks_truncated", default=False
+            ),
+            n_sig_figs=wire_opt_int(take(d, "n_sig_figs"), f"{name}.n_sig_figs", *U32),
+            mantissa=wire_opt_int(take(d, "mantissa"), f"{name}.mantissa", *U32),
         )
+
+
+def _ws_book_level(value: Any, name: str) -> WsBookLevel:
+    return WsBookLevel.from_dict(value, name)
+
+
+def _decimal_text(value: Any, name: str) -> str:
+    """Required plain decimal text, validated and kept as text."""
+    wire_decimal(value, name)
+    return value
 
 
 @dataclass

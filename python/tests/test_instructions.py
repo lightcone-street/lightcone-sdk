@@ -47,7 +47,6 @@ from lightcone_sdk.program import (
     build_deposit_and_swap_instruction,
     build_deposit_to_global_instruction,
     build_global_to_market_deposit_instruction,
-    build_increment_nonce_instruction,
     build_init_position_tokens_instruction,
     build_initialize_instruction,
     build_match_orders_multi_instruction,
@@ -105,10 +104,10 @@ def signed_order(
     base_mint: Pubkey,
     quote_mint: Pubkey,
     side: OrderSide = OrderSide.BID,
-    nonce: int = 1,
+    salt: int = 1,
 ) -> SignedOrder:
     return SignedOrder(
-        nonce=nonce,
+        salt=salt,
         maker=maker,
         market=market,
         base_mint=base_mint,
@@ -117,7 +116,7 @@ def signed_order(
         amount_in=1_000,
         amount_out=500,
         expiration=1_900_000_000,
-        signature=bytes([nonce] * 64),
+        signature=bytes([salt] * 64),
     )
 
 
@@ -493,19 +492,10 @@ def test_cancel_order_uses_operator_exchange_market_status_layout():
         *event_transport_trailer(),
     ]
     assert ix.accounts[0].is_signer is True
-
-
-def test_increment_nonce_includes_exchange():
-    user = Keypair().pubkey()
-    exchange, _ = get_exchange_pda()
-
-    ix = build_increment_nonce_instruction(user)
-
-    assert len(ix.accounts) == 6
-    assert ix.accounts[0].pubkey == user
-    assert ix.accounts[3].pubkey == exchange
-    assert ix.accounts[3].is_writable is False
-    assert ix.data == bytes([6])
+    # [5] + order hash (32) + signed order (225): no nonce.
+    assert len(ix.data) == 258
+    assert ix.data[0] == 5
+    assert ix.data[1:33] == hash_order(order)
 
 
 def test_set_deposit_token_status_instruction_layout():
@@ -784,7 +774,7 @@ def all_public_builders() -> list[tuple[str, Instruction]]:
     fee_receiver = Pubkey.new_unique()
     taker_order = signed_order(Pubkey.new_unique(), market, base_mint, quote_mint)
     maker_order = signed_order(
-        Pubkey.new_unique(), market, base_mint, quote_mint, OrderSide.ASK, nonce=2
+        Pubkey.new_unique(), market, base_mint, quote_mint, OrderSide.ASK, salt=2
     )
     accept_role = AcceptRoleParams(incoming_role=signer)
     metadata = ConditionalMetadataParams(
@@ -818,7 +808,6 @@ def all_public_builders() -> list[tuple[str, Instruction]]:
             build_merge_complete_set_instruction(signer, market, deposit_mint, 1, 2),
         ),
         ("cancel_order", build_cancel_order_instruction(signer, market, taker_order)),
-        ("increment_nonce", build_increment_nonce_instruction(signer)),
         ("settle_market", build_settle_market_instruction(signer, 0, [1, 0])),
         (
             "redeem_winnings",
@@ -1011,7 +1000,7 @@ def all_public_builders() -> list[tuple[str, Instruction]]:
 
 def test_every_public_builder_ends_with_event_transport_trailer():
     builders = all_public_builders()
-    assert len(builders) == 37, "register new builders in all_public_builders"
+    assert len(builders) == 36, "register new builders in all_public_builders"
     expected = event_transport_trailer()
 
     for name, ix in builders:
@@ -1028,7 +1017,10 @@ def test_event_transport_trailer_follows_custom_program_id():
     program_id = Pubkey.new_unique()
     event_authority, _ = get_event_authority_pda(program_id)
 
-    ix = build_increment_nonce_instruction(Pubkey.new_unique(), program_id)
+    ix = build_close_order_status_instruction(
+        CloseOrderStatusParams(operator=Pubkey.new_unique(), order_hash=bytes(32)),
+        program_id,
+    )
 
     assert ix.program_id == program_id
     assert [meta.pubkey for meta in ix.accounts[-2:]] == [event_authority, program_id]

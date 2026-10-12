@@ -3,10 +3,6 @@ import bs58 from "bs58";
 import type { ClientContext } from "../context";
 import { requireSigningStrategy } from "../context";
 import { SdkError } from "../error";
-import { RetryPolicy } from "../http";
-import {
-  privyOrderFromLimitEnvelope,
-} from "../privy";
 import {
   ScalingError,
   scalePriceSize,
@@ -21,20 +17,25 @@ import type {
   SubmitOrderRequest,
   TimeInForce,
 } from "../shared";
-import type { SubmitOrderResponse } from "../domain/order/client";
+import { Orders, type SubmitOrderResponse } from "../domain/order/client";
 import { ProgramSdkError } from "./error";
 import {
+  applySignature,
   generateSalt,
   hashOrderHex,
   signOrder,
   signOrderFull,
   toSubmitRequest,
-  type SubmitRequestOptions,
 } from "./orders";
 import { OrderSide, type SignedOrder } from "./types";
 
 interface OrderFields {
-  nonce?: number;
+  /**
+   * The salt is the order's only identity. When the caller does not set one,
+   * the first build draws a random salt and every later `payload()`,
+   * `sign()`, `finalize()`, or `submit()` on this envelope reuses it, so the
+   * hash a wallet signs is the hash that is submitted.
+   */
   salt?: bigint;
   maker?: PublicKey;
   market?: PublicKey;
@@ -43,6 +44,11 @@ interface OrderFields {
   side?: OrderSide;
   amountIn?: bigint;
   amountOut?: bigint;
+  /**
+   * Whether `amountIn`/`amountOut` were derived from price and size, so the
+   * next build derives them again from the current price, size, and side.
+   */
+  amountsDerived?: boolean;
   expiration: bigint;
   priceRaw?: string;
   sizeRaw?: string;
@@ -56,20 +62,22 @@ function defaultFields(): OrderFields {
 }
 
 function toUnsignedOrder(fields: OrderFields): Omit<SignedOrder, "signature"> {
-  if (fields.nonce === undefined) throw ProgramSdkError.missingField("nonce");
+  // The amounts are checked first, then the salt is fixed, then the
+  // identities, in the Rust SDK's order.
+  if (fields.amountIn === undefined) throw ProgramSdkError.missingField("amount_in");
+  if (fields.amountOut === undefined) throw ProgramSdkError.missingField("amount_out");
+  if (fields.amountIn === 0n) throw ProgramSdkError.missingField("amount_in must be greater than 0");
+  if (fields.amountOut === 0n) throw ProgramSdkError.missingField("amount_out must be greater than 0");
+  validateSignedFields(fields.amountIn, fields.amountOut);
+  const salt = fields.salt ?? generateSalt();
+  fields.salt = salt;
   if (!fields.maker) throw ProgramSdkError.missingField("maker");
   if (!fields.market) throw ProgramSdkError.missingField("market");
   if (!fields.baseMint) throw ProgramSdkError.missingField("base_mint");
   if (!fields.quoteMint) throw ProgramSdkError.missingField("quote_mint");
-  if (fields.side === undefined) throw ProgramSdkError.missingField("side");
-  if (fields.amountIn === undefined) throw ProgramSdkError.missingField("amount_in");
-  if (fields.amountOut === undefined) throw ProgramSdkError.missingField("amount_out");
+  if (fields.side === undefined) throw ProgramSdkError.missingField("side (call .bid() or .ask())");
 
-  const salt = fields.salt ?? generateSalt();
-  fields.salt = salt;
-  validateSignedFields(fields.amountIn, fields.amountOut, salt, fields.nonce);
   return {
-    nonce: fields.nonce,
     salt,
     maker: fields.maker,
     market: fields.market,
@@ -83,7 +91,6 @@ function toUnsignedOrder(fields: OrderFields): Omit<SignedOrder, "signature"> {
 }
 
 export interface OrderEnvelope {
-  nonce(value: number): this;
   salt(value: bigint): this;
   maker(value: PublicKey): this;
   market(value: PublicKey): this;
@@ -110,11 +117,7 @@ class BaseEnvelope {
     this.fields = fields ? { ...fields } : defaultFields();
   }
 
-  nonce(value: number): this {
-    this.fields.nonce = value;
-    return this;
-  }
-
+  /** Set the order's identity salt (any u64). Drawn once when omitted. */
   salt(value: bigint): this {
     this.fields.salt = value;
     return this;
@@ -141,26 +144,31 @@ class BaseEnvelope {
   }
 
   bid(): this {
+    this.clearDerivedAmounts();
     this.fields.side = OrderSide.BID;
     return this;
   }
 
   ask(): this {
+    this.clearDerivedAmounts();
     this.fields.side = OrderSide.ASK;
     return this;
   }
 
   side(value: OrderSide): this {
+    this.clearDerivedAmounts();
     this.fields.side = value;
     return this;
   }
 
   amountIn(value: bigint): this {
+    this.clearDerivedAmounts();
     this.fields.amountIn = value;
     return this;
   }
 
   amountOut(value: bigint): this {
+    this.clearDerivedAmounts();
     this.fields.amountOut = value;
     return this;
   }
@@ -171,11 +179,13 @@ class BaseEnvelope {
   }
 
   price(value: string): this {
+    this.clearDerivedAmounts();
     this.fields.priceRaw = value;
     return this;
   }
 
   size(value: string): this {
+    this.clearDerivedAmounts();
     this.fields.sizeRaw = value;
     return this;
   }
@@ -189,10 +199,7 @@ class BaseEnvelope {
     return toUnsignedOrder(this.fields);
   }
 
-  getNonce(): number | undefined {
-    return this.fields.nonce;
-  }
-
+  /** The salt, once set by the caller or fixed by the first build. */
   getSalt(): bigint | undefined {
     return this.fields.salt;
   }
@@ -252,14 +259,31 @@ class BaseEnvelope {
     }
   }
 
-  /** Construct or preflight the signed ratio using fetched immutable rules. */
+  /**
+   * Forget amounts derived from price and size by an earlier build, so a
+   * price, size, or side change can never leave stale amounts for `payload()`.
+   */
+  private clearDerivedAmounts(): void {
+    if (this.fields.amountsDerived) {
+      this.fields.amountIn = undefined;
+      this.fields.amountOut = undefined;
+      this.fields.amountsDerived = false;
+    }
+  }
+
+  /**
+   * Construct or preflight the signed ratio using fetched immutable rules.
+   * Amounts derived from price and size are derived again on every build, so
+   * a later price, size, or side change is never ignored.
+   */
   protected applyRules(rules: OrderbookRules, orderbookId: string): void {
     if (rules.orderbookId !== orderbookId) {
       throw new ScalingError(
         `trading rules for orderbook '${rules.orderbookId}' cannot be used for '${orderbookId}'`
       );
     }
-    if (this.fields.side === undefined) throw ProgramSdkError.missingField("side");
+    if (this.fields.side === undefined) throw ProgramSdkError.missingField("side (call .bid() or .ask())");
+    this.clearDerivedAmounts();
     if (this.fields.amountIn !== undefined && this.fields.amountOut !== undefined) {
       validateRawAmounts(this.fields.amountIn, this.fields.amountOut, this.fields.side, rules);
       return;
@@ -272,26 +296,9 @@ class BaseEnvelope {
     const scaled = scalePriceSize(this.fields.priceRaw, this.fields.sizeRaw, this.fields.side, rules);
     this.fields.amountIn = scaled.amountIn;
     this.fields.amountOut = scaled.amountOut;
+    this.fields.amountsDerived = true;
   }
 
-  protected finalizeWithHexSignature(
-    signatureHex: string,
-    orderbookId: string,
-    options: SubmitRequestOptions = {}
-  ): SubmitOrderRequest {
-    const unsigned = toUnsignedOrder(this.fields);
-    return toSubmitRequest(
-      {
-        ...unsigned,
-        signature: Buffer.from(signatureHex, "hex"),
-      },
-      orderbookId,
-      {
-        ...options,
-        depositSource: this.fields.depositSource,
-      }
-    );
-  }
 }
 
 export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
@@ -320,44 +327,49 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
     });
   }
 
+  /** Validate an external base58 signature and attach it to this order. */
   finalize(signatureBase58: string, orderbook: OrderBookPair, rules: OrderbookRules): SubmitOrderRequest {
     this.autoFillFromOrderbook(orderbook);
     this.applyRules(rules, orderbook.orderbookId);
-    const signatureHex = Buffer.from(bs58.decode(signatureBase58)).toString("hex");
-    return this.finalizeWithHexSignature(signatureHex, orderbook.orderbookId, {
+    const signed = applySignature(this.payload(), signatureBase58, rules);
+    return toSubmitRequest(signed, orderbook.orderbookId, {
       timeInForce: this.timeInForceValue,
+      depositSource: this.getDepositSource(),
     });
   }
 
+  /**
+   * Submit this order using the client's signing strategy.
+   *
+   * - **native**: signs locally with the keypair, submits via REST
+   * - **walletAdapter**: signs the order hash via the external signer,
+   *   submits via REST
+   *
+   * Fills orderbook-derived fields (market, mints, salt) and scales
+   * price/size to raw amounts before signing. Submission is never retried:
+   * if the outcome is unknown (`ENGINE_UNAVAILABLE`, a timeout, or a lost
+   * connection), call `submit` again on this same envelope, which reuses its
+   * salt and resubmits the identical order; `DUPLICATE_ORDER` or
+   * `ALREADY_EXISTS` then proves the first submission was accepted. Changing
+   * any field, including the salt, creates a different order.
+   */
   async submit(
     client: ClientContext,
     orderbook: OrderBookPair
   ): Promise<SubmitOrderResponse> {
     const rules = await new Orderbooks(client).decimals(orderbook.orderbookId);
-    const strategy = requireSigningStrategy(client);
+    // Validate the envelope before resolving the signing strategy, as Rust does.
     this.autoFillFromOrderbook(orderbook);
     this.applyRules(rules, orderbook.orderbookId);
-
-    // Nonce cache: cache if explicitly set, auto-populate from cache if not
-    if (this.fields.nonce !== undefined) {
-      client.setOrderNonce?.(this.fields.nonce);
-    } else {
-      this.fields.nonce = client.orderNonce?.() ?? 0;
-    }
+    const strategy = requireSigningStrategy(client);
 
     switch (strategy.type) {
       case "native": {
         const request = this.sign(strategy.keypair, orderbook, rules);
-        const url = `${client.http.baseUrl()}/api/orders/submit`;
-        return client.http.post<SubmitOrderResponse, SubmitOrderRequest>(
-          url,
-          request,
-          RetryPolicy.None
-        );
+        return new Orders(client).submit(request);
       }
       case "walletAdapter": {
-        const unsigned = this.payload();
-        const hash = hashOrderHex({ ...unsigned, signature: Buffer.alloc(64) });
+        const hash = hashOrderHex(this.payload());
         const sigBytes = await strategy.signer
           .signMessage(new TextEncoder().encode(hash))
           .catch((err: unknown) => {
@@ -366,18 +378,12 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
             throw SdkError.signing(msg);
           });
         const request = this.finalize(bs58.encode(sigBytes), orderbook, rules);
-        const url = `${client.http.baseUrl()}/api/orders/submit`;
-        return client.http.post<SubmitOrderResponse, SubmitOrderRequest>(
-          url,
-          request,
-          RetryPolicy.None
+        return new Orders(client).submit(request);
+      }
+      case "privy":
+        throw SdkError.validation(
+          "Privy order signing is not supported; configure a native signer or an ExternalSigner"
         );
-      }
-      case "privy": {
-        const envelope = privyOrderFromLimitEnvelope(this, orderbook.orderbookId);
-        const url = `${client.http.baseUrl()}/api/privy/sign_and_send_order`;
-        return client.http.post(url, { wallet_id: strategy.walletId, order: envelope }, RetryPolicy.None);
-      }
     }
   }
 }

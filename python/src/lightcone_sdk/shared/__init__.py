@@ -1,6 +1,7 @@
 """Shared utilities used across the Lightcone SDK."""
 
 from .api_response import ApiRejectedDetails, ApiResponse
+from .decimal_text import DecimalText
 from .fmt import (
     abbr_number,
     display,
@@ -12,11 +13,11 @@ from .fmt import (
     to_decimal_value,
 )
 from .price import format_decimal, is_zero, parse_decimal
-from .rejection import RejectionCode
+from .rejection import ErrorCode, RejectionCode
 from .scaling import (
     I64_MAX,
     PRICE_SCALE,
-    U32_MAX,
+    U64_MAX,
     OrderbookRules,
     ScaledAmounts,
     ScalingError,
@@ -33,8 +34,10 @@ from .signing import (
     classify_signer_error,
 )
 from .types import (
+    CommitInfo,
     Denominator,
     DepositSource,
+    FundingSource,
     OrderBookId,
     OrderUpdateType,
     PubkeyStr,
@@ -60,11 +63,15 @@ __all__ = [
     "ApiResponse",
     "ApiRejectedDetails",
     "RejectionCode",
+    "ErrorCode",
     "Side",
     "Denominator",
     "TimeInForce",
     "OrderUpdateType",
     "DepositSource",
+    "FundingSource",
+    "CommitInfo",
+    "DecimalText",
     "Resolution",
     "SubmitOrderRequest",
     # Formatting
@@ -91,7 +98,7 @@ __all__ = [
     "validate_signed_fields",
     "PRICE_SCALE",
     "I64_MAX",
-    "U32_MAX",
+    "U64_MAX",
     # Signing
     "ExternalSigner",
     "SigningStrategy",

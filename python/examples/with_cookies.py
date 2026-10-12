@@ -38,7 +38,7 @@ async def main():
     cookie_header = f"lightcone-token={auth_token}"
 
     positions = await client.positions().positions_with_cookies(cookie_header)
-    print(f"markets with positions: {positions.total_markets}")
+    print(f"funding accounts: {len(positions.funding_accounts)}")
 
     balances = await client.positions().deposit_token_balances_with_cookies(
         None, cookie_header

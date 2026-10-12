@@ -1,6 +1,11 @@
 import type { OrderBookId } from "../../shared";
 import type { Trade } from "./index";
 
+/**
+ * Rolling trade history buffer for an orderbook.
+ *
+ * The app owns instances of this type. The SDK provides update methods.
+ */
 export class TradeHistory {
   readonly orderbookId: OrderBookId;
   private readonly maxSize: number;
@@ -13,48 +18,41 @@ export class TradeHistory {
   }
 
   /**
-   * Insert a trade in descending sequence order.
+   * Push a trade, keeping the buffer newest-first by execution time.
    *
-   * Trades with `sequence > 0` are placed at the correct position so the
-   * buffer stays sorted newest-first. Trades with `sequence === 0` (REST)
-   * are prepended.
+   * Trades are deduplicated by `tradeId`, which REST and WS share, so live
+   * trades can be merged into REST history (a duplicate only fills in a
+   * missing REST `cursorId`). Equal timestamps keep arrival order, newest
+   * first. When full, a trade older than everything retained is dropped.
+   * The history stores a copy and never changes a pushed `Trade`.
    */
   push(trade: Trade): void {
     // Treat a zero-capacity history as disabled.
     if (this.maxSize === 0) {
       return;
     }
-    if (trade.sequence === 0) {
-      // REST trades do not carry ordering metadata, so preserve the legacy
-      // "latest first" behavior and let normal capacity eviction apply.
-      this.buffer.unshift(trade);
-      if (this.buffer.length > this.maxSize) {
-        this.buffer.pop();
+    const index = this.buffer.findIndex((retained) => retained.tradeId === trade.tradeId);
+    if (index !== -1) {
+      const existing = this.buffer[index];
+      if (existing.cursorId === undefined && trade.cursorId !== undefined) {
+        this.buffer[index] = { ...existing, cursorId: trade.cursorId };
       }
       return;
     }
-    // Find the first retained trade that is older than the incoming sequence.
-    // Inserting there keeps the buffer sorted newest-first.
-    const position = this.buffer.findIndex(
-      (existing) => existing.sequence < trade.sequence,
+    let position = this.buffer.findIndex(
+      (retained) => retained.timestamp.getTime() <= trade.timestamp.getTime(),
     );
-    if (this.buffer.length >= this.maxSize && position === -1) {
-      // The buffer is full and the new trade is older than everything we
-      // already keep, so dropping it preserves the newest retained window.
+    if (position === -1) position = this.buffer.length;
+    if (this.buffer.length >= this.maxSize && position === this.buffer.length) {
       return;
     }
-    if (position === -1) {
-      this.buffer.push(trade);
-    } else {
-      this.buffer.splice(position, 0, trade);
-    }
+    this.buffer.splice(position, 0, { ...trade });
     if (this.buffer.length > this.maxSize) {
-      // The new trade landed inside the retained window, so evict the oldest
-      // trade at the tail to restore capacity.
       this.buffer.pop();
     }
   }
 
+  /** Replace all trades (e.g. from a REST fetch). */
   replace(trades: Trade[]): void {
     this.buffer.length = 0;
     this.buffer.push(...trades.slice(0, this.maxSize));

@@ -3,13 +3,6 @@ import { RetryPolicy, type LightconeHttp } from "../http";
 import type {
   ExportWalletRequest,
   ExportWalletResponse,
-  LimitCancelResponse,
-  PrivyOrderEnvelope,
-  SignAndCancelAllRequest,
-  SignAndCancelAllResponse,
-  SignAndCancelOrderRequest,
-  SignAndSendOrderRequest,
-  SignAndSendOrderResponse,
   SignAndSendTxResponse,
 } from "./index";
 
@@ -23,48 +16,6 @@ export class Privy {
   /** Privy sign-and-send cannot expose the signed bytes required by v1 validation. */
   async signAndSendTx(_walletId: string, _base64Tx: string): Promise<SignAndSendTxResponse> {
     throw SdkError.validation("Privy sign-and-send cannot verify v1 signed bytes; configure an ExternalSigner that returns signed transaction bytes");
-  }
-
-  async signAndSendOrder(walletId: string, order: PrivyOrderEnvelope): Promise<SignAndSendOrderResponse> {
-    const url = `${this.client.http.baseUrl()}/api/privy/sign_and_send_order`;
-    const body: SignAndSendOrderRequest = {
-      wallet_id: walletId,
-      order,
-    };
-    return this.client.http.post<SignAndSendOrderResponse, SignAndSendOrderRequest>(url, body, RetryPolicy.None);
-  }
-
-  async signAndCancelOrder(walletId: string, orderHash: string, maker: string): Promise<LimitCancelResponse> {
-    const url = `${this.client.http.baseUrl()}/api/privy/sign_and_cancel_order`;
-    const body: SignAndCancelOrderRequest = {
-      wallet_id: walletId,
-      maker,
-      cancel_type: "limit",
-      order_hash: orderHash,
-    };
-    return this.client.http.post<LimitCancelResponse, SignAndCancelOrderRequest>(
-      url,
-      body,
-      RetryPolicy.None
-    );
-  }
-
-  async signAndCancelAllOrders(
-    walletId: string,
-    userPubkey: string,
-    orderbookId: string,
-    timestamp: number,
-    salt: string
-  ): Promise<SignAndCancelAllResponse> {
-    const url = `${this.client.http.baseUrl()}/api/privy/sign_and_cancel_all_orders`;
-    const body: SignAndCancelAllRequest = {
-      wallet_id: walletId,
-      user_pubkey: userPubkey,
-      orderbook_id: orderbookId,
-      timestamp,
-      salt,
-    };
-    return this.client.http.post<SignAndCancelAllResponse, SignAndCancelAllRequest>(url, body, RetryPolicy.None);
   }
 
   async exportWallet(walletId: string, decodePubkeyBase64: string): Promise<ExportWalletResponse> {

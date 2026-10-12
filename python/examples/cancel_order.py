@@ -31,9 +31,9 @@ async def main():
     await login(client, keypair)
     pubkey = str(keypair.pubkey())
 
-    # 1. Find an open limit order
-    snapshot = await client.orders().get_user_orders(50)
-    limit_order = next((o for o in snapshot.orders if o.order_type == "limit"), None)
+    # 1. Find an open order
+    page = await client.orders().get_user_orders(50)
+    limit_order = next(iter(page.orders), None)
 
     if limit_order is None:
         print("No open limit orders to cancel.")
@@ -48,7 +48,13 @@ async def main():
     cancelled = await client.orders().cancel(
         CancelBody(order_hash=order_hash, maker=pubkey, signature=signature)
     )
-    print(f"cancelled: {cancelled.order_hash} remaining={cancelled.remaining}")
+    quantities = cancelled.quantities
+    print(
+        f"cancel: {cancelled.order_hash} {cancelled.status.value} "
+        f"revision={cancelled.revision} "
+        f"newly_cancelled_base_atoms="
+        f"{quantities.newly_cancelled_base if quantities else 'n/a'}"
+    )
 
     # 3. Cancel all orders in an orderbook
     timestamp = unix_timestamp()
@@ -63,7 +69,13 @@ async def main():
             salt=salt,
         )
     )
-    print(f"cancel-all removed {cleared.count} order(s) in {cleared.orderbook_id}")
+    if cleared.closure is not None:
+        print(
+            f"cancel-all cutoff committed at revision {cleared.closure.committed_revision} "
+            f"(accepted_seq <= {cleared.closure.accepted_seq_cutoff}) in {cleared.orderbook_id}"
+        )
+    else:
+        print(f"cancel-all: {cleared.message}")
 
     # 4. Cleanup: cancelling the order released its locked collateral back into
     #    the global pool. Withdraw that amount to the user's token account so

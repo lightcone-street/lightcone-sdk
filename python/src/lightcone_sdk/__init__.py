@@ -1,6 +1,12 @@
 """Lightcone SDK - Python SDK for the Lightcone protocol on Solana."""
 
-__version__ = "0.7.0"
+from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
+from importlib.metadata import version as _package_version
+
+try:
+    __version__ = _package_version("lightcone-sdk")
+except _PackageNotFoundError:  # imported from a source tree that is not installed
+    __version__ = "0+unknown"
 
 # ============================================================================
 # Layer 1: Core
@@ -58,6 +64,48 @@ from .domain.market import (
     MarketResolutionResponse,
 )
 
+# Committed-trading order responses, the WS ``user`` channel, and the open-order
+# container. The domain order status is ``lightcone_sdk.domain.order.OrderStatus``;
+# the top-level ``OrderStatus`` is the on-chain order-status account.
+from .domain.order import (
+    ApplyOutcome,
+    CancelAllBody,
+    CancelAllSuccess,
+    CancelBody,
+    CancelQuantities,
+    CancelStatus,
+    CancelSuccess,
+    ClosureAck,
+    ClosureScope,
+    ClosureUpdate,
+    FillInfo,
+    InitialCohort,
+    InitialCohortState,
+    LimitOrder,
+    NotificationUpdate,
+    OrderFillEvent,
+    OrderState,
+    OrderType,
+    OrderUpdate,
+    RecordedOrderState,
+    RecoveryCompleted,
+    Role,
+    SubmitOrderResponse,
+    SubmitOrderStatus,
+    UserOpenLimitOrders,
+    UserOrder,
+    UserOrderFill,
+    UserOrderFillsResponse,
+    UserOrdersResponse,
+    UserSnapshot,
+    UserSnapshotOrder,
+    UserUpdate,
+    convert_snapshot_orders,
+    limit_order_from_snapshot,
+    limit_order_from_update,
+    limit_order_from_user_order,
+)
+
 # External-wallet balance wire models, reducer state, and lifecycle results.
 from .domain.position import (
     SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS,
@@ -79,6 +127,23 @@ from .domain.position import (
     WalletNativeSolBalanceUpdate,
     native_withdraw_seed,
 )
+
+# Committed custody funding (positions routes and the WS ``user`` channel).
+from .domain.position.wire import (
+    FundingAccount,
+    FundingUpdate,
+    MarketPositionsResponse,
+    ObservationState,
+    PositionsResponse,
+)
+from .domain.trade import (
+    Trade,
+    TradeHistory,
+    TradesPage,
+    WsTrade,
+    trade_from_wire,
+    trade_from_ws,
+)
 from .env import PROGRAM_ID, LightconeEnv
 from .error import (
     ApiRejected,
@@ -96,6 +161,7 @@ from .error import (
     TransactionExpired,
     TransactionFailed,
     UserCancelled,
+    ValidationError,
     WsError,
     WsErrorKind,
 )
@@ -116,13 +182,8 @@ from .http import (
 from .privy import (
     ExportWalletRequest,
     ExportWalletResponse,
-    PrivyOrderEnvelope,
-    SignAndCancelAllRequest,
-    SignAndCancelOrderRequest,
-    SignAndSendOrderRequest,
     SignAndSendTxRequest,
     SignAndSendTxResponse,
-    privy_order_from_limit_envelope,
 )
 from .privy.client import Privy
 
@@ -145,7 +206,6 @@ from .program import (
     PARTICIPANT_MASK_LEN,
     RENT_SYSVAR_ID,
     SEED_CONDITION,
-    SEED_FEE_RECEIVER,
     SEED_GLOBAL_DEPOSIT,
     SEED_MPL_METADATA,
     SIGNED_ORDER_SIZE,
@@ -225,7 +285,6 @@ from .program import (
     SignedOrder,
     TokenAccountNotEmptyError,
     TooManyMakersError,
-    UserNonce,
     WhitelistDepositTokenParams,
     WithdrawConditionalFromPositionParams,
     WithdrawFromGlobalParams,
@@ -245,7 +304,6 @@ from .program import (
     build_deposit_instruction,
     build_deposit_to_global_instruction,
     build_global_to_market_deposit_instruction,
-    build_increment_nonce_instruction,
     build_init_position_tokens_instruction,
     build_initialize_instruction,
     build_match_orders_multi_instruction,
@@ -284,7 +342,6 @@ from .program import (
     deserialize_order_status,
     deserialize_orderbook,
     deserialize_position,
-    deserialize_user_nonce,
     generate_cancel_all_salt,
     get_all_conditional_mint_pdas,
     get_all_conditional_mints,
@@ -302,7 +359,6 @@ from .program import (
     get_orderbook_pda,
     get_position_pda,
     get_user_global_deposit_pda,
-    get_user_nonce_pda,
     get_vault_pda,
     hash_order,
     hash_order_hex,
@@ -333,10 +389,13 @@ from .rpc import CanonicalWsolAccountInfo, Rpc, TransactionSimulation
 from .shared import (
     ApiRejectedDetails,
     ApiResponse,
+    CommitInfo,
+    DecimalText,
     DepositSource,
+    ErrorCode,
+    FundingSource,
     OrderBookId,
     OrderbookRules,
-    OrderUpdateType,
     PubkeyStr,
     RejectionCode,
     Resolution,
@@ -432,16 +491,69 @@ __all__ = [
     "MarketResolutionKind",
     "MarketResolutionPayout",
     "MarketResolutionResponse",
+    # Orders (committed trading)
+    "ApplyOutcome",
+    "CancelAllBody",
+    "CancelAllSuccess",
+    "CancelBody",
+    "CancelQuantities",
+    "CancelStatus",
+    "CancelSuccess",
+    "ClosureAck",
+    "ClosureScope",
+    "ClosureUpdate",
+    "FillInfo",
+    "InitialCohort",
+    "InitialCohortState",
+    "LimitOrder",
+    "NotificationUpdate",
+    "OrderFillEvent",
+    "OrderState",
+    "OrderType",
+    "OrderUpdate",
+    "RecordedOrderState",
+    "RecoveryCompleted",
+    "Role",
+    "SubmitOrderResponse",
+    "SubmitOrderStatus",
+    "UserOpenLimitOrders",
+    "UserOrder",
+    "UserOrderFill",
+    "UserOrderFillsResponse",
+    "UserOrdersResponse",
+    "UserSnapshot",
+    "UserSnapshotOrder",
+    "UserUpdate",
+    "convert_snapshot_orders",
+    "limit_order_from_snapshot",
+    "limit_order_from_update",
+    "limit_order_from_user_order",
+    # Funding accounts
+    "FundingAccount",
+    "FundingUpdate",
+    "MarketPositionsResponse",
+    "ObservationState",
+    "PositionsResponse",
+    # Trades
+    "Trade",
+    "TradeHistory",
+    "TradesPage",
+    "WsTrade",
+    "trade_from_wire",
+    "trade_from_ws",
     # Shared types
     "OrderBookId",
     "PubkeyStr",
     "ApiResponse",
     "ApiRejectedDetails",
     "RejectionCode",
+    "ErrorCode",
     "Side",
     "TimeInForce",
-    "OrderUpdateType",
     "DepositSource",
+    "FundingSource",
+    "CommitInfo",
+    "DecimalText",
     "Resolution",
     "SubmitOrderRequest",
     # Shared utils
@@ -465,6 +577,8 @@ __all__ = [
     # Errors
     "SdkError",
     "ApiRejected",
+    "DeserializationError",
+    "ValidationError",
     "MissingMarketContext",
     "SigningError",
     "UserCancelled",
@@ -517,16 +631,11 @@ __all__ = [
     "SigningStrategy",
     "SigningStrategyKind",
     # Privy
-    "PrivyOrderEnvelope",
     "SignAndSendTxRequest",
     "SignAndSendTxResponse",
-    "SignAndSendOrderRequest",
-    "SignAndCancelOrderRequest",
-    "SignAndCancelAllRequest",
     "ExportWalletRequest",
     "ExportWalletResponse",
     "Privy",
-    "privy_order_from_limit_envelope",
     # HTTP
     "LightconeHttp",
     "RetryPolicy",
@@ -570,7 +679,6 @@ __all__ = [
     "Market",
     "Position",
     "OrderStatus",
-    "UserNonce",
     "Orderbook",
     "GlobalDepositToken",
     "SignedOrder",
@@ -632,7 +740,6 @@ __all__ = [
     "MAX_DEPOSIT_MINTS_PER_IX",
     "SEED_GLOBAL_DEPOSIT",
     "SEED_CONDITION",
-    "SEED_FEE_RECEIVER",
     "SEED_MPL_METADATA",
     "GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR",
     "GLOBAL_DEPOSIT_TOKEN_SIZE",
@@ -681,7 +788,6 @@ __all__ = [
     "deserialize_position",
     "deserialize_order_status",
     "deserialize_orderbook",
-    "deserialize_user_nonce",
     "deserialize_global_deposit_token",
     "is_global_deposit_token",
     # Program - PDAs
@@ -691,7 +797,6 @@ __all__ = [
     "get_mint_authority_pda",
     "get_conditional_mint_pda",
     "get_order_status_pda",
-    "get_user_nonce_pda",
     "get_position_pda",
     "get_orderbook_pda",
     "get_condition_tombstone_pda",
@@ -743,7 +848,6 @@ __all__ = [
     "build_deposit_instruction",
     "build_merge_instruction",
     "build_cancel_order_instruction",
-    "build_increment_nonce_instruction",
     "build_settle_market_instruction",
     "build_redeem_winnings_instruction",
     "build_set_paused_instruction",

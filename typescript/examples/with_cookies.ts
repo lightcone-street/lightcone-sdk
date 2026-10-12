@@ -33,7 +33,7 @@ async function main() {
   const cookieHeader = `lightcone-token=${authToken}`;
 
   const positions = await client.positions().positionsWithCookies(cookieHeader);
-  console.log("markets with positions:", positions.total_markets);
+  console.log("funding accounts:", positions.funding_accounts.length);
 
   const balances = await client
     .positions()
@@ -53,7 +53,7 @@ async function main() {
 
   const fills = await client
     .orders()
-    .getUserOrderFillsWithCookies(undefined, 50, undefined, cookieHeader);
+    .getUserOrderFillsWithCookies(undefined, 50, undefined, undefined, cookieHeader);
   console.log("order fills:", fills.orders.length);
 
   const userMetrics = await client.metrics().userWithCookies(cookieHeader);

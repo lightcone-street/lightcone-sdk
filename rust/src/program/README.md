@@ -80,15 +80,6 @@ Tracks order fill state and cancellation.
 | is_cancelled | 24 | 1 | `bool` | Whether order has been cancelled |
 | _padding | 25 | 7 | - | Reserved |
 
-### UserNonce (16 bytes)
-
-User's nonce for mass order cancellation.
-
-| Field | Offset | Size | Type | Description |
-|-------|--------|------|------|-------------|
-| discriminator | 0 | 8 | `[u8; 8]` | `USER_NONCE_DISCRIMINATOR` |
-| nonce | 8 | 8 | `u64` | Current nonce value |
-
 ### Orderbook (176 bytes)
 
 The orderbook records one market outcome and two distinct collateral assets. Its decoder requires exactly 176 bytes.
@@ -161,10 +152,6 @@ let position = rpc.get_position_onchain(&owner, &market_pda).await?;
 // Order status (returns None if not found)
 let status = rpc.get_order_status(&order_hash).await?;
 
-// User nonce (returns 0 if account doesn't exist)
-let nonce = rpc.get_user_nonce(&user).await?;
-let nonce_u32 = rpc.get_current_nonce(&user).await?;
-
 // Next market ID
 let next_id = rpc.get_next_market_id().await?;
 
@@ -215,8 +202,8 @@ let ix = client.positions().withdraw().await
 
 **Orders — On-Chain Order Operations (`client.orders()`):**
 ```rust
-let ix = client.orders().cancel_order_ix(&maker, &market, &order);
-let ix = client.orders().increment_nonce_ix(&user);
+// The program requires the exchange operator to sign on-chain cancellation.
+let ix = client.orders().cancel_order_ix(&operator, &market, &order);
 let ix = client.orders().close_order_status_ix(&CloseOrderStatusParams { operator, order_hash });
 ```
 
@@ -262,7 +249,7 @@ Order helpers are on the `client.orders()` sub-client:
 ```rust
 // Create unsigned orders
 let order = client.orders().create_bid_order(BidOrderParams {
-    nonce: 1,
+    salt: lightcone::program::orders::generate_salt(), // the order's only identity; any u64
     maker: pubkey,
     market: market_pda,
     base_mint: yes_token,
@@ -295,12 +282,11 @@ All functions return `(Pubkey, u8)` (address, bump).
 | `get_exchange_pda(program_id)` | `["central_state"]` | Exchange singleton |
 | `get_event_authority_pda(program_id)` | `["__event_authority"]` | Event-authority PDA appended to every public instruction |
 | `get_market_pda(market_id, program_id)` | `["market", market_id.to_le_bytes()]` | Market account |
-| `get_condition_tombstone_pda(condition_id, program_id)` | `["condition", condition_id]` | Resolved condition tombstone |
+| `get_condition_tombstone_pda(condition_id, program_id)` | `["condition", condition_id]` | Condition tombstone created with the market, so a condition id is never reused |
 | `get_vault_pda(deposit_mint, market, program_id)` | `["market_deposit_token_account", deposit_mint, market]` | Deposit vault |
 | `get_mint_authority_pda(market, program_id)` | `["market_mint_authority", market]` | Conditional token mint authority |
 | `get_conditional_mint_pda(market, deposit_mint, outcome, program_id)` | `["conditional_mint", market, deposit_mint, [outcome]]` | Conditional token mint |
 | `get_order_status_pda(order_hash, program_id)` | `["order_status", order_hash]` | Order fill status |
-| `get_user_nonce_pda(user, program_id)` | `["user_nonce", user]` | User nonce account |
 | `get_position_pda(owner, market, program_id)` | `["position", owner, market]` | User position |
 | `get_orderbook_pda(mint_a, mint_b, program_id)` | `["orderbook", canonical_mint_a, canonical_mint_b]` | Canonical orderbook |
 | `get_global_deposit_token_pda(mint, program_id)` | `["global_deposit", mint]` | Whitelisted global deposit token |
@@ -318,23 +304,22 @@ let (cond_mint, _) = get_conditional_mint_pda(&market, &deposit_mint, 0, &progra
 
 ## Order Types
 
-### OrderPayload (233 bytes)
+### OrderPayload (225 bytes)
 
-Complete order with signature for off-chain storage and API submission.
+Complete order with signature for off-chain storage and API submission. There is no per-user nonce: the salt is the order's only identity, and bytes 0..161 are the signing preimage. Integers are little-endian.
 
 | Field | Offset | Size | Type | Description |
 |-------|--------|------|------|-------------|
-| nonce | 0 | 8 | `u64` | Unique order identifier (must exceed user's on-chain nonce) |
-| salt | 8 | 8 | `u64` | Random salt for order uniqueness |
-| maker | 16 | 32 | `Pubkey` | Order creator |
-| market | 48 | 32 | `Pubkey` | Market pubkey |
-| base_mint | 80 | 32 | `Pubkey` | Token being bought (bids) or sold (asks) |
-| quote_mint | 112 | 32 | `Pubkey` | Token being given (bids) or received (asks) |
-| side | 144 | 1 | `OrderSide` | Bid=0, Ask=1 |
-| amount_in | 145 | 8 | `u64` | Amount maker gives (quote for bids, base for asks) |
-| amount_out | 153 | 8 | `u64` | Amount maker receives (base for bids, quote for asks) |
-| expiration | 161 | 8 | `i64` | Unix timestamp (0 = no expiration) |
-| signature | 169 | 64 | `[u8; 64]` | Ed25519 signature |
+| salt | 0 | 8 | `u64` | Order identity; any u64, including 0. Use a distinct salt per order |
+| maker | 8 | 32 | `Pubkey` | Order creator |
+| market | 40 | 32 | `Pubkey` | Market pubkey |
+| base_mint | 72 | 32 | `Pubkey` | Token being bought (bids) or sold (asks) |
+| quote_mint | 104 | 32 | `Pubkey` | Token being given (bids) or received (asks) |
+| side | 136 | 1 | `OrderSide` | Bid=0, Ask=1 |
+| amount_in | 137 | 8 | `u64` | Raw atoms the maker gives (quote for bids, base for asks) |
+| amount_out | 145 | 8 | `u64` | Raw atoms the maker receives (base for bids, quote for asks) |
+| expiration | 153 | 8 | `i64` | Unix seconds (0 = no expiration) |
+| signature | 161 | 64 | `[u8; 64]` | Ed25519 signature |
 
 **Methods:**
 ```rust
@@ -345,30 +330,29 @@ OrderPayload::new_bid_signed(params, &keypair, &rules) -> Result<OrderPayload>
 OrderPayload::new_ask_signed(params, &keypair, &rules) -> Result<OrderPayload>
 
 // Hashing and signing
-order.hash() -> [u8; 32]           // Keccak256 of fields (excludes signature)
+order.hash() -> [u8; 32]           // Keccak256 of the 161-byte preimage; also the order-status PDA seed
 order.sign(&keypair, &rules)?      // Exact-rule preflight, then sign in place
 order.verify_signature() -> Result<()>
 
 // Serialization
-order.serialize() -> [u8; 233]
-OrderPayload::deserialize(data) -> Result<OrderPayload>
+order.serialize() -> [u8; 225]
+OrderPayload::deserialize(data) -> Result<OrderPayload> // requires exactly 225 bytes
 
 // Conversion
 order.to_order() -> Order
 ```
 
-### Order (37 bytes)
+### Order (33 bytes)
 
 On-chain transmission format. Excludes maker/market/base_mint/quote_mint (passed via accounts).
 
 | Field | Offset | Size | Type | Description |
 |-------|--------|------|------|-------------|
-| nonce | 0 | 4 | `u32` | Order nonce |
-| salt | 4 | 8 | `u64` | Random salt for order uniqueness |
-| side | 12 | 1 | `OrderSide` | Bid=0, Ask=1 |
-| amount_in | 13 | 8 | `u64` | Amount maker gives |
-| amount_out | 21 | 8 | `u64` | Amount maker receives |
-| expiration | 29 | 8 | `i64` | Expiration timestamp |
+| salt | 0 | 8 | `u64` | Order identity |
+| side | 8 | 1 | `OrderSide` | Bid=0, Ask=1 |
+| amount_in | 9 | 8 | `u64` | Raw atoms the maker gives |
+| amount_out | 17 | 8 | `u64` | Raw atoms the maker receives |
+| expiration | 25 | 8 | `i64` | Unix seconds (0 = no expiration) |
 
 ```rust
 let compact = order.to_order();
@@ -377,13 +361,14 @@ let compact = order.to_order();
 ### Order Utilities
 
 ```rust
-// Check expiration
+// Check expiration: expired only when expiration != 0 && expiration < now
 let expired = is_order_expired(&order, current_timestamp);
 
 // Check if orders can match (bid price >= ask price)
 let can_cross = orders_can_cross(&bid_order, &ask_order);
 
-// Calculate taker fill for a given maker fill
+// Minimum taker fill for a given maker fill, rounded up as the program requires:
+// ceil(maker_fill * maker.amount_out / maker.amount_in)
 let taker_fill = calculate_taker_fill(&maker_order, maker_fill_amount)?;
 
 // Derive condition ID from market parameters
@@ -395,7 +380,7 @@ let mints = client.markets().get_conditional_mints(&market, &deposit_mint, num_o
 
 ## Ed25519 Signature Verification
 
-Orders are signed off-chain with Ed25519 over `hex(keccak256(order_message))`, where `order_message` is the 169-byte signed field set without the signature. The SDK exposes this through `OrderPayload::hash()`, `OrderPayload::hash_hex()`, `OrderPayload::sign()`, and `OrderPayload::verify_signature()`.
+Orders are signed off-chain with Ed25519 over `hex(keccak256(order_message))`, where `order_message` is the 161-byte signed field set without the signature. The signed message is the 64 lowercase ASCII hex characters of that hash, with no prefix. The SDK exposes this through `OrderPayload::hash()`, `OrderPayload::hash_hex()`, `OrderPayload::sign()`, and `OrderPayload::verify_signature()`.
 
 For on-chain matching, the SDK embeds compact `Order` values plus raw signatures directly in `MatchOrdersMulti` and `DepositAndSwap` instruction data. The Pinocchio program verifies those signatures natively; no separate Ed25519 sysvar instruction builder is required in the SDK.
 
@@ -411,8 +396,7 @@ All instructions use a single-byte discriminator.
 | MintCompleteSet | 3 | Deposit and mint conditional tokens |
 | MergeCompleteSet | 4 | Burn conditionals and withdraw deposit |
 | CancelOrder | 5 | Cancel a specific order |
-| IncrementNonce | 6 | Invalidate all orders with lower nonces |
-| SettleMarket | 7 | Resolve market with winning outcome |
+| SettleMarket | 7 | Resolve market with one payout numerator per outcome |
 | RedeemWinnings | 8 | Redeem winning tokens for deposit |
 | SetPaused | 9 | Pause/unpause exchange |
 | SetOperator | 10 | Propose a new exchange operator |
@@ -454,8 +438,9 @@ Full-fill and deposit masks contain two little-endian bytes. Maker index `i` use
 
 | Instruction | Full data bytes | Business account references |
 |---|---|---|
-| MatchOrdersMulti | `105 + 117*M` | `18 + 5*M - F` |
-| DepositAndSwap | `107 + 117*M` | `19 + 5*M - F + D*(4 + 2*O)` |
+| MatchOrdersMulti | `101 + 113*M` | `17 + 4*M - F` |
+| DepositAndSwap | `103 + 113*M` | `18 + 4*M - F + D*(4 + 2*O)` |
+| CancelOrder | `258` | `4` |
 | CreateOrderbook | `3` | `15` |
 | InitPositionTokens | `2` | `9 + G*(3 + 2*O)` |
 | DepositToGlobal | `9` | `8` |
@@ -463,11 +448,11 @@ Full-fill and deposit masks contain two little-endian bytes. Maker index `i` use
 
 `M` counts makers, `G` counts preparation groups, and `O` counts market outcomes. `F` and `D` count set full-fill and deposit bits, including the taker. Every builder adds two event trailers. Repeated account references retain their instruction positions.
 
-Amounts and fills use integer token units. Order signing, compact orders, 117-byte maker records, and fee arithmetic retain their existing formats. A full-fill bit omits the participant's status account and requires a complete fill. It does not establish the absence of previous or concurrent matching.
+Amounts and fills use integer token units. Each 113-byte maker record holds a 33-byte compact order, its 64-byte signature, and the maker and taker fill amounts. CancelOrder data is the order hash followed by the 225-byte signed order; the program recomputes the hash and rejects a mismatch. A full-fill bit omits the participant's status account and requires a complete fill. It does not establish the absence of previous or concurrent matching.
 
 `InitPositionTokens` handles initial, partial, repeated, and additional-group preparation. Every call validates all supplied groups and creates missing accounts. Supply 1–8 groups in strictly increasing GDT registration-index order. Preparation does not mint balances or create global custody. Inactive collateral remains available for preparation, deposits, splits, merges, withdrawals, and redemption under their existing rules.
 
-The maker ceiling is eleven. Builders compile Solana v1 transactions and enforce the 4,096-byte signed wire limit and 64 distinct inline addresses. Eleven-maker instruction data alone is 1,392 or 1,394 bytes; the complete account list, signatures, resources, and other instructions must also fit. No legacy or v0 transactions are accepted.
+The maker ceiling is eleven. Builders compile Solana v1 transactions and enforce the 4,096-byte signed wire limit and 64 distinct inline addresses. Eleven-maker instruction data alone is 1,344 or 1,346 bytes; the complete account list, signatures, resources, and other instructions must also fit. No legacy or v0 transactions are accepted.
 
 ### Event transport trailer
 
@@ -477,7 +462,7 @@ last two accounts; callers must not append another trailer.
 `get_event_authority_pda(program_id)` exposes the same derivation for integrations
 that inspect instruction accounts.
 
-Refer to the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules and the governance CPI allowlist. The [program source at `db552338`](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src) defines the current binary interfaces, preparation behavior, limits, and errors.
+Refer to the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules and the governance CPI allowlist. The nonce-free [program source at `f1092ae7`](https://github.com/lightcone-street/lightcone-pinnochio/tree/f1092ae7cc13910528437a8c33bb53c893687a32/src) defines the current binary interfaces, preparation behavior, limits, and errors; its ABI is unchanged from `9702f231`. Tests beside the order and instruction modules pin inline known answers: the backend's order-signing vectors and instruction bytes produced by the program team's `lightcone-client` at that commit.
 
 The program emits authenticated event schema 2. Solana transaction version and event schema version are independent. The SDK neither builds nor decodes event batches. `instruction::EVENT_BATCH` remains reserved. Builders do not add a compute-budget instruction. Callers must include
 the program's final self-CPI when estimating transaction compute.
@@ -509,7 +494,6 @@ INITIALIZE_AUTHORITY: Pubkey          // Required signer for Initialize
 EXCHANGE_DISCRIMINATOR: [u8; 8]
 MARKET_DISCRIMINATOR: [u8; 8]
 ORDER_STATUS_DISCRIMINATOR: [u8; 8]
-USER_NONCE_DISCRIMINATOR: [u8; 8]
 POSITION_DISCRIMINATOR: [u8; 8]
 ORDERBOOK_DISCRIMINATOR: [u8; 8]
 GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR: [u8; 8]
@@ -525,7 +509,6 @@ MINT_AUTHORITY_SEED: &[u8]            // b"market_mint_authority"
 CONDITIONAL_MINT_SEED: &[u8]          // b"conditional_mint"
 CONDITION_SEED: &[u8]                 // b"condition"
 ORDER_STATUS_SEED: &[u8]              // b"order_status"
-USER_NONCE_SEED: &[u8]                // b"user_nonce"
 POSITION_SEED: &[u8]                  // b"position"
 ORDERBOOK_SEED: &[u8]                 // b"orderbook"
 GLOBAL_DEPOSIT_TOKEN_SEED: &[u8]      // b"global_deposit"
@@ -539,11 +522,11 @@ EXCHANGE_SIZE: usize                  // 216
 MARKET_SIZE: usize                    // 216
 POSITION_SIZE: usize                  // 80
 ORDER_STATUS_SIZE: usize              // 32
-USER_NONCE_SIZE: usize                // 16
 ORDERBOOK_SIZE: usize                 // 176
 GLOBAL_DEPOSIT_TOKEN_SIZE: usize      // 47
-SIGNED_ORDER_SIZE: usize              // 233
-ORDER_SIZE: usize                     // 37
+ORDER_PREIMAGE_SIZE: usize            // 161
+SIGNED_ORDER_SIZE: usize              // 225
+ORDER_SIZE: usize                     // 33
 SIGNATURE_SIZE: usize                 // 64
 ```
 
@@ -678,7 +661,7 @@ pub struct SetDepositTokenStatusParams {
 }
 
 pub struct BidOrderParams {
-    pub nonce: u64,
+    pub salt: u64,
     pub maker: Pubkey,
     pub market: Pubkey,
     pub base_mint: Pubkey,
@@ -689,7 +672,7 @@ pub struct BidOrderParams {
 }
 
 pub struct AskOrderParams {
-    pub nonce: u64,
+    pub salt: u64,
     pub maker: Pubkey,
     pub market: Pubkey,
     pub base_mint: Pubkey,
@@ -704,6 +687,9 @@ pub struct AskOrderParams {
 
 ```rust
 pub enum SdkError {
+    InvalidTransaction(String),
+    #[cfg(feature = "solana-rpc")]
+    Rpc(ClientError),
     InvalidDiscriminator { expected: String, actual: String },
     AccountNotFound(String),
     InvalidDataLength { expected: usize, actual: usize },

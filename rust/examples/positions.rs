@@ -17,11 +17,22 @@ async fn main() -> ExampleResult {
         .await?;
 
     println!("wallet: {}", wallet);
-    println!("markets with positions: {}", all.total_markets);
     println!(
-        "positions in {}: {}",
+        "funding accounts: {} (revision {}, more: {})",
+        all.funding_accounts.len(),
+        all.committed_revision,
+        all.has_more
+    );
+    for account in &all.funding_accounts {
+        println!(
+            "  {:?} {} observed={:?} reserved={}",
+            account.source, account.mint, account.raw_observed, account.order_reserved
+        );
+    }
+    println!(
+        "accounts usable in {}: {}",
         market.slug,
-        per_market.positions.len()
+        per_market.funding_accounts.len()
     );
     Ok(())
 }

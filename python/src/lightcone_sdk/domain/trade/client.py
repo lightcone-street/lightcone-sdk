@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
-from . import Trade, TradesPage
+from . import TradesPage
 from .wire import MarketTradesResponseWire, TradesResponseWire
 from .convert import trade_from_wire
 
@@ -24,7 +24,10 @@ class Trades:
         limit: Optional[int] = None,
         cursor: Optional[int] = None,
     ) -> TradesPage:
-        """Get trades for an orderbook."""
+        """Get trades for an orderbook, newest first.
+
+        ``cursor`` is a previous page's ``next_cursor`` (an i64 row id).
+        """
         params: dict[str, str] = {"orderbook_id": orderbook_id}
         if limit is not None:
             params["limit"] = str(limit)

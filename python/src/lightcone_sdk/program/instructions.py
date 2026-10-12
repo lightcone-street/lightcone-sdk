@@ -37,7 +37,6 @@ from .constants import (
     INSTRUCTION_DEPOSIT_AND_SWAP,
     INSTRUCTION_DEPOSIT_TO_GLOBAL,
     INSTRUCTION_GLOBAL_TO_MARKET_DEPOSIT,
-    INSTRUCTION_INCREMENT_NONCE,
     INSTRUCTION_INIT_POSITION_TOKENS,
     INSTRUCTION_INITIALIZE,
     INSTRUCTION_MATCH_ORDERS_MULTI,
@@ -71,16 +70,17 @@ from .errors import (
     ArithmeticOverflowError,
     DepositMintMismatchError,
     InvalidConditionalMintError,
+    InvalidDataLengthError,
     InvalidDepositMintOrderError,
     InvalidFeeReceiverError,
     InvalidMintOrderError,
     InvalidOracleError,
-    InvalidOrderError,
+    InvalidOrderbookError,
     InvalidOutcomeCountError,
     InvalidOutcomeIndexError,
     InvalidPayoutNumeratorsError,
     InvalidPubkeyError,
-    InvalidSignatureError,
+    InvalidSideError,
     MissingFieldError,
     PayoutVectorExceedsU32Error,
     SerializationError,
@@ -102,7 +102,6 @@ from .pda import (
     get_orderbook_pda,
     get_position_pda,
     get_user_global_deposit_pda,
-    get_user_nonce_pda,
     get_vault_pda,
 )
 from .types import (
@@ -159,7 +158,7 @@ def _trading_gdts(
 ) -> list[AccountMeta]:
     """Keep collateral identities paired with canonical conditional-mint order."""
     if base_mint == quote_mint:
-        raise InvalidMintOrderError()
+        raise InvalidOrderbookError()
     if base_deposit_mint == quote_deposit_mint:
         raise DepositMintMismatchError()
     collateral = (base_deposit_mint, quote_deposit_mint)
@@ -191,26 +190,36 @@ def _validate_trading_orders(
     base_mint: Pubkey,
     quote_mint: Pubkey,
 ) -> None:
-    """Validate the signed context and exact signature widths before encoding."""
-    for order in [taker, *makers]:
+    """Validate the signed context and exact signature widths before encoding.
+
+    As in Rust, the taker and then each maker in turn is checked: an order for
+    another market or mint pair raises ``InvalidOrderbookError``; a maker on
+    the taker's side, or a side other than BID or ASK, raises
+    ``InvalidSideError``; a signature that is not 64 bytes raises
+    ``InvalidDataLengthError``.
+    """
+
+    def validate(order: SignedOrder) -> None:
         if len(order.signature) != 64:
-            raise InvalidSignatureError("Signature must be exactly 64 bytes")
+            raise InvalidDataLengthError(64, len(order.signature))
         if (
             not isinstance(order.side, int)
             or isinstance(order.side, bool)
             or order.side not in (0, 1)
         ):
-            raise InvalidOrderError("Order side must be BUY or SELL")
+            raise InvalidSideError(order.side)
         if (order.market, order.base_mint, order.quote_mint) != (
             market,
             base_mint,
             quote_mint,
         ):
-            raise InvalidOrderError(
-                "Order market or mint pair differs from instruction"
-            )
-    if any(order.side == taker.side for order in makers):
-        raise InvalidOrderError("Maker orders must oppose the taker")
+            raise InvalidOrderbookError()
+
+    validate(taker)
+    for order in makers:
+        validate(order)
+        if order.side == taker.side:
+            raise InvalidSideError(int(order.side))
 
 
 def _validate_funding_mint(
@@ -521,7 +530,7 @@ def build_cancel_order_instruction(
     2. market (readonly)
     3. order_status (writable)
 
-    Data: [5, order_hash (32), full_order (233)]
+    Data (258 bytes): [5, order_hash (32), signed_order (225)]
     """
     exchange, _ = get_exchange_pda(program_id)
     order_hash = hash_order(order)
@@ -540,33 +549,6 @@ def build_cancel_order_instruction(
     data.extend(serialize_full_order(order))
 
     return _public_instruction(program_id, accounts, bytes(data))
-
-
-def build_increment_nonce_instruction(
-    user: Pubkey,
-    program_id: Pubkey = PROGRAM_ID,
-) -> Instruction:
-    """Build the increment_nonce instruction.
-
-    Accounts:
-    0. user (signer, writable)
-    1. user_nonce (writable)
-    2. system_program
-    3. exchange
-    """
-    user_nonce, _ = get_user_nonce_pda(user, program_id)
-    exchange, _ = get_exchange_pda(program_id)
-
-    accounts = [
-        AccountMeta(pubkey=user, is_signer=True, is_writable=True),
-        AccountMeta(pubkey=user_nonce, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
-    ]
-
-    data = bytes([INSTRUCTION_INCREMENT_NONCE])
-
-    return _public_instruction(program_id, accounts, data)
 
 
 def build_settle_market_instruction(
@@ -870,8 +852,10 @@ def build_match_orders_multi_instruction(
 
     Maker bits are 0 through 10, and the taker uses bit 15. Set bits omit
     status accounts. Fill amounts use integer units supplied by each participant.
-    The 104-byte body header precedes 117-byte maker records. Business accounts
-    total 18 + 5*M - popcount(mask), followed by the event trailer.
+    Data is ``101 + 113*M`` bytes: a 101-byte header (instruction, 33-byte
+    taker order, 64-byte signature, maker count, u16 mask), then 113-byte
+    maker records. Business accounts total 17 + 4*M - popcount(mask),
+    followed by the event trailer.
     """
     if not maker_orders:
         raise MissingFieldError("maker_orders")
@@ -882,8 +866,8 @@ def build_match_orders_multi_instruction(
     if len(maker_orders) != len(taker_fill_amounts):
         raise MissingFieldError("taker_fill_amounts")
 
-    _validate_participant_mask(full_fill_bitmask, len(maker_orders))
     _validate_trading_orders(taker_order, maker_orders, market, base_mint, quote_mint)
+    _validate_participant_mask(full_fill_bitmask, len(maker_orders))
     gdts = _trading_gdts(
         base_mint, quote_mint, base_deposit_mint, quote_deposit_mint, program_id
     )
@@ -892,7 +876,6 @@ def build_match_orders_multi_instruction(
     orderbook, _ = get_orderbook_pda(base_mint, quote_mint, program_id)
 
     taker_hash = hash_order(taker_order)
-    taker_nonce, _ = get_user_nonce_pda(taker_order.maker, program_id)
     taker_position, _ = get_position_pda(taker_order.maker, market, program_id)
 
     taker_position_base_ata = get_conditional_token_ata(taker_position, base_mint)
@@ -918,7 +901,6 @@ def build_match_orders_multi_instruction(
 
     accounts.extend(
         [
-            AccountMeta(pubkey=taker_nonce, is_signer=False, is_writable=False),
             AccountMeta(pubkey=taker_position, is_signer=False, is_writable=False),
             AccountMeta(pubkey=base_mint, is_signer=False, is_writable=False),
             AccountMeta(pubkey=quote_mint, is_signer=False, is_writable=False),
@@ -957,14 +939,12 @@ def build_match_orders_multi_instruction(
                 )
             )
 
-        maker_nonce, _ = get_user_nonce_pda(maker_order.maker, program_id)
         maker_position, _ = get_position_pda(maker_order.maker, market, program_id)
         maker_position_base_ata = get_conditional_token_ata(maker_position, base_mint)
         maker_position_quote_ata = get_conditional_token_ata(maker_position, quote_mint)
 
         accounts.extend(
             [
-                AccountMeta(pubkey=maker_nonce, is_signer=False, is_writable=False),
                 AccountMeta(pubkey=maker_position, is_signer=False, is_writable=False),
                 AccountMeta(
                     pubkey=maker_position_base_ata, is_signer=False, is_writable=True
@@ -979,7 +959,7 @@ def build_match_orders_multi_instruction(
     data = bytearray()
     data.append(INSTRUCTION_MATCH_ORDERS_MULTI)
 
-    # Taker data: order(37) + sig(64)
+    # Taker data: order(33) + sig(64)
     taker_compact = to_order(taker_order)
     data.extend(serialize_order(taker_compact))
     data.extend(taker_order.signature)
@@ -988,7 +968,7 @@ def build_match_orders_multi_instruction(
     data.append(num_makers)
     data.extend(encode_u16(full_fill_bitmask))
 
-    # Maker data: order(37) + sig(64) + maker_fill(8) + taker_fill(8) per maker
+    # Maker data: order(33) + sig(64) + maker_fill(8) + taker_fill(8) per maker
     for i, maker_order in enumerate(maker_orders):
         maker_compact = to_order(maker_order)
         data.extend(serialize_order(maker_compact))
@@ -1461,7 +1441,7 @@ def build_deposit_to_global_instruction(
     """Deposit positive integer token units into the user global custody PDA.
 
     Exactly eight business accounts precede the event trailer. This instruction
-    emits one GlobalDeposit event and does not initialize a user nonce.
+    emits one GlobalDeposit event.
     """
     if isinstance(amount, bool) or not isinstance(amount, int):
         raise SerializationError("Amount must be integer token units")
@@ -1642,7 +1622,8 @@ def build_deposit_and_swap_instruction(
     Both masks use u16 values with taker bit 15. Each selected participant
     supplies its signed give-side collateral. All outcome mints are writable
     in deposit blocks. Repeated accounts retain their positions in the list.
-    Business accounts total 19 + 5*M - F + D*(4 + 2*O), then two trailers.
+    Business accounts total 18 + 4*M - F + D*(4 + 2*O), then two trailers.
+    Data is ``103 + 113*M`` bytes.
     Maker settlement ATAs follow the taker receive/give directions on both paths.
     """
     if makers is None:
@@ -1674,7 +1655,6 @@ def build_deposit_and_swap_instruction(
     orderbook, _ = get_orderbook_pda(base_mint, quote_mint, program_id)
     mint_authority, _ = get_mint_authority_pda(market, program_id)
     taker_position, _ = get_position_pda(taker_order.maker, market, program_id)
-    taker_nonce, _ = get_user_nonce_pda(taker_order.maker, program_id)
     fee_receiver_quote_ata = get_conditional_token_ata(fee_receiver, quote_mint)
 
     taker_side = int(taker_order.side)
@@ -1735,7 +1715,6 @@ def build_deposit_and_swap_instruction(
     # Taker common block
     taker_receive_ata = get_conditional_token_ata(taker_position, receive_mint)
     taker_give_ata = get_conditional_token_ata(taker_position, give_mint)
-    accounts.append(AccountMeta(pubkey=taker_nonce, is_signer=False, is_writable=False))
     accounts.append(
         AccountMeta(pubkey=taker_position, is_signer=False, is_writable=False)
     )
@@ -1776,7 +1755,6 @@ def build_deposit_and_swap_instruction(
 
     # Per-maker blocks
     for maker in makers:
-        maker_nonce, _ = get_user_nonce_pda(maker.order.maker, program_id)
         maker_position, _ = get_position_pda(maker.order.maker, market, program_id)
 
         if not maker.is_full_fill:
@@ -1788,9 +1766,6 @@ def build_deposit_and_swap_instruction(
                 )
             )
 
-        accounts.append(
-            AccountMeta(pubkey=maker_nonce, is_signer=False, is_writable=False)
-        )
         accounts.append(
             AccountMeta(pubkey=maker_position, is_signer=False, is_writable=False)
         )

@@ -35,7 +35,7 @@ use crate::program::pda::{
     get_condition_tombstone_pda, get_conditional_mint_pda, get_event_authority_pda,
     get_exchange_pda, get_global_deposit_token_pda, get_market_pda, get_mint_authority_pda,
     get_mpl_metadata_pda, get_order_status_pda, get_orderbook_pda, get_position_pda,
-    get_user_global_deposit_pda, get_user_nonce_pda, get_vault_pda,
+    get_user_global_deposit_pda, get_vault_pda,
 };
 use crate::program::types::{
     AcceptRoleParams, ActivateMarketParams, AddDepositMintParams, BuildDepositParams,
@@ -52,15 +52,21 @@ use crate::program::utils::{
     get_conditional_token_ata, get_deposit_token_ata, serialize_conditional_metadata,
     validate_fee_pair, validate_oracle, validate_outcome_count,
 };
-use crate::program::{derive_condition_id, ORDER_SIZE, SIGNATURE_SIZE};
+use crate::program::{derive_condition_id, ORDER_SIZE, SIGNATURE_SIZE, SIGNED_ORDER_SIZE};
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
 
+/// MatchOrdersMulti body header after the discriminator: taker compact order,
+/// taker signature, maker count, and full-fill mask (100 bytes).
 const MATCH_ORDER_HEADER_SIZE: usize = ORDER_SIZE + SIGNATURE_SIZE + 1 + PARTICIPANT_MASK_LEN;
+/// DepositAndSwap body header: the match header plus the deposit mask (102 bytes).
 const DEPOSIT_AND_SWAP_HEADER_SIZE: usize = MATCH_ORDER_HEADER_SIZE + PARTICIPANT_MASK_LEN;
+/// Per-maker record: compact order, signature, maker fill, taker fill (113 bytes).
 const MAKER_MATCH_SIZE: usize = ORDER_SIZE + SIGNATURE_SIZE + 16;
+/// CancelOrder data: discriminator, order hash, signed order (258 bytes).
+const CANCEL_ORDER_DATA_SIZE: usize = 1 + 32 + SIGNED_ORDER_SIZE;
 
 /// Create an account meta for a signer+writable account.
 fn signer_mut(pubkey: Pubkey) -> AccountMeta {
@@ -494,30 +500,12 @@ pub fn build_cancel_order_ix(
         writable(order_status),
     ];
 
-    // Data: [discriminator(1), order_hash(32), OrderPayload(233)] = 266 bytes
-    let mut data = Vec::with_capacity(266);
+    // Data: [discriminator(1), order_hash(32), OrderPayload(225)] = 258 bytes.
+    // The program recomputes the hash from the signed order and rejects a mismatch.
+    let mut data = Vec::with_capacity(CANCEL_ORDER_DATA_SIZE);
     data.push(instruction::CANCEL_ORDER);
     data.extend_from_slice(&order_hash);
     data.extend_from_slice(&order.serialize());
-
-    public_instruction(program_id, keys, data)
-}
-
-/// Build IncrementNonce instruction.
-///
-/// Increments user's nonce for replay protection / mass cancellation.
-pub fn build_increment_nonce_ix(user: &Pubkey, program_id: &Pubkey) -> Instruction {
-    let (user_nonce, _) = get_user_nonce_pda(user, program_id);
-    let (exchange, _) = get_exchange_pda(program_id);
-
-    let keys = vec![
-        signer_mut(*user),
-        writable(user_nonce),
-        readonly(system_program_id()),
-        readonly(exchange),
-    ];
-
-    let data = vec![instruction::INCREMENT_NONCE];
 
     public_instruction(program_id, keys, data)
 }
@@ -729,19 +717,29 @@ pub fn build_activate_market_ix(params: &ActivateMarketParams, program_id: &Pubk
 ///
 /// Match taker against makers.
 ///
-/// Data format:
+/// Data format (101 + 113 * M bytes for M makers):
+/// ```text
 /// [0]       discriminator
-/// [1..38]   taker Order (37 bytes)
-/// [38..102] taker_signature (64 bytes)
-/// [102]     num_makers
-/// [103..105] full_fill_bitmask (u16, little-endian)
-/// Per maker (117 bytes each):
-///   [+0..+37]    maker Order (37)
-///   [+37..+101]  maker_signature (64)
-///   [+101..+109] maker_fill_amount (8)
-///   [+109..+117] taker_fill_amount (8)
+/// [1..34]   taker Order (33 bytes)
+/// [34..98]  taker_signature (64 bytes)
+/// [98]      num_makers
+/// [99..101] full_fill_bitmask (u16, little-endian)
+/// Per maker (113 bytes each):
+///   [+0..+33]    maker Order (33)
+///   [+33..+97]   maker_signature (64)
+///   [+97..+105]  maker_fill_amount (8)
+///   [+105..+113] taker_fill_amount (8)
+/// ```
 ///
-/// Account construction uses bitmask to determine if order_status is included.
+/// Accounts (17 + 4 * M - F, where F counts full-fill participants, which
+/// omit their order status):
+/// ```text
+///   Fixed: operator, exchange, market, orderbook, GDT A, GDT B
+///   Taker: [order_status], position, base_mint, quote_mint, base_ata, quote_ata,
+///          token_program, system_program, fee_receiver_quote_ata, fee_receiver,
+///          ata_program
+///   Per maker: [order_status], position, base_ata, quote_ata
+/// ```
 /// The event transport trailer (event_authority, program) is always appended last.
 pub fn build_match_orders_multi_ix(
     params: &MatchOrdersMultiParams,
@@ -786,7 +784,6 @@ pub fn build_match_orders_multi_ix(
     let (exchange, _) = get_exchange_pda(program_id);
     let (orderbook, _) = get_orderbook_pda(&params.base_mint, &params.quote_mint, program_id);
     let taker_order_hash = params.taker_order.hash();
-    let (taker_nonce, _) = get_user_nonce_pda(&params.taker_order.maker, program_id);
     let (taker_position, _) =
         get_position_pda(&params.taker_order.maker, &params.market, program_id);
     let taker_base_ata = get_conditional_token_ata(&taker_position, &params.base_mint);
@@ -812,7 +809,6 @@ pub fn build_match_orders_multi_ix(
         keys.push(writable(taker_order_status));
     }
     // Remaining taker accounts
-    keys.push(readonly(taker_nonce));
     keys.push(readonly(taker_position));
     keys.push(readonly(params.base_mint));
     keys.push(readonly(params.quote_mint));
@@ -829,18 +825,16 @@ pub fn build_match_orders_multi_ix(
         let maker_full_fill = (params.full_fill_bitmask >> i) & 1 == 1;
 
         if !maker_full_fill {
-            // bit i = 0: 5 accounts (order_status, nonce, position, base_ata, quote_ata)
+            // bit i = 0: 4 accounts (order_status, position, base_ata, quote_ata)
             let maker_order_hash = maker_order.hash();
             let (maker_order_status, _) = get_order_status_pda(&maker_order_hash, program_id);
             keys.push(writable(maker_order_status));
         }
-        // bit i = 1: 4 accounts (nonce, position, base_ata, quote_ata)
-        let (maker_nonce, _) = get_user_nonce_pda(&maker_order.maker, program_id);
+        // bit i = 1: 3 accounts (position, base_ata, quote_ata)
         let (maker_position, _) = get_position_pda(&maker_order.maker, &params.market, program_id);
         let maker_base_ata = get_conditional_token_ata(&maker_position, &params.base_mint);
         let maker_quote_ata = get_conditional_token_ata(&maker_position, &params.quote_mint);
 
-        keys.push(readonly(maker_nonce));
         keys.push(readonly(maker_position));
         keys.push(writable(maker_base_ata));
         keys.push(writable(maker_quote_ata));
@@ -1423,14 +1417,18 @@ pub fn build_init_position_tokens_ix(
 /// conditional tokens in a single instruction. Each participant's deposit is conditional
 /// on the deposit_bitmask.
 ///
-/// Account layout:
+/// Data format (103 + 113 * M bytes): the MatchOrdersMulti body with the u16
+/// deposit mask after the full-fill mask, so maker records start at byte 103.
+///
+/// Account layout (18 + 4 * M - F + D * (4 + 2 * O) before the trailer, where
+/// F counts full-fill participants, D depositors, and O market outcomes):
 ///   Fixed (11): operator, exchange, market, orderbook, GDT A, GDT B, mint_authority, token_program,
 ///              fee_receiver_quote_ata, fee_receiver, ata_program
-///   Taker block: [order_status], nonce, position, base_mint, quote_mint,
+///   Taker block: [order_status], position, base_mint, quote_mint,
 ///                taker_receive_ata, taker_give_ata, system_program
 ///   Taker deposit block (optional): deposit_mint, vault, gdt, user_global_deposit,
 ///                                    [cond_mint, ata] × num_outcomes
-///   Per-maker blocks: [order_status], nonce, position,
+///   Per-maker blocks: [order_status], position,
 ///                      [deposit block if depositing],
 ///                      maker_receive_ata, maker_give_ata
 ///   Trailer (2): event_authority, program (always last)
@@ -1496,7 +1494,6 @@ pub fn build_deposit_and_swap_ix(
     let (mint_authority, _) = get_mint_authority_pda(&params.market, program_id);
     let (taker_position, _) =
         get_position_pda(&params.taker_order.maker, &params.market, program_id);
-    let (taker_nonce, _) = get_user_nonce_pda(&params.taker_order.maker, program_id);
     let fee_receiver_quote_ata =
         get_conditional_token_ata(&params.fee_receiver, &params.quote_mint);
 
@@ -1550,7 +1547,6 @@ pub fn build_deposit_and_swap_ix(
     // Taker common block
     let taker_receive_ata = get_conditional_token_ata(&taker_position, receive_mint);
     let taker_give_ata = get_conditional_token_ata(&taker_position, give_mint);
-    keys.push(readonly(taker_nonce));
     keys.push(readonly(taker_position));
     keys.push(readonly(params.base_mint));
     keys.push(readonly(params.quote_mint));
@@ -1580,7 +1576,6 @@ pub fn build_deposit_and_swap_ix(
 
     // Per-maker blocks
     for maker in &params.makers {
-        let (maker_nonce, _) = get_user_nonce_pda(&maker.order.maker, program_id);
         let (maker_position, _) = get_position_pda(&maker.order.maker, &params.market, program_id);
 
         if !maker.is_full_fill {
@@ -1589,7 +1584,6 @@ pub fn build_deposit_and_swap_ix(
             keys.push(writable(maker_order_status));
         }
 
-        keys.push(readonly(maker_nonce));
         keys.push(readonly(maker_position));
 
         // Maker deposit block (only if maker deposits)
@@ -1780,18 +1774,6 @@ mod tests {
         assert_eq!(ix.program_id, program_id);
         assert_eq!(ix.accounts.len(), 5);
         assert_eq!(ix.data, vec![instruction::INITIALIZE]);
-    }
-
-    #[test]
-    fn test_build_increment_nonce_ix() {
-        let user = Pubkey::new_unique();
-        let program_id = test_program_id();
-
-        let ix = build_increment_nonce_ix(&user, &program_id);
-
-        assert_eq!(ix.program_id, program_id);
-        assert_eq!(ix.accounts.len(), 6);
-        assert_eq!(ix.data, vec![instruction::INCREMENT_NONCE]);
     }
 
     #[test]
@@ -2003,8 +1985,7 @@ mod tests {
         let program_id = test_program_id();
 
         let order = OrderPayload {
-            nonce: 1,
-            salt: 0,
+            salt: 1,
             maker,
             market,
             base_mint: Pubkey::new_unique(),
@@ -2020,8 +2001,10 @@ mod tests {
         let ix = build_cancel_order_ix(&operator, &market, &order, &program_id);
 
         assert_eq!(ix.accounts.len(), 6);
-        assert_eq!(ix.data.len(), 266); // 1 + 32 + 233
+        assert_eq!(ix.data.len(), 258); // 1 + 32 + 225
         assert_eq!(ix.data[0], instruction::CANCEL_ORDER);
+        assert_eq!(&ix.data[1..33], &order.hash());
+        assert_eq!(&ix.data[33..], &order.serialize());
     }
 
     #[test]
@@ -2278,8 +2261,7 @@ mod tests {
         let quote_mint = Pubkey::new_unique();
 
         let taker = OrderPayload {
-            nonce: 1,
-            salt: 0,
+            salt: 1,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
@@ -2292,8 +2274,7 @@ mod tests {
         };
 
         let maker = OrderPayload {
-            nonce: 2,
-            salt: 0,
+            salt: 2,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
@@ -2322,13 +2303,13 @@ mod tests {
 
         let ix = build_match_orders_multi_ix(&params, &program_id).unwrap();
 
-        // Data: 1 + 37 + 64 + 1 + 2 + 117 = 222
-        assert_eq!(ix.data.len(), 222);
+        // Data: 1 + 33 + 64 + 1 + 2 + 113 = 214
+        assert_eq!(ix.data.len(), 214);
         assert_eq!(ix.data[0], instruction::MATCH_ORDERS_MULTI);
 
         // With bitmask=0 (no full fills):
-        // Taker: 18 accounts, Maker: 5 accounts, trailer: 2 accounts = 25 total
-        assert_eq!(ix.accounts.len(), 25);
+        // Taker: 17 accounts, Maker: 4 accounts, trailer: 2 accounts = 23 total
+        assert_eq!(ix.accounts.len(), 23);
     }
 
     #[test]
@@ -2340,8 +2321,7 @@ mod tests {
         let quote_mint = Pubkey::new_unique();
 
         let taker = OrderPayload {
-            nonce: 1,
-            salt: 0,
+            salt: 1,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
@@ -2354,8 +2334,7 @@ mod tests {
         };
 
         let maker = OrderPayload {
-            nonce: 2,
-            salt: 0,
+            salt: 2,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
@@ -2386,9 +2365,9 @@ mod tests {
         let ix = build_match_orders_multi_ix(&params, &program_id).unwrap();
 
         // With bitmask=0x8001 (taker + maker 0 full fill):
-        // Taker: 17 accounts (no order_status), Maker: 4 accounts (no order_status),
-        // trailer: 2 accounts = 23 total
-        assert_eq!(ix.accounts.len(), 23);
+        // Taker: 16 accounts (no order_status), Maker: 3 accounts (no order_status),
+        // trailer: 2 accounts = 21 total
+        assert_eq!(ix.accounts.len(), 21);
     }
 
     #[test]
@@ -2398,22 +2377,22 @@ mod tests {
         let ix = build_match_orders_multi_ix(&params, &program_id).unwrap();
 
         assert_eq!(ix.data[0], instruction::MATCH_ORDERS_MULTI);
-        assert_eq!(ix.data.len(), 1392);
-        assert_eq!(&ix.data[103..105], &[0x81, 0x85]);
+        assert_eq!(ix.data.len(), 1344);
+        assert_eq!(&ix.data[99..101], &[0x81, 0x85]);
         assert_eq!(
-            u16::from_le_bytes(ix.data[103..105].try_into().unwrap()),
+            u16::from_le_bytes(ix.data[99..101].try_into().unwrap()),
             0x8581
         );
         assert_trade_records(
             &ix.data,
-            105,
+            101,
             &params.taker_order,
             &params.maker_orders,
             &params.maker_fill_amounts,
             &params.taker_fill_amounts,
         );
-        // 18 + 5*11 - 5 full fills, followed by the two-account trailer.
-        assert_eq!(ix.accounts.len(), 70);
+        // 17 + 4*11 - 5 full fills, followed by the two-account trailer.
+        assert_eq!(ix.accounts.len(), 58);
         assert_eleven_maker_account_sequence(&ix, &params, &program_id, false);
 
         for invalid_mask in [0x0800, 0x1000, 0x2000, 0x4000] {
@@ -2547,8 +2526,7 @@ mod tests {
         let quote_mint = Pubkey::new_unique();
 
         let taker = OrderPayload {
-            nonce: 1,
-            salt: 0,
+            salt: 1,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
@@ -2561,8 +2539,7 @@ mod tests {
         };
 
         let maker_order = OrderPayload {
-            nonce: 2,
-            salt: 0,
+            salt: 2,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
@@ -2599,22 +2576,22 @@ mod tests {
 
         let ix = build_deposit_and_swap_ix(&params, &program_id).unwrap();
 
-        // Data: 1 + 37 + 64 + 1 + 2 + 2 + 117 = 224
-        assert_eq!(ix.data.len(), 224);
+        // Data: 1 + 33 + 64 + 1 + 2 + 2 + 113 = 216
+        assert_eq!(ix.data.len(), 216);
         assert_eq!(ix.data[0], instruction::DEPOSIT_AND_SWAP);
 
         // Account layout (taker+maker both depositing, no full fills):
         // Fixed: 11
         // Taker order_status: 1
-        // Taker common: 7 (nonce, position, base_mint, quote_mint, receive_ata, give_ata, system)
+        // Taker common: 6 (position, base_mint, quote_mint, receive_ata, give_ata, system)
         // Taker deposit: 4 + 3*2 = 10 (dm, vault, gdt, global_deposit, cond_mint+ata*3)
         // Maker order_status: 1
-        // Maker common: 2 (nonce, position)
+        // Maker common: 1 (position)
         // Maker deposit: 4 + 3*2 = 10
         // Maker swap: 2 (receive_ata, give_ata)
         // Trailer: 2 (event_authority, program)
-        // Total: 11 + 1 + 7 + 10 + 1 + 2 + 10 + 2 + 2 = 46
-        assert_eq!(ix.accounts.len(), 46);
+        // Total: 11 + 1 + 6 + 10 + 1 + 1 + 10 + 2 + 2 = 44
+        assert_eq!(ix.accounts.len(), 44);
     }
 
     #[test]
@@ -2651,27 +2628,27 @@ mod tests {
         let ix = build_deposit_and_swap_ix(&params, &program_id).unwrap();
 
         assert_eq!(ix.data[0], instruction::DEPOSIT_AND_SWAP);
-        assert_eq!(ix.data.len(), 1394);
-        assert_eq!(&ix.data[103..107], &[0x81, 0x85, 0x02, 0x86]);
+        assert_eq!(ix.data.len(), 1346);
+        assert_eq!(&ix.data[99..103], &[0x81, 0x85, 0x02, 0x86]);
         assert_eq!(
-            u16::from_le_bytes(ix.data[103..105].try_into().unwrap()),
+            u16::from_le_bytes(ix.data[99..101].try_into().unwrap()),
             0x8581
         );
         assert_eq!(
-            u16::from_le_bytes(ix.data[105..107].try_into().unwrap()),
+            u16::from_le_bytes(ix.data[101..103].try_into().unwrap()),
             0x8602
         );
         assert_trade_records(
             &ix.data,
-            107,
+            103,
             &matching.taker_order,
             &matching.maker_orders,
             &matching.maker_fill_amounts,
             &matching.taker_fill_amounts,
         );
         // Four depositors each supply 4 + 2*6 references, including repeated
-        // mints and GDTs: 19 + 5*11 - 5 full fills + 4*16 + 2 trailer accounts.
-        assert_eq!(ix.accounts.len(), 135);
+        // mints and GDTs: 18 + 4*11 - 5 full fills + 4*16 + 2 trailer accounts.
+        assert_eq!(ix.accounts.len(), 123);
         assert_eleven_maker_account_sequence(&ix, &matching, &program_id, true);
 
         params.makers.push(params.makers[0].clone());
@@ -2730,8 +2707,7 @@ mod tests {
         side: OrderSide,
     ) -> OrderPayload {
         OrderPayload {
-            nonce: 1,
-            salt: 0,
+            salt: 1,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
@@ -2751,7 +2727,6 @@ mod tests {
         let base_mint = Pubkey::new_from_array([2; 32]);
         let quote_mint = Pubkey::new_from_array([1; 32]);
         let mut taker_order = sample_order(market, base_mint, quote_mint, OrderSide::Bid);
-        taker_order.nonce = 0x1234_5678;
         taker_order.salt = 0x0102_0304_0506_0708;
         taker_order.amount_in = u64::MAX - 100;
         taker_order.amount_out = (1u64 << 53) + 101;
@@ -2759,7 +2734,6 @@ mod tests {
         let maker_orders = (0u32..11)
             .map(|i| {
                 let mut order = sample_order(market, base_mint, quote_mint, OrderSide::Ask);
-                order.nonce = 0x89ab_cd00 + u64::from(i);
                 order.salt = 0x1112_1314_1516_1700 + u64::from(i);
                 order.amount_in = (1u64 << 53) + 201 + u64::from(i);
                 order.amount_out = u64::MAX - 301 - u64::from(i);
@@ -2786,15 +2760,14 @@ mod tests {
     }
 
     fn assert_encoded_order(data: &[u8], expected: &OrderPayload) {
-        assert_eq!(data.len(), 101);
-        let order = crate::program::orders::Order::deserialize(&data[..37]).unwrap();
-        assert_eq!(u64::from(order.nonce), expected.nonce);
+        assert_eq!(data.len(), 97);
+        let order = crate::program::orders::Order::deserialize(&data[..33]).unwrap();
         assert_eq!(order.salt, expected.salt);
         assert_eq!(order.side, expected.side);
         assert_eq!(order.amount_in, expected.amount_in);
         assert_eq!(order.amount_out, expected.amount_out);
         assert_eq!(order.expiration, expected.expiration);
-        assert_eq!(&data[37..101], &expected.signature);
+        assert_eq!(&data[33..97], &expected.signature);
     }
 
     fn assert_trade_records(
@@ -2805,19 +2778,19 @@ mod tests {
         maker_fills: &[u64],
         taker_fills: &[u64],
     ) {
-        assert_eq!(data[102], 11);
-        assert_encoded_order(&data[1..102], taker);
-        let records = data[records_offset..].chunks_exact(117);
+        assert_eq!(data[98], 11);
+        assert_encoded_order(&data[1..98], taker);
+        let records = data[records_offset..].chunks_exact(113);
         assert!(records.remainder().is_empty());
         assert_eq!(records.len(), 11);
         for (i, record) in records.enumerate() {
-            assert_encoded_order(&record[..101], &makers[i]);
+            assert_encoded_order(&record[..97], &makers[i]);
             assert_eq!(
-                u64::from_le_bytes(record[101..109].try_into().unwrap()),
+                u64::from_le_bytes(record[97..105].try_into().unwrap()),
                 maker_fills[i]
             );
             assert_eq!(
-                u64::from_le_bytes(record[109..117].try_into().unwrap()),
+                u64::from_le_bytes(record[105..113].try_into().unwrap()),
                 taker_fills[i]
             );
         }
@@ -2829,12 +2802,12 @@ mod tests {
         program_id: &Pubkey,
         deposit_and_swap: bool,
     ) {
-        // Expected (pubkey, signer, writable) triples follow the pinned
-        // db552338 program parsers. They do not use SDK account-meta helpers,
-        // mask decoding, or the builders' collateral canonicalization.
+        // Expected (pubkey, signer, writable) triples follow the nonce-free
+        // program parsers (refactor/engine-accounting-02 at 9702f23). They do
+        // not use SDK account-meta helpers, mask decoding, or the builders'
+        // collateral canonicalization.
         let taker = params.taker_order.maker;
         let taker_position = get_position_pda(&taker, &params.market, program_id).0;
-        let taker_nonce = get_user_nonce_pda(&taker, program_id).0;
         let taker_base_ata = get_conditional_token_ata(&taker_position, &params.base_mint);
         let taker_quote_ata = get_conditional_token_ata(&taker_position, &params.quote_mint);
         let fee_ata = get_conditional_token_ata(&params.fee_receiver, &params.quote_mint);
@@ -2871,7 +2844,6 @@ mod tests {
                 (ASSOCIATED_TOKEN_PROGRAM_ID, false, false),
                 // The full-fill taker has no status account. Its BUY order
                 // receives base and gives quote, defining both parties' ATA order.
-                (taker_nonce, false, false),
                 (taker_position, false, false),
                 (params.base_mint, false, false),
                 (params.quote_mint, false, false),
@@ -2887,7 +2859,6 @@ mod tests {
             ));
         } else {
             expected.extend([
-                (taker_nonce, false, false),
                 (taker_position, false, false),
                 (params.base_mint, false, false),
                 (params.quote_mint, false, false),
@@ -2911,10 +2882,7 @@ mod tests {
                 ));
             }
             let position = get_position_pda(&maker.maker, &params.market, program_id).0;
-            expected.extend([
-                (get_user_nonce_pda(&maker.maker, program_id).0, false, false),
-                (position, false, false),
-            ]);
+            expected.push((position, false, false));
             if deposit_and_swap && matches!(i, 1 | 9 | 10) {
                 expected.extend(expected_six_outcome_deposit_accounts(
                     &params.market,
@@ -3071,10 +3039,6 @@ mod tests {
             (
                 "cancel_order",
                 build_cancel_order_ix(&signer, &market, &taker, program_id),
-            ),
-            (
-                "increment_nonce",
-                build_increment_nonce_ix(&signer, program_id),
             ),
             (
                 "settle_market",
@@ -3400,14 +3364,15 @@ mod tests {
         let built = all_public_builders(&program_id);
         assert_eq!(
             built.len(),
-            37,
+            36,
             "register new builders in all_public_builders"
         );
 
+        // Discriminator 6 (the retired IncrementNonce) is not a public instruction.
         let actual_ids: std::collections::BTreeSet<_> =
             built.iter().map(|(_, ix)| ix.data[0]).collect();
         let expected_ids: std::collections::BTreeSet<_> = (0u8..=38)
-            .filter(|id| ![21, 23, 26, 34].contains(id))
+            .filter(|id| ![6, 21, 23, 26, 34].contains(id))
             .collect();
         assert_eq!(actual_ids, expected_ids);
 
@@ -3502,5 +3467,833 @@ mod tests {
             build_set_paused_ix(&pda, true, &program_id).accounts[0],
             signer_mut(pda)
         );
+    }
+
+    // ========================================================================
+    // Known-answer vectors from the program team's client
+    // ========================================================================
+    //
+    // Every expected account list and data buffer below was generated by
+    // `lightcone-client` 0.4.0 at lightcone-pinnochio f1092ae from the same
+    // fixed inputs. That client derives addresses and encodes payloads without
+    // this SDK, so these tests do not compare the SDK with itself. Account
+    // labels name collaterals A = [0xa1; 32], B = [0x3c; 32], G0 = [0x40; 32]
+    // and G1 = [0x41; 32]; a digit after a collateral is the conditional
+    // mint's outcome.
+
+    /// The local deployment the client vectors were generated for.
+    const CLIENT_PROGRAM_ID: &str = "Hobw7Fi6SN6YaCA4Bwp5RcbCR3YBXQ9PpGSSw5muEzai";
+
+    /// Fixed inputs shared by the client vectors.
+    struct ClientInputs {
+        program_id: Pubkey,
+        market: Pubkey,
+        collateral_a: Pubkey,
+        collateral_b: Pubkey,
+        operator: Pubkey,
+        fee_receiver: Pubkey,
+        manager: Pubkey,
+        user: Pubkey,
+    }
+
+    impl ClientInputs {
+        /// The conditional mint for one collateral and outcome.
+        fn mint(&self, collateral: &Pubkey, outcome: u8) -> Pubkey {
+            get_conditional_mint_pda(&self.market, collateral, outcome, &self.program_id).0
+        }
+
+        /// Unsigned order template on one pair. Callers set every order term.
+        fn pair(&self, base_mint: Pubkey, quote_mint: Pubkey) -> OrderPayload {
+            OrderPayload {
+                salt: 0,
+                maker: Pubkey::default(),
+                market: self.market,
+                base_mint,
+                quote_mint,
+                side: OrderSide::Bid,
+                amount_in: 0,
+                amount_out: 0,
+                expiration: 0,
+                signature: [0; 64],
+            }
+        }
+    }
+
+    /// Deterministic Ed25519 wallet, so order signatures are reproducible.
+    fn wallet(seed: u8) -> solana_keypair::Keypair {
+        solana_keypair::Keypair::new_from_array([seed; 32])
+    }
+
+    fn client_inputs() -> ClientInputs {
+        use solana_signer::Signer;
+        ClientInputs {
+            program_id: CLIENT_PROGRAM_ID.parse().unwrap(),
+            market: Pubkey::new_from_array([0x4d; 32]),
+            collateral_a: Pubkey::new_from_array([0xa1; 32]),
+            collateral_b: Pubkey::new_from_array([0x3c; 32]),
+            operator: wallet(1).pubkey(),
+            fee_receiver: wallet(2).pubkey(),
+            manager: wallet(6).pubkey(),
+            user: wallet(42).pubkey(),
+        }
+    }
+
+    /// Make wallet `seed` the maker and sign the order-id hex, as the client does.
+    fn signed_by(seed: u8, mut order: OrderPayload) -> OrderPayload {
+        use solana_signer::Signer;
+        let wallet = wallet(seed);
+        order.maker = wallet.pubkey();
+        let signature = wallet.sign_message(order.hash_hex().as_bytes());
+        order.signature = signature.into();
+        order
+    }
+
+    /// Assert the program id, every account meta in order, and the data bytes.
+    fn assert_ix(
+        ix: &Instruction,
+        program_id: &Pubkey,
+        accounts: &[(&str, bool, bool)],
+        data_hex: &str,
+    ) {
+        assert_eq!(ix.program_id, *program_id, "program id");
+        assert_eq!(ix.accounts.len(), accounts.len(), "account count");
+        for (index, (actual, (pubkey, is_signer, is_writable))) in
+            ix.accounts.iter().zip(accounts).enumerate()
+        {
+            assert_eq!(
+                (
+                    actual.pubkey.to_string(),
+                    actual.is_signer,
+                    actual.is_writable
+                ),
+                (pubkey.to_string(), *is_signer, *is_writable),
+                "account {index}"
+            );
+        }
+        assert_eq!(hex::encode(&ix.data), data_hex, "data");
+    }
+
+    /// Two-maker MatchOrdersMulti on the A0/B0 book (base mint sorts first).
+    /// The BUY taker keeps its status account, maker 0 fully fills its base
+    /// and omits its status (mask bit 0), and maker 1 fills partially.
+    fn client_match_params(inputs: &ClientInputs) -> MatchOrdersMultiParams {
+        let pair = inputs.pair(
+            inputs.mint(&inputs.collateral_a, 0),
+            inputs.mint(&inputs.collateral_b, 0),
+        );
+        let taker = signed_by(
+            100,
+            OrderPayload {
+                salt: 0xdead_beef_0000_0001,
+                side: OrderSide::Bid,
+                amount_in: 120,
+                amount_out: 200,
+                expiration: 0,
+                ..pair.clone()
+            },
+        );
+        let maker_0 = signed_by(
+            10,
+            OrderPayload {
+                salt: u64::MAX,
+                side: OrderSide::Ask,
+                amount_in: 100,
+                amount_out: 60,
+                expiration: 1_900_000_000,
+                ..pair.clone()
+            },
+        );
+        let maker_1 = signed_by(
+            11,
+            OrderPayload {
+                salt: 7,
+                side: OrderSide::Ask,
+                amount_in: 150,
+                amount_out: 90,
+                expiration: i64::MAX,
+                ..pair.clone()
+            },
+        );
+        MatchOrdersMultiParams {
+            operator: inputs.operator,
+            market: inputs.market,
+            base_mint: pair.base_mint,
+            quote_mint: pair.quote_mint,
+            base_deposit_mint: inputs.collateral_a,
+            quote_deposit_mint: inputs.collateral_b,
+            fee_receiver: inputs.fee_receiver,
+            taker_order: taker,
+            maker_orders: vec![maker_0, maker_1],
+            // Each maker gives 100 base atoms for 60 quote atoms.
+            maker_fill_amounts: vec![100, 100],
+            taker_fill_amounts: vec![60, 60],
+            full_fill_bitmask: 0x0001,
+        }
+    }
+
+    /// Single-maker DepositAndSwap on the A1/B1 book, whose base mint sorts
+    /// after its quote mint, so GDT B precedes GDT A. The SELL taker fully
+    /// fills (status omitted) from a collateral-A global deposit; the partial
+    /// BUY maker keeps its status and deposits collateral B.
+    fn client_deposit_and_swap_params(inputs: &ClientInputs) -> DepositAndSwapParams {
+        let pair = inputs.pair(
+            inputs.mint(&inputs.collateral_a, 1),
+            inputs.mint(&inputs.collateral_b, 1),
+        );
+        let taker = signed_by(
+            101,
+            OrderPayload {
+                salt: 0,
+                side: OrderSide::Ask,
+                amount_in: 100,
+                amount_out: 60,
+                expiration: 0,
+                ..pair.clone()
+            },
+        );
+        let maker = signed_by(
+            12,
+            OrderPayload {
+                salt: 0x1112_1314_1516_1718,
+                side: OrderSide::Bid,
+                amount_in: 90,
+                amount_out: 150,
+                expiration: 1_700_000_000,
+                ..pair.clone()
+            },
+        );
+        DepositAndSwapParams {
+            operator: inputs.operator,
+            market: inputs.market,
+            base_mint: pair.base_mint,
+            quote_mint: pair.quote_mint,
+            base_deposit_mint: inputs.collateral_a,
+            quote_deposit_mint: inputs.collateral_b,
+            fee_receiver: inputs.fee_receiver,
+            taker_order: taker,
+            taker_is_full_fill: true,
+            taker_is_deposit: true,
+            taker_deposit_mint: inputs.collateral_a,
+            num_outcomes: 2,
+            // The maker gives 60 quote atoms for 100 base atoms.
+            makers: vec![MakerFill {
+                order: maker,
+                maker_fill_amount: 60,
+                taker_fill_amount: 100,
+                is_full_fill: false,
+                is_deposit: true,
+                deposit_mint: inputs.collateral_b,
+            }],
+        }
+    }
+
+    #[test]
+    fn mint_complete_set_matches_program_client() {
+        let inputs = client_inputs();
+        let ix = build_deposit_ix(
+            &BuildDepositParams {
+                user: inputs.user,
+                market: inputs.market,
+                deposit_mint: inputs.collateral_a,
+                amount: 123_456_789_012,
+            },
+            2,
+            &inputs.program_id,
+        );
+
+        // Generated by lightcone-client at lightcone-pinnochio f1092ae.
+        assert_ix(
+            &ix,
+            &inputs.program_id,
+            &[
+                ("2iXtA8oeZqUU5pofxK971TCEvFGfems2AcDRaZHKD2pQ", true, true), // user
+                ("3QpkVHKRzdzj2uXdSH6TYXBYfgd4cwKK6Dmx8V78gx37", false, false), // exchange
+                ("6Ckm2BrnXxsSjyG5b17kQQRjoECVrts92RKXVGT8XeqS", false, false), // market
+                ("Bswb3UyeD1pUTaGiE6WvqwFpJZsQSEY1xhJePCDTHdvp", false, false), // collateral A
+                ("CcJ9vwR45b6DNPChMaS8JG3ua6VhyrGU1zAmSvvkhaRD", false, true), // vault A
+                ("FCvj66xiYGJ6SMsZ91UUhN4xvS4Hu7ouRdwzMeECKWjL", false, true), // user collateral A ATA
+                ("4CzHZWutNwxxUyV3TigWtWZhBqmRibWuzZqYNvAwYV1p", false, true), // user position
+                ("HwerbZ3uDMyHrs1xe1gUfKBHDbmqp4iMcBzgGDNgKPZG", false, false), // mint authority
+                ("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", false, false), // token program
+                ("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", false, false), // ATA program
+                ("11111111111111111111111111111111", false, false),            // system program
+                ("6Deb7C6szQAGzATpea8mwdk98yKLShbep7HQaKeZ4sVB", false, true), // mint A0
+                ("C2mDQ76H3X73j8sRj8QtZF9RXSyN4VUdJKvGQ6DTKk76", false, true), // position A0 ATA
+                ("DxkG46NfTmZdeLf88KacJwSFeEo8jeta4pQLGvstaKsa", false, true), // mint A1
+                ("5jgjy7yUFwQUcnDMDXKR3yL9wcGJQdDhE9L3SQ9uCH1n", false, true), // position A1 ATA
+                ("8VqAxBFSt2PzRu2VjitjGZhWFaKKkjkd3kZpb3jtSkN8", false, false), // event authority
+                ("Hobw7Fi6SN6YaCA4Bwp5RcbCR3YBXQ9PpGSSw5muEzai", false, false), // program
+            ],
+            "03141a99be1c000000",
+        );
+    }
+
+    #[test]
+    fn create_orderbook_canonicalizes_both_mint_orders_like_program_client() {
+        let inputs = client_inputs();
+        let (a, b) = (inputs.collateral_a, inputs.collateral_b);
+        let build = |mint_a, mint_a_deposit_mint, mint_b, mint_b_deposit_mint, base_index| {
+            build_create_orderbook_ix(
+                &CreateOrderbookParams {
+                    manager: inputs.manager,
+                    market: inputs.market,
+                    mint_a,
+                    mint_b,
+                    fee_receiver: inputs.fee_receiver,
+                    mint_a_deposit_mint,
+                    mint_b_deposit_mint,
+                    base_index,
+                    outcome_index: 1,
+                },
+                &inputs.program_id,
+            )
+            .unwrap()
+        };
+        let (mint_a1, mint_b1) = (inputs.mint(&a, 1), inputs.mint(&b, 1));
+
+        // Generated by lightcone-client at lightcone-pinnochio f1092ae for the
+        // two outcome-1 books: base A1/quote B1 and base B1/quote A1. Mint B1
+        // sorts first, so the books share every account except the fee
+        // receiver's quote ATA, and only the base index differs in the data.
+        let accounts = |fee_receiver_quote_ata| {
+            [
+                ("AKkzLhjhyFtM9j7WAhbaqYpFe49cXeJBg2kzLRC2PnNa", true, true), // manager
+                ("6Ckm2BrnXxsSjyG5b17kQQRjoECVrts92RKXVGT8XeqS", false, false), // market
+                ("9Vm6zp8LJ7BLKA5WXMCrVp1XtPcucDxGSniwcibC4qnY", false, false), // mint B1
+                ("DxkG46NfTmZdeLf88KacJwSFeEo8jeta4pQLGvstaKsa", false, false), // mint A1
+                ("E11bpYzs4qWFn7yiN2rqwnhCidnUFvwxvDmAgwWaYznw", false, true), // orderbook
+                ("7GHv8nJvVXunMXBpQF5t1EbDJtfLxKqXAjLCAtfrzgmf", false, false), // GDT B
+                ("GjYEnbey6TFjN6wSf6ZVWzPSykh9GPVBAo26oiXC7KhY", false, false), // GDT A
+                ("3QpkVHKRzdzj2uXdSH6TYXBYfgd4cwKK6Dmx8V78gx37", false, false), // exchange
+                ("11111111111111111111111111111111", false, false),           // system program
+                ("548jb4wcUtpbNS1TAva8TXJmeXd5QpCCXUzNVogwpzMR", false, false), // collateral B
+                ("Bswb3UyeD1pUTaGiE6WvqwFpJZsQSEY1xhJePCDTHdvp", false, false), // collateral A
+                ("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", false, false), // token program
+                ("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", false, false), // ATA program
+                ("9hSR6S7WPtxmTojgo6GG3k4yDPecgJY292j7xrsUGWBu", false, false), // fee receiver
+                (fee_receiver_quote_ata, false, true),
+                ("8VqAxBFSt2PzRu2VjitjGZhWFaKKkjkd3kZpb3jtSkN8", false, false), // event authority
+                ("Hobw7Fi6SN6YaCA4Bwp5RcbCR3YBXQ9PpGSSw5muEzai", false, false), // program
+            ]
+        };
+        // Fee receiver ATAs for quote mints B1 and A1.
+        let base_a1 = accounts("4yzmLNrFRbmMUH9g5HaraxzLHq2CLbh1BWHYcGfesJFL");
+        let base_b1 = accounts("73zFJD8Vtz2ash9VDypWXgnToNE5TH2fuT7CygK3ZY5T");
+
+        // Either supplied mint order yields the client's canonical instruction.
+        for ix in [
+            build(mint_a1, a, mint_b1, b, 0),
+            build(mint_b1, b, mint_a1, a, 1),
+        ] {
+            assert_ix(&ix, &inputs.program_id, &base_a1, "0f0101");
+        }
+        for ix in [
+            build(mint_b1, b, mint_a1, a, 0),
+            build(mint_a1, a, mint_b1, b, 1),
+        ] {
+            assert_ix(&ix, &inputs.program_id, &base_b1, "0f0001");
+        }
+    }
+
+    #[test]
+    fn close_orderbook_matches_program_client() {
+        let inputs = client_inputs();
+        let (base_mint, quote_mint) = (
+            inputs.mint(&inputs.collateral_a, 1),
+            inputs.mint(&inputs.collateral_b, 1),
+        );
+        let ix = build_close_orderbook_ix(
+            &CloseOrderbookParams {
+                operator: inputs.operator,
+                orderbook: get_orderbook_pda(&base_mint, &quote_mint, &inputs.program_id).0,
+                market: inputs.market,
+            },
+            &inputs.program_id,
+        );
+
+        // Generated by lightcone-client at lightcone-pinnochio f1092ae.
+        assert_ix(
+            &ix,
+            &inputs.program_id,
+            &[
+                ("AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9", true, true), // operator
+                ("3QpkVHKRzdzj2uXdSH6TYXBYfgd4cwKK6Dmx8V78gx37", false, false), // exchange
+                ("E11bpYzs4qWFn7yiN2rqwnhCidnUFvwxvDmAgwWaYznw", false, true), // orderbook
+                ("6Ckm2BrnXxsSjyG5b17kQQRjoECVrts92RKXVGT8XeqS", false, false), // market
+                ("8VqAxBFSt2PzRu2VjitjGZhWFaKKkjkd3kZpb3jtSkN8", false, false), // event authority
+                ("Hobw7Fi6SN6YaCA4Bwp5RcbCR3YBXQ9PpGSSw5muEzai", false, false), // program
+            ],
+            "1b",
+        );
+    }
+
+    #[test]
+    fn global_deposit_builders_match_program_client() {
+        let inputs = client_inputs();
+        let deposit = build_deposit_to_global_ix(
+            &DepositToGlobalParams {
+                user: inputs.user,
+                mint: inputs.collateral_a,
+                amount: u64::MAX - 1,
+            },
+            &inputs.program_id,
+        );
+        let to_market = build_global_to_market_deposit_ix(
+            &GlobalToMarketDepositParams {
+                user: inputs.user,
+                market: inputs.market,
+                deposit_mint: inputs.collateral_b,
+                amount: 500_000,
+            },
+            2,
+            &inputs.program_id,
+        );
+
+        // Generated by lightcone-client at lightcone-pinnochio f1092ae.
+        assert_ix(
+            &deposit,
+            &inputs.program_id,
+            &[
+                ("2iXtA8oeZqUU5pofxK971TCEvFGfems2AcDRaZHKD2pQ", true, true), // user
+                ("GjYEnbey6TFjN6wSf6ZVWzPSykh9GPVBAo26oiXC7KhY", false, false), // GDT A
+                ("Bswb3UyeD1pUTaGiE6WvqwFpJZsQSEY1xhJePCDTHdvp", false, false), // collateral A
+                ("3MWB38PADzqKzPnVTL3Z8YTwyLHpTmKaF3Aj4AU4j8jJ", false, true), // user global deposit A
+                ("FCvj66xiYGJ6SMsZ91UUhN4xvS4Hu7ouRdwzMeECKWjL", false, true), // user collateral A ATA
+                ("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", false, false), // token program
+                ("11111111111111111111111111111111", false, false),            // system program
+                ("3QpkVHKRzdzj2uXdSH6TYXBYfgd4cwKK6Dmx8V78gx37", false, false), // exchange
+                ("8VqAxBFSt2PzRu2VjitjGZhWFaKKkjkd3kZpb3jtSkN8", false, false), // event authority
+                ("Hobw7Fi6SN6YaCA4Bwp5RcbCR3YBXQ9PpGSSw5muEzai", false, false), // program
+            ],
+            "11feffffffffffffff",
+        );
+        assert_ix(
+            &to_market,
+            &inputs.program_id,
+            &[
+                ("2iXtA8oeZqUU5pofxK971TCEvFGfems2AcDRaZHKD2pQ", true, true), // user
+                ("3QpkVHKRzdzj2uXdSH6TYXBYfgd4cwKK6Dmx8V78gx37", false, false), // exchange
+                ("6Ckm2BrnXxsSjyG5b17kQQRjoECVrts92RKXVGT8XeqS", false, false), // market
+                ("548jb4wcUtpbNS1TAva8TXJmeXd5QpCCXUzNVogwpzMR", false, false), // collateral B
+                ("9Ni78X3DJWYiXpymPmA1N8hVdiFPCetaeYsoxaxuF3vz", false, true), // vault B
+                ("7GHv8nJvVXunMXBpQF5t1EbDJtfLxKqXAjLCAtfrzgmf", false, false), // GDT B
+                ("EBijBMb6kV1e7jNpjCqgQuAQgX9oefqTBTHu4M4qtj1d", false, true), // user global deposit B
+                ("4CzHZWutNwxxUyV3TigWtWZhBqmRibWuzZqYNvAwYV1p", false, true), // user position
+                ("HwerbZ3uDMyHrs1xe1gUfKBHDbmqp4iMcBzgGDNgKPZG", false, false), // mint authority
+                ("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", false, false), // token program
+                ("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", false, false), // ATA program
+                ("11111111111111111111111111111111", false, false),            // system program
+                ("CTyZDSYMyGRFE2XoFxproKZqrRe6RyVSghupF1dznVmh", false, true), // mint B0
+                ("FZoibJ9Bek51d82eKoryEo6GuW9nmYaPicZym3RawkXC", false, true), // position B0 ATA
+                ("9Vm6zp8LJ7BLKA5WXMCrVp1XtPcucDxGSniwcibC4qnY", false, true), // mint B1
+                ("7jjbtKwm4p3gcTT2NYmdnNtfw5vPRRvg9B7nKz19y5g1", false, true), // position B1 ATA
+                ("8VqAxBFSt2PzRu2VjitjGZhWFaKKkjkd3kZpb3jtSkN8", false, false), // event authority
+                ("Hobw7Fi6SN6YaCA4Bwp5RcbCR3YBXQ9PpGSSw5muEzai", false, false), // program
+            ],
+            "1220a1070000000000",
+        );
+    }
+
+    #[test]
+    fn position_token_account_builders_match_program_client() {
+        let inputs = client_inputs();
+        // Two groups in registration order (GDT indices 0 and 3 in the client).
+        let groups = vec![
+            Pubkey::new_from_array([0x40; 32]),
+            Pubkey::new_from_array([0x41; 32]),
+        ];
+        let init = build_init_position_tokens_ix(
+            &InitPositionTokensParams {
+                payer: inputs.operator,
+                user: inputs.user,
+                market: inputs.market,
+                deposit_mints: groups.clone(),
+            },
+            2,
+            &inputs.program_id,
+        );
+        let close = build_close_position_token_accounts_ix(
+            &ClosePositionTokenAccountsParams {
+                operator: inputs.operator,
+                market: inputs.market,
+                position: get_position_pda(&inputs.user, &inputs.market, &inputs.program_id).0,
+                deposit_mints: groups,
+            },
+            2,
+            &inputs.program_id,
+        )
+        .unwrap();
+
+        // Generated by lightcone-client at lightcone-pinnochio f1092ae.
+        assert_ix(
+            &init,
+            &inputs.program_id,
+            &[
+                ("AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9", true, true), // payer
+                ("2iXtA8oeZqUU5pofxK971TCEvFGfems2AcDRaZHKD2pQ", false, false), // user
+                ("3QpkVHKRzdzj2uXdSH6TYXBYfgd4cwKK6Dmx8V78gx37", false, false), // exchange
+                ("6Ckm2BrnXxsSjyG5b17kQQRjoECVrts92RKXVGT8XeqS", false, false), // market
+                ("4CzHZWutNwxxUyV3TigWtWZhBqmRibWuzZqYNvAwYV1p", false, true), // user position
+                ("HwerbZ3uDMyHrs1xe1gUfKBHDbmqp4iMcBzgGDNgKPZG", false, false), // mint authority
+                ("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", false, false), // token program
+                ("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", false, false), // ATA program
+                ("11111111111111111111111111111111", false, false),           // system program
+                ("5KovAGoer61Vvo1Uv7sod2PpdATt74wUm7ezjKsLpKeF", false, false), // collateral G0
+                ("FPaub4kYnsuF2nhEzkGrzruZwGU7qKQGAcSKaisjsd31", false, false), // vault G0
+                ("G8KpaNysbSRbPd2oKtuwnqpaz9yNhbDCtqXqdaLfPNZC", false, false), // GDT G0
+                ("7xiscy1E21eAJN9B8jL8KcJL5vSBEFoYfBowvAUBxLn5", false, false), // mint G00
+                ("Ap7pkFebmQzwJNuhtce4ps7yqoq2E2RPy3GxAfqZXdqP", false, true), // position G00 ATA
+                ("DJgBqQz9rCFoztQUBRUv5iXYUahaQfN8Rwd6PcUf8FqV", false, false), // mint G01
+                ("63GjdPDfRJWzbbxnU1nXXEfZLq2DEotUkxLC735FMZYC", false, true), // position G01 ATA
+                ("5PjDJaGfSPJj4tFzMRCiuuAasKg5n8dJKXKenhuwZexx", false, false), // collateral G1
+                ("3vmGXu4dC4zTJQybJsBfpcxqqTcqEUM5hHN5Nr7w46yj", false, false), // vault G1
+                ("2bzkpDhvuTJxZCPgmqwwrx3uezdLZEidQPdpLPeqYvoB", false, false), // GDT G1
+                ("9KH9qQqJ3Poka7oKTyd2ejDwYfjk5U5nzkfjjNxM2BaZ", false, false), // mint G10
+                ("DDPLSXHzmcSEKyS5HAzQZtKZkmC2vg6cvYATtRuBePZ9", false, true), // position G10 ATA
+                ("6UMX23ZUbMDeH3S9FHW3thYPvTowzMDUrQsVsjb54zxF", false, false), // mint G11
+                ("Ain499vM3dfWTeRaqNdpr5dxfXPiBXAL4VPVWSj4wSSq", false, true), // position G11 ATA
+                ("8VqAxBFSt2PzRu2VjitjGZhWFaKKkjkd3kZpb3jtSkN8", false, false), // event authority
+                ("Hobw7Fi6SN6YaCA4Bwp5RcbCR3YBXQ9PpGSSw5muEzai", false, false), // program
+            ],
+            "1302",
+        );
+        assert_ix(
+            &close,
+            &inputs.program_id,
+            &[
+                ("AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9", true, true), // operator
+                ("3QpkVHKRzdzj2uXdSH6TYXBYfgd4cwKK6Dmx8V78gx37", false, false), // exchange
+                ("6Ckm2BrnXxsSjyG5b17kQQRjoECVrts92RKXVGT8XeqS", false, false), // market
+                ("4CzHZWutNwxxUyV3TigWtWZhBqmRibWuzZqYNvAwYV1p", false, false), // user position
+                ("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", false, false), // token program
+                ("5KovAGoer61Vvo1Uv7sod2PpdATt74wUm7ezjKsLpKeF", false, false), // collateral G0
+                ("7xiscy1E21eAJN9B8jL8KcJL5vSBEFoYfBowvAUBxLn5", false, false), // mint G00
+                ("Ap7pkFebmQzwJNuhtce4ps7yqoq2E2RPy3GxAfqZXdqP", false, true), // position G00 ATA
+                ("DJgBqQz9rCFoztQUBRUv5iXYUahaQfN8Rwd6PcUf8FqV", false, false), // mint G01
+                ("63GjdPDfRJWzbbxnU1nXXEfZLq2DEotUkxLC735FMZYC", false, true), // position G01 ATA
+                ("5PjDJaGfSPJj4tFzMRCiuuAasKg5n8dJKXKenhuwZexx", false, false), // collateral G1
+                ("9KH9qQqJ3Poka7oKTyd2ejDwYfjk5U5nzkfjjNxM2BaZ", false, false), // mint G10
+                ("DDPLSXHzmcSEKyS5HAzQZtKZkmC2vg6cvYATtRuBePZ9", false, true), // position G10 ATA
+                ("6UMX23ZUbMDeH3S9FHW3thYPvTowzMDUrQsVsjb54zxF", false, false), // mint G11
+                ("Ain499vM3dfWTeRaqNdpr5dxfXPiBXAL4VPVWSj4wSSq", false, true), // position G11 ATA
+                ("8VqAxBFSt2PzRu2VjitjGZhWFaKKkjkd3kZpb3jtSkN8", false, false), // event authority
+                ("Hobw7Fi6SN6YaCA4Bwp5RcbCR3YBXQ9PpGSSw5muEzai", false, false), // program
+            ],
+            "19",
+        );
+    }
+
+    #[test]
+    fn cancel_order_matches_program_client() {
+        let inputs = client_inputs();
+        let pair = inputs.pair(
+            inputs.mint(&inputs.collateral_a, 0),
+            inputs.mint(&inputs.collateral_b, 0),
+        );
+        let order = signed_by(
+            50,
+            OrderPayload {
+                salt: 0x0102_0304_0506_0708,
+                side: OrderSide::Bid,
+                amount_in: 123_456,
+                amount_out: 654_321,
+                expiration: 1_900_000_000,
+                ..pair
+            },
+        );
+        let ix =
+            build_cancel_order_ix(&inputs.operator, &inputs.market, &order, &inputs.program_id);
+
+        // Generated by lightcone-client at lightcone-pinnochio f1092ae.
+        assert_ix(
+            &ix,
+            &inputs.program_id,
+            &[
+                ("AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9", true, true), // operator
+                ("3QpkVHKRzdzj2uXdSH6TYXBYfgd4cwKK6Dmx8V78gx37", false, false), // exchange
+                ("6Ckm2BrnXxsSjyG5b17kQQRjoECVrts92RKXVGT8XeqS", false, false), // market
+                ("CZyZ59NJHBRNoDKfndnNggqYHGbZ3xdDF75ikuHHJxDw", false, true), // order status
+                ("8VqAxBFSt2PzRu2VjitjGZhWFaKKkjkd3kZpb3jtSkN8", false, false), // event authority
+                ("Hobw7Fi6SN6YaCA4Bwp5RcbCR3YBXQ9PpGSSw5muEzai", false, false), // program
+            ],
+            concat!(
+                "05",
+                // Order id, then the 225-byte signed order.
+                "76c704f365c47163d7443660ada391788ffd280a9c1e0d5a26af5394f25ad043",
+                "0807060504030201",
+                "5e212c0980e4b39fc09721134aa02109374edfd260c0d3d03cb501c8d65457a9",
+                "4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d",
+                "4d87e7c084828730227139c14226f040f48038ba06198bfb0ffeb9514acaea02",
+                "aa599aca0ddeca9f522c30f07b7c0ba0a4a46c37c10c8373b27ffdfbba4af828",
+                "00",
+                "40e2010000000000",
+                "f1fb090000000000",
+                "00b33f7100000000",
+                "58fc3a9edb7464fb467a78e4603ae1238953860e55c7ed32f9ba9aa98afea114",
+                "578bdeb6f4c35f3b55138f41f6059918a267df3348a9576fb668cd9436530506",
+            ),
+        );
+    }
+
+    #[test]
+    fn match_orders_multi_matches_program_client() {
+        let inputs = client_inputs();
+        let ix =
+            build_match_orders_multi_ix(&client_match_params(&inputs), &inputs.program_id).unwrap();
+
+        // Generated by lightcone-client at lightcone-pinnochio f1092ae.
+        assert_ix(
+            &ix,
+            &inputs.program_id,
+            &[
+                ("AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9", true, true), // operator
+                ("3QpkVHKRzdzj2uXdSH6TYXBYfgd4cwKK6Dmx8V78gx37", false, false), // exchange
+                ("6Ckm2BrnXxsSjyG5b17kQQRjoECVrts92RKXVGT8XeqS", false, false), // market
+                ("AcefzzBzYiYcLKmg9ktNNyBnPSxagC9JRNMweSN1kYF5", false, false), // orderbook
+                ("GjYEnbey6TFjN6wSf6ZVWzPSykh9GPVBAo26oiXC7KhY", false, false), // GDT A
+                ("7GHv8nJvVXunMXBpQF5t1EbDJtfLxKqXAjLCAtfrzgmf", false, false), // GDT B
+                ("D6hX8jPNF1a2ZJApa9duWbGMneXN5XB5wATXTdj5U5Ja", false, true), // taker status
+                ("FBTMbey9FRyKTJ8bzGK8wokrwyVXjdnnaaBAiAtHTJCm", false, false), // taker position
+                ("6Deb7C6szQAGzATpea8mwdk98yKLShbep7HQaKeZ4sVB", false, false), // mint A0 (base)
+                ("CTyZDSYMyGRFE2XoFxproKZqrRe6RyVSghupF1dznVmh", false, false), // mint B0 (quote)
+                ("BKUo9SY9CjBD3WycwT96RPHzsqriXsgwZu4JZ31KnKpQ", false, true), // taker A0 ATA
+                ("BJTYzqmaZKc8U91F8nfqwfiFb6xGCToLii3mGFh9xbkL", false, true), // taker B0 ATA
+                ("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", false, false), // token program
+                ("11111111111111111111111111111111", false, false),           // system program
+                ("6DwXxNbBGFceSZbin2oLSP1DnPSXVD4er4U8ZBVW9Pxq", false, true), // fee receiver B0 ATA
+                ("9hSR6S7WPtxmTojgo6GG3k4yDPecgJY292j7xrsUGWBu", false, false), // fee receiver
+                ("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", false, false), // ATA program
+                ("AswUFYjEDQi4cXqmde8M1H4cZRD4BnmvKfbQoTqFBLB2", false, false), // maker 0 position
+                ("7tJKnMHYLKz7sk3xyDh41PQZbTV7vmSchtMZJAE7G81j", false, true), // maker 0 A0 ATA
+                ("4nV6kAnVDp5xLzzcyqFxpiWknSuF5YFZCtx7kZrr4p9R", false, true), // maker 0 B0 ATA
+                ("HbPnPSmp428fK7dnAtKwDdLoFu6mpQdHrz5b85Zyj2Em", false, true), // maker 1 status
+                ("DagzdYGfpRUgMmsnYZbzHPea9RkPjqJvj41mSg1Erx7w", false, false), // maker 1 position
+                ("8TAgt4BvP2aMFJ5T5or4dxgPmHNuGLx2c5HqSbg1U9vc", false, true), // maker 1 A0 ATA
+                ("EFiBM1hPrxAdfzKjZMhiGQDqfHeshPqcN38oiFfD6Twv", false, true), // maker 1 B0 ATA
+                ("8VqAxBFSt2PzRu2VjitjGZhWFaKKkjkd3kZpb3jtSkN8", false, false), // event authority
+                ("Hobw7Fi6SN6YaCA4Bwp5RcbCR3YBXQ9PpGSSw5muEzai", false, false), // program
+            ],
+            concat!(
+                "0d",
+                // Taker compact order and signature.
+                "01000000efbeadde007800000000000000c8000000000000000000000000000000",
+                "65e302ae869d94a86e237bfb06dfa084adefa4f461ad90dce13c12d778ac2c26",
+                "c480c307132f45a10ad75cdef22c8206d76397a3c0e737195d720682956b2009",
+                // Two makers; full-fill mask 0x0001.
+                "02",
+                "0100",
+                // Maker 0: compact order, signature, maker fill, taker fill.
+                "ffffffffffffffff0164000000000000003c0000000000000000b33f7100000000",
+                "9b29d9b4d5fbcca95d70100554932d394e3136a883dfd71afe77d7583ffe7b6c",
+                "0846996b6082b1426b937eaf07899db41dd1c9b01c8bc180aed3cf7bf0fb7701",
+                "6400000000000000",
+                "3c00000000000000",
+                // Maker 1.
+                "07000000000000000196000000000000005a00000000000000ffffffffffffff7f",
+                "3f32e60f1428f7eff0611c334bdd0315987680e864ec6c8c0b5622fcac9cd535",
+                "e651111c8805b5bdc6c6c128de2f8c25fc13d9f8ad5e86e36117fc971b17740f",
+                "6400000000000000",
+                "3c00000000000000",
+            ),
+        );
+    }
+
+    #[test]
+    fn deposit_and_swap_matches_program_client() {
+        let inputs = client_inputs();
+        let ix =
+            build_deposit_and_swap_ix(&client_deposit_and_swap_params(&inputs), &inputs.program_id)
+                .unwrap();
+
+        // Generated by lightcone-client at lightcone-pinnochio f1092ae. The SELL
+        // taker receives quote (B1) and gives base (A1); every settlement ATA
+        // pair follows that orientation, so the maker's B1 ATA closes its
+        // deposit block and then opens its settlement pair.
+        assert_ix(
+            &ix,
+            &inputs.program_id,
+            &[
+                ("AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9", true, true), // operator
+                ("3QpkVHKRzdzj2uXdSH6TYXBYfgd4cwKK6Dmx8V78gx37", false, false), // exchange
+                ("6Ckm2BrnXxsSjyG5b17kQQRjoECVrts92RKXVGT8XeqS", false, false), // market
+                ("E11bpYzs4qWFn7yiN2rqwnhCidnUFvwxvDmAgwWaYznw", false, false), // orderbook
+                ("7GHv8nJvVXunMXBpQF5t1EbDJtfLxKqXAjLCAtfrzgmf", false, false), // GDT B
+                ("GjYEnbey6TFjN6wSf6ZVWzPSykh9GPVBAo26oiXC7KhY", false, false), // GDT A
+                ("HwerbZ3uDMyHrs1xe1gUfKBHDbmqp4iMcBzgGDNgKPZG", false, false), // mint authority
+                ("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", false, false), // token program
+                ("4yzmLNrFRbmMUH9g5HaraxzLHq2CLbh1BWHYcGfesJFL", false, true), // fee receiver B1 ATA
+                ("9hSR6S7WPtxmTojgo6GG3k4yDPecgJY292j7xrsUGWBu", false, false), // fee receiver
+                ("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", false, false), // ATA program
+                ("Gwrh4QtYMroN5j7iuBj8qJ2isAqnM2FRbsw23JaxD3BJ", false, false), // taker position
+                ("DxkG46NfTmZdeLf88KacJwSFeEo8jeta4pQLGvstaKsa", false, false), // mint A1 (base)
+                ("9Vm6zp8LJ7BLKA5WXMCrVp1XtPcucDxGSniwcibC4qnY", false, false), // mint B1 (quote)
+                ("CgaNt6iMtiNk6kCL71sJDDPB3GLFY2b4xNN54KKK97jE", false, true), // taker B1 ATA
+                ("FtcEGDzZsu5V3ZoMGiRJf8VscXuWreDoSCFxHRBCc6Xd", false, true), // taker A1 ATA
+                ("11111111111111111111111111111111", false, false),            // system program
+                ("Bswb3UyeD1pUTaGiE6WvqwFpJZsQSEY1xhJePCDTHdvp", false, false), // collateral A
+                ("CcJ9vwR45b6DNPChMaS8JG3ua6VhyrGU1zAmSvvkhaRD", false, true), // vault A
+                ("GjYEnbey6TFjN6wSf6ZVWzPSykh9GPVBAo26oiXC7KhY", false, false), // GDT A
+                ("G39vUBiTQfZeh61obxAoD6ThrwjANLyVsopaYy45T9Bd", false, true), // taker global deposit A
+                ("6Deb7C6szQAGzATpea8mwdk98yKLShbep7HQaKeZ4sVB", false, true), // mint A0
+                ("9yFYW3w2B2RyvHgh7KQf7HHqqX3rD2txp32WSwsbB7pW", false, true), // taker A0 ATA
+                ("DxkG46NfTmZdeLf88KacJwSFeEo8jeta4pQLGvstaKsa", false, true), // mint A1
+                ("FtcEGDzZsu5V3ZoMGiRJf8VscXuWreDoSCFxHRBCc6Xd", false, true), // taker A1 ATA
+                ("68cXjdwiAAhMg1i8oAopj6J6j7xZZ2NQi7cES74HUujW", false, true), // maker status
+                ("FHyZwUs9jJNaXMzvyWZG6gxhiRqVE4CbxRb92RWHfuxR", false, false), // maker position
+                ("548jb4wcUtpbNS1TAva8TXJmeXd5QpCCXUzNVogwpzMR", false, false), // collateral B
+                ("9Ni78X3DJWYiXpymPmA1N8hVdiFPCetaeYsoxaxuF3vz", false, true), // vault B
+                ("7GHv8nJvVXunMXBpQF5t1EbDJtfLxKqXAjLCAtfrzgmf", false, false), // GDT B
+                ("DbQxKggBn8RTGCFTqTkn3qYcMPqEKafwpcitUEZXvVaD", false, true), // maker global deposit B
+                ("CTyZDSYMyGRFE2XoFxproKZqrRe6RyVSghupF1dznVmh", false, true), // mint B0
+                ("J1NHgXSKBU2wPDptRDnKT2ct163kDxqKAn5rcED6caB3", false, true), // maker B0 ATA
+                ("9Vm6zp8LJ7BLKA5WXMCrVp1XtPcucDxGSniwcibC4qnY", false, true), // mint B1
+                ("EJKrAAFTCgHsPq3nXLL12Bd8xVDy2P6oN4rEpAfMSuwL", false, true), // maker B1 ATA
+                ("EJKrAAFTCgHsPq3nXLL12Bd8xVDy2P6oN4rEpAfMSuwL", false, true), // maker B1 ATA
+                ("Fzq9pPAncudmCZsYRQdKsQNtnUFooQwDTeLb7qfQTMfb", false, true), // maker A1 ATA
+                ("8VqAxBFSt2PzRu2VjitjGZhWFaKKkjkd3kZpb3jtSkN8", false, false), // event authority
+                ("Hobw7Fi6SN6YaCA4Bwp5RcbCR3YBXQ9PpGSSw5muEzai", false, false), // program
+            ],
+            concat!(
+                "14",
+                // Taker compact order and signature.
+                "00000000000000000164000000000000003c000000000000000000000000000000",
+                "76d7c446df05eaffbaddfee27a939ab11cd999afc57b80434bc749388567c019",
+                "677e9ac826ca8dd1499da1a397e90a4f74c78fb6f4620c1d3c78453052f28d01",
+                // One maker; full-fill mask 0x8000; deposit mask 0x8001.
+                "01",
+                "0080",
+                "0180",
+                // Maker: compact order, signature, maker fill, taker fill.
+                "1817161514131211005a00000000000000960000000000000000f1536500000000",
+                "65743720dc9ef272128db330653a217f25daed211354835c0d806cc78f5b539c",
+                "7e89332fb9dc1c93b201dbfbefbb50cf900618a24a9444a71c26ff74359b1404",
+                "3c00000000000000",
+                "6400000000000000",
+            ),
+        );
+    }
+
+    #[test]
+    fn match_orders_multi_rejects_invalid_trades_locally() {
+        let inputs = client_inputs();
+        let valid = client_match_params(&inputs);
+        let build = |params: &MatchOrdersMultiParams| {
+            build_match_orders_multi_ix(params, &inputs.program_id)
+        };
+
+        let mut params = valid.clone();
+        params.maker_orders.clear();
+        assert!(matches!(
+            build(&params),
+            Err(SdkError::MissingField(field)) if field == "maker_orders"
+        ));
+
+        let mut params = valid.clone();
+        params.maker_orders = vec![valid.maker_orders[1].clone(); MAX_MAKERS + 1];
+        assert!(matches!(
+            build(&params),
+            Err(SdkError::TooManyMakers { count: 12 })
+        ));
+
+        let mut params = valid.clone();
+        params.maker_fill_amounts.pop();
+        assert!(matches!(
+            build(&params),
+            Err(SdkError::MissingField(field)) if field == "maker_fill_amounts"
+        ));
+
+        let mut params = valid.clone();
+        params.taker_fill_amounts.push(60);
+        assert!(matches!(
+            build(&params),
+            Err(SdkError::MissingField(field)) if field == "taker_fill_amounts"
+        ));
+
+        // A participant signed for another pair or market.
+        let mut params = valid.clone();
+        params.maker_orders[1].quote_mint = inputs.mint(&inputs.collateral_b, 1);
+        assert!(matches!(build(&params), Err(SdkError::InvalidOrderbook)));
+        let mut params = valid.clone();
+        params.taker_order.market = Pubkey::new_from_array([0x4e; 32]);
+        assert!(matches!(build(&params), Err(SdkError::InvalidOrderbook)));
+
+        // A maker on the taker's side.
+        let mut params = valid.clone();
+        params.maker_orders[0].side = OrderSide::Bid;
+        assert!(matches!(build(&params), Err(SdkError::InvalidSide(0))));
+
+        // Mask bits beyond the two makers; the taker bit alone stays valid.
+        for mask in [0x0004, 0x4000, 0x8004] {
+            let mut params = valid.clone();
+            params.full_fill_bitmask = mask;
+            assert!(matches!(build(&params), Err(SdkError::Serialization(_))));
+        }
+        let mut params = valid.clone();
+        params.full_fill_bitmask = 0x8003;
+        assert!(build(&params).is_ok());
+
+        let mut params = valid;
+        params.quote_deposit_mint = params.base_deposit_mint;
+        assert!(matches!(build(&params), Err(SdkError::DepositMintMismatch)));
+    }
+
+    #[test]
+    fn deposit_and_swap_rejects_invalid_trades_locally() {
+        let inputs = client_inputs();
+        let valid = client_deposit_and_swap_params(&inputs);
+        let build =
+            |params: &DepositAndSwapParams| build_deposit_and_swap_ix(params, &inputs.program_id);
+
+        let mut params = valid.clone();
+        params.makers.clear();
+        assert!(matches!(
+            build(&params),
+            Err(SdkError::MissingField(field)) if field == "makers"
+        ));
+
+        let mut params = valid.clone();
+        params.makers = vec![valid.makers[0].clone(); MAX_MAKERS + 1];
+        assert!(matches!(
+            build(&params),
+            Err(SdkError::TooManyMakers { count: 12 })
+        ));
+
+        for num_outcomes in [1, 7] {
+            let mut params = valid.clone();
+            params.num_outcomes = num_outcomes;
+            assert!(matches!(
+                build(&params),
+                Err(SdkError::InvalidOutcomeCount { count }) if count == num_outcomes
+            ));
+        }
+
+        // A maker signed for another pair.
+        let mut params = valid.clone();
+        params.makers[0].order.base_mint = inputs.mint(&inputs.collateral_a, 0);
+        assert!(matches!(build(&params), Err(SdkError::InvalidOrderbook)));
+
+        // A maker on the taker's side.
+        let mut params = valid.clone();
+        params.makers[0].order.side = OrderSide::Ask;
+        assert!(matches!(build(&params), Err(SdkError::InvalidSide(1))));
+
+        let mut params = valid.clone();
+        params.quote_deposit_mint = params.base_deposit_mint;
+        assert!(matches!(build(&params), Err(SdkError::DepositMintMismatch)));
+
+        // Depositors must split the collateral behind the asset their order
+        // gives: base collateral for the SELL taker, quote for the BUY maker.
+        let mut params = valid.clone();
+        params.taker_deposit_mint = inputs.collateral_b;
+        assert!(matches!(build(&params), Err(SdkError::DepositMintMismatch)));
+        let mut params = valid.clone();
+        params.makers[0].deposit_mint = inputs.collateral_a;
+        assert!(matches!(build(&params), Err(SdkError::DepositMintMismatch)));
+
+        // A non-depositing participant's deposit mint is not encoded or checked.
+        let mut params = valid;
+        params.makers[0].is_deposit = false;
+        params.makers[0].deposit_mint = Pubkey::default();
+        assert!(build(&params).is_ok());
     }
 }

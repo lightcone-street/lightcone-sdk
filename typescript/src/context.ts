@@ -31,8 +31,6 @@ export interface ClientContext {
   readonly rpcFetch?: typeof fetch;
   /** Optional cached identity for auth-bound operations; callers must check expiry. */
   readonly authCredentials?: AuthCredentials;
-  orderNonce?(): number | undefined;
-  setOrderNonce?(nonce: number): void;
   readonly orderbookRulesCache?: Map<string, Promise<OrderbookRules>>;
 
   /** @deprecated Use primaryConnection — kept for backward compat in domain sub-clients. */

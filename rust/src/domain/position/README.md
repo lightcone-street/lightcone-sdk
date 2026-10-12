@@ -67,13 +67,15 @@ A non-conditional token balance in the user's wallet.
 
 Access via `client.positions()`.
 
+All four positions routes return one page of committed **funding accounts** (`PositionsResponse`): the wallet's global deposit accounts and its conditional-token accounts, with `owner`, `market_pubkey` (the market filter, or `None`), `funding_accounts`, `committed_revision`, `projection_generation`, `has_more`, and `next_cursor`. Each `FundingAccount` carries `account`, `mint`, `source` (`Global`/`Conditional`), `market_pubkey` (`None` for global accounts), `deposit_mint`, `raw_observed` (mint units, `None` when unobserved), exact `order_reserved`/`execution_reserved` (`DecimalText`, since these `u128` aggregates can exceed `Decimal`), `signed_remaining_atoms` (raw signed atoms), and the observation fields (`accepted_boundary`, `observed_slot`, `observed_blockhash`, `observation_state`). These are recorded quantities, not live spending capacity; the live view (`available`, `ready`) arrives as `UserUpdate::Funding` on the WS `user` channel. Market-scoped routes keep global accounts plus the market's conditional accounts, and pages are filtered after a bounded scan, so a page can be empty while `has_more` is true.
+
 ### `get`
 
 ```rust
 async fn get(&self, user_pubkey: &str) -> Result<PositionsResponse, SdkError>
 ```
 
-Fetch all positions for a user across all markets. Public path-based endpoint; no auth required. Returns the full portfolio including wallet holdings and conditional token positions.
+Fetch a wallet's funding accounts across all markets. Public path-based endpoint; no auth required. The public routes reject every query string, so they return the first page only.
 
 ### `get_for_market`
 
@@ -85,7 +87,7 @@ async fn get_for_market(
 ) -> Result<MarketPositionsResponse, SdkError>
 ```
 
-Fetch positions for a user in a specific market. Public path-based endpoint; no auth required.
+Fetch a wallet's global accounts and its conditional accounts in one market (first page). Public path-based endpoint; no auth required. `MarketPositionsResponse` is an alias of `PositionsResponse`.
 
 ### `positions`
 
@@ -93,7 +95,7 @@ Fetch positions for a user in a specific market. Public path-based endpoint; no 
 async fn positions(&self) -> Result<PositionsResponse, SdkError>
 ```
 
-Fetch all positions for the **authenticated** user across every market. The wallet is resolved server-side from the `auth_token` cookie. See [the Authentication section](../../../README.md#authentication) for the cookie / `_with_cookies` story.
+First page of the **authenticated** user's funding accounts across every market. The wallet is resolved server-side from the auth cookie. See [the Authentication section](../../../README.md#authentication) for the cookie / `_with_cookies` story.
 
 ### `positions_for_market`
 
@@ -104,11 +106,24 @@ async fn positions_for_market(
 ) -> Result<MarketPositionsResponse, SdkError>
 ```
 
-Fetch positions for the authenticated user in a specific market.
+First page of the authenticated user's accounts usable in a specific market.
 
-### `positions_with_cookies` / `positions_for_market_with_cookies` / `deposit_token_balances_with_cookies`
+### `positions_page`
 
-Same as the no-arg authed variants above, but accept a raw `Cookie` header containing `privy-token` and/or `lightcone-token`. For SSR / Dioxus server-function callers that need to forward the per-request cookie without writing it into shared client state. See [the Authentication section](../../../README.md#authentication).
+```rust
+async fn positions_page(
+    &self,
+    market_pubkey: Option<&str>,
+    cursor: Option<&str>,
+    limit: Option<u32>,
+) -> Result<PositionsResponse, SdkError>
+```
+
+Page the authenticated user's funding accounts, optionally market-scoped. `cursor` is a previous `next_cursor` (or a user-orders `next_funding_cursor`); `limit` defaults to 200 and is clamped to 1..=256 server-side.
+
+### `positions_with_cookies` / `positions_for_market_with_cookies` / `positions_page_with_cookies` / `deposit_token_balances_with_cookies`
+
+Same as the authed variants above, but accept a raw `Cookie` header containing `privy-token` and/or `lightcone-token`. For SSR / Dioxus server-function callers that need to forward the per-request cookie without writing it into shared client state. See [the Authentication section](../../../README.md#authentication).
 
 ### Wallet Deposit Balances and SOL Action Planning
 
@@ -226,62 +241,59 @@ Create a `MergeBuilder` for burning a complete set of conditional tokens and rel
 
 Configure `LightconeClientBuilder::transaction_resources` and a signing strategy before using fluent `sign_and_submit` methods. Refer to the [Rust trading setup](../../../README.md#start-trading) for the complete client configuration. Offline `build_tx` calls take their explicit `V1TransactionContext` directly.
 
-### Check portfolio across all markets
+### List funding accounts
 
 ```rust
 use lightcone::prelude::*;
 
-async fn show_portfolio(client: &LightconeClient, wallet: &str) -> Result<(), SdkError> {
-    let portfolio = client.positions().get(wallet).await?;
-
-    println!("Wallet holdings: ${}", portfolio.total_wallet_value);
-    for holding in &portfolio.wallet_holdings {
-        println!("  {} {}: ${}", holding.amount, holding.symbol, holding.usd_value);
+async fn show_funding(client: &LightconeClient, wallet: &str) -> Result<(), SdkError> {
+    let page = client.positions().get(wallet).await?;
+    println!("revision {} (more: {})", page.committed_revision, page.has_more);
+    for account in &page.funding_accounts {
+        println!(
+            "  {:?} {} observed={:?} reserved={} ({:?})",
+            account.source,
+            account.mint,
+            account.raw_observed,
+            account.order_reserved,
+            account.observation_state,
+        );
     }
-
-    println!("\nPositions: ${}", portfolio.total_positions_value);
-    for position in &portfolio.positions {
-        println!("  {} (${}):", position.event_name, position.total_value);
-        for outcome in &position.outcomes {
-            println!("    {}: {} tokens (${:.2})", outcome.condition_name, outcome.amount, outcome.usd_value);
-        }
-    }
-
     Ok(())
 }
 ```
 
-### Check position in a specific market
+### Page the authenticated user's accounts in a market
 
 ```rust
 use lightcone::prelude::*;
 
-async fn check_market_position(
+async fn market_accounts(
     client: &LightconeClient,
-    wallet: &str,
     market_pubkey: &str,
-) -> Result<(), SdkError> {
-    let response = client.positions().get_for_market(wallet, market_pubkey).await?;
-    println!("Position: {:?}", response);
-    Ok(())
+) -> Result<Vec<FundingAccount>, SdkError> {
+    let mut accounts = Vec::new();
+    let mut cursor: Option<String> = None;
+    loop {
+        let page = client
+            .positions()
+            .positions_page(Some(market_pubkey), cursor.as_deref(), None)
+            .await?;
+        accounts.extend(page.funding_accounts);
+        match page.next_cursor {
+            Some(next) if page.has_more => cursor = Some(next),
+            _ => break,
+        }
+    }
+    Ok(accounts)
 }
 ```
 
 ## Wire Types
 
-Raw response types are available in `lightcone::domain::position::wire`, including `PositionsResponse` and `PositionResponse`.
+Raw response types are available in `lightcone::domain::position::wire`: `PositionsResponse` (alias `MarketPositionsResponse`), `FundingAccount`, `FundingSource`, `ObservationState`, and the live WS `FundingUpdate`. Integer revisions and slots accept both string and number encodings.
 
-`global_deposits` on positions REST responses uses the REST shape:
-
-```rust
-pub struct GlobalDeposit {
-    pub deposit_mint: String,
-    pub symbol: String,
-    pub balance: Decimal,
-}
-```
-
-This differs from the WebSocket user snapshot shape in `domain::order::wire`, which uses `{ mint, balance }`.
+The WS `user` snapshot carries the same `FundingAccount` shape; the live `funding` fact (`FundingUpdate`) instead carries the engine's transient view: `usable_observed`, a scaled `signed_remaining`, `available`, `ready`, `slot`, and `blockhash`, forced to zero/`false` when the fact is not actionable.
 
 ---
 

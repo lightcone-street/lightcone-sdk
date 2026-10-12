@@ -83,8 +83,11 @@ def encode_u64(value: int) -> bytes:
     """Encode an unsigned 64-bit integer (little-endian).
 
     Raises:
-        ValueError: If value is out of range [0, 2^64-1]
+        SerializationError: If value is not an ``int`` (``bool`` included) or
+            is out of range [0, 2^64-1]
     """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SerializationError(f"u64 value out of range: {value!r}")
     if not 0 <= value <= 18446744073709551615:
         raise SerializationError(
             f"u64 value out of range: {value} (must be 0-18446744073709551615)"
@@ -96,8 +99,11 @@ def encode_i64(value: int) -> bytes:
     """Encode a signed 64-bit integer (little-endian).
 
     Raises:
-        ValueError: If value is out of range [-2^63, 2^63-1]
+        SerializationError: If value is not an ``int`` (``bool`` included) or
+            is out of range [-2^63, 2^63-1]
     """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SerializationError(f"i64 value out of range: {value!r}")
     if not -9223372036854775808 <= value <= 9223372036854775807:
         raise SerializationError(f"i64 value out of range: {value}")
     return struct.pack("<q", value)

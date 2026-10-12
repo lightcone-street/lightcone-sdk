@@ -21,7 +21,7 @@ for(const deposit of [false, true]) {
   it(`preserves exact fills at the eleven-maker boundary (deposit=${deposit})`, () => {
     const market = wallet(3), baseMint = wallet(4), quoteMint = wallet(5);
     const orders: SignedOrder[] = Array.from({ length: 13 }, (_, i) => ({
-      nonce: i, salt: BigInt(i), maker: wallet(i + 10), market, baseMint, quoteMint,
+      salt: BigInt(i), maker: wallet(i + 10), market, baseMint, quoteMint,
       side: i === 0 ? OrderSide.BID : OrderSide.ASK,
       amountIn: 2n ** 63n + 11n, amountOut: 2n ** 53n + 7n,
       expiration: 0n, signature: Buffer.alloc(64, i),
@@ -36,14 +36,16 @@ for(const deposit of [false, true]) {
     });
     const data = build(11).data;
     assert.equal(data[0], deposit ? 20 : 13);
-    assert.equal(data[102], 11);
-    assert.equal(data.readUInt16LE(103), 0x87ff);
-    if(deposit) assert.equal(data.readUInt16LE(105), 0);
+    // Header: discriminator, 33-byte taker order, 64-byte signature, maker count, masks.
+    assert.equal(data.length, (deposit ? 103 : 101) + 11 * 113);
+    assert.equal(data[98], 11);
+    assert.equal(data.readUInt16LE(99), 0x87ff);
+    if(deposit) assert.equal(data.readUInt16LE(101), 0);
     for(let i = 0;i < 11;i++) {
-      const offset = (deposit ? 107 : 105) + i * 117;
-      assert.deepEqual(data.subarray(offset + 37, offset + 101), orders[i + 1]!.signature);
-      assert.equal(data.readBigUInt64LE(offset + 101), makerAmount);
-      assert.equal(data.readBigUInt64LE(offset + 109), takerAmount);
+      const offset = (deposit ? 103 : 101) + i * 113;
+      assert.deepEqual(data.subarray(offset + 33, offset + 97), orders[i + 1]!.signature);
+      assert.equal(data.readBigUInt64LE(offset + 97), makerAmount);
+      assert.equal(data.readBigUInt64LE(offset + 105), takerAmount);
     }
     assert.throws(() => build(12), (e: unknown) => e instanceof ProgramSdkError && e.variant === "TooManyMakers" && e.message.includes("12"));
   });

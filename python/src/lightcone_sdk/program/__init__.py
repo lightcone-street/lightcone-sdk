@@ -15,14 +15,12 @@ from .accounts import (
     deserialize_order_status,
     deserialize_orderbook,
     deserialize_position,
-    deserialize_user_nonce,
     is_exchange_account,
     is_global_deposit_token,
     is_market_account,
     is_order_status_account,
     is_orderbook_account,
     is_position_account,
-    is_user_nonce_account,
 )
 
 # Order builder
@@ -66,6 +64,7 @@ from .constants import (
     MIN_OUTCOMES,
     MPL_TOKEN_METADATA_PROGRAM_ID,
     ORDER_HASH_SIZE,
+    ORDER_PREIMAGE_SIZE,
     ORDER_SIZE,
     ORDERBOOK_DISCRIMINATOR,
     ORDERBOOK_SEED,
@@ -74,7 +73,6 @@ from .constants import (
     RENT_SYSVAR_ID,
     SEED_CONDITION,
     SEED_EVENT_AUTHORITY,
-    SEED_FEE_RECEIVER,
     SEED_GLOBAL_DEPOSIT,
     SEED_MPL_METADATA,
     SIGNATURE_SIZE,
@@ -129,16 +127,7 @@ from .constants import (
     SEED_POSITION as SEED_POSITION,
 )
 from .constants import (
-    SEED_USER_NONCE as SEED_USER_NONCE,
-)
-from .constants import (
     SEED_VAULT as SEED_VAULT,
-)
-from .constants import (
-    USER_NONCE_DISCRIMINATOR as USER_NONCE_DISCRIMINATOR,
-)
-from .constants import (
-    USER_NONCE_SIZE as USER_NONCE_SIZE,
 )
 
 # Envelope builders
@@ -230,7 +219,6 @@ from .instructions import (
     build_deposit_instruction,
     build_deposit_to_global_instruction,
     build_global_to_market_deposit_instruction,
-    build_increment_nonce_instruction,
     build_init_position_tokens_instruction,
     build_initialize_instruction,
     build_match_orders_multi_instruction,
@@ -271,10 +259,13 @@ from .orders import (
     deserialize_order,
     generate_cancel_all_salt,
     generate_salt,
+    get_order_message,
     hash_order,
     hash_order_hex,
     is_order_expired,
     is_signed,
+    order_preimage,
+    order_to_signed,
     orders_can_cross,
     serialize_compact_order,
     serialize_full_order,
@@ -308,7 +299,6 @@ from .pda import (
     get_orderbook_pda,
     get_position_pda,
     get_user_global_deposit_pda,
-    get_user_nonce_pda,
     get_vault_pda,
 )
 from .types import (
@@ -359,7 +349,6 @@ from .types import (
     SetOracleParams,
     SettleMarketParams,
     SignedOrder,
-    UserNonce,
     WhitelistDepositTokenParams,
     WithdrawConditionalFromPositionParams,
     WithdrawFromGlobalParams,
@@ -428,7 +417,6 @@ __all__ = [
     "Market",
     "Position",
     "OrderStatus",
-    "UserNonce",
     "Orderbook",
     "SignedOrder",
     "FullOrder",
@@ -487,11 +475,11 @@ __all__ = [
     "ORDERBOOK_SEED",
     "SEED_CONDITION",
     "SEED_GLOBAL_DEPOSIT",
-    "SEED_FEE_RECEIVER",
     "SEED_MPL_METADATA",
     "SEED_EVENT_AUTHORITY",
     "ORDERBOOK_SIZE",
     "GLOBAL_DEPOSIT_TOKEN_SIZE",
+    "ORDER_PREIMAGE_SIZE",
     "SIGNED_ORDER_SIZE",
     "ORDER_SIZE",
     "MAX_OUTCOMES",
@@ -609,14 +597,12 @@ __all__ = [
     "deserialize_position",
     "deserialize_order_status",
     "deserialize_orderbook",
-    "deserialize_user_nonce",
     "is_exchange_account",
     "is_global_deposit_token",
     "is_market_account",
     "is_order_status_account",
     "is_orderbook_account",
     "is_position_account",
-    "is_user_nonce_account",
     # PDA Functions
     "get_exchange_pda",
     "get_event_authority_pda",
@@ -628,7 +614,6 @@ __all__ = [
     "get_conditional_mint_pda",
     "get_mpl_metadata_pda",
     "get_order_status_pda",
-    "get_user_nonce_pda",
     "get_position_pda",
     "get_orderbook_pda",
     "canonical_mint_pair",
@@ -645,6 +630,9 @@ __all__ = [
     "create_signed_ask_order",
     "generate_cancel_all_salt",
     "generate_salt",
+    "get_order_message",
+    "order_preimage",
+    "order_to_signed",
     "hash_order",
     "hash_order_hex",
     "sign_cancel_all",
@@ -680,7 +668,6 @@ __all__ = [
     "build_deposit_instruction",
     "build_merge_instruction",
     "build_cancel_order_instruction",
-    "build_increment_nonce_instruction",
     "build_settle_market_instruction",
     "build_redeem_winnings_instruction",
     "build_set_paused_instruction",
