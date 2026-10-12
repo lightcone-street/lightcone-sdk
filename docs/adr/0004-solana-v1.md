@@ -22,9 +22,8 @@ the SDK never automatically rebuilds, re-signs, or resubmits them.
 The existing Privy backend transaction endpoint returns only a transaction hash,
 so it cannot meet the signed-message validation contract. Its transaction helpers
 fail before sending any request. A v1-capable external signer returning signed
-bytes is the supported wallet integration. Rust and TypeScript do not sign or
-cancel orders through Privy ([ADR 0005](0005-nonce-free-order-identity.md));
-Python keeps its Privy order helpers until its nonce-free port. Unsponsored
+bytes is the supported wallet integration. The SDKs do not sign or cancel
+orders through Privy ([ADR 0005](0005-nonce-free-order-identity.md)). Unsponsored
 external signers must expose the fee-payer identity.
 
 ## Compatibility

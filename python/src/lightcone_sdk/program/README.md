@@ -57,7 +57,6 @@ from lightcone_sdk.program import (
     PendingRoleKind,
     Position,
     OrderStatus,
-    UserNonce,
 )
 ```
 
@@ -118,36 +117,42 @@ from lightcone_sdk.program import (
 | `base_remaining` | int | Remaining base-side amount |
 | `is_cancelled` | bool | Cancelled flag |
 
-#### UserNonce
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `nonce` | int | Current nonce value |
-
 ### Order Types
 
 ```python
 from lightcone_sdk.program import FullOrder, CompactOrder, MakerFill
 ```
 
-#### FullOrder (233 bytes)
+#### SignedOrder / FullOrder (225 bytes)
+
+`FullOrder` is an alias of `SignedOrder`. There is no per-user nonce: the salt is
+the order's only identity, and bytes 0..161 are the signing preimage. Integers
+are little-endian. `serialize_full_order` writes and `deserialize_full_order`
+requires exactly 225 bytes. The order types are keyword-only dataclasses.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `nonce` | int | Order nonce |
+| `salt` | int | Order identity; any u64, including 0. Use a distinct salt per order |
 | `maker` | Pubkey | Maker public key |
 | `market` | Pubkey | Market address |
 | `base_mint` | Pubkey | Base token mint |
 | `quote_mint` | Pubkey | Quote token mint |
 | `side` | OrderSide | BID or ASK |
-| `amount_in` | int | Amount maker gives |
-| `amount_out` | int | Amount maker receives |
-| `expiration` | int | Expiration timestamp |
+| `amount_in` | int | Amount maker gives (raw atoms) |
+| `amount_out` | int | Amount maker receives (raw atoms) |
+| `expiration` | int | Expiration Unix timestamp in seconds (0 = no expiration). The order remains valid during its expiration second |
 | `signature` | bytes | Ed25519 signature (64 bytes) |
 
-#### CompactOrder (37 bytes)
+`hash_order` returns the Keccak-256 hash of the 161-byte preimage
+(`order_preimage`), which is also the order-status PDA seed. The wallet signs the
+64 lowercase ASCII hex characters of that hash, with no prefix
+(`get_order_message`). `generate_salt` draws a uniformly random u64.
 
-Compact instruction form with `nonce`, `salt`, `side`, `amount_in`, `amount_out`, and `expiration`.
+#### Order / CompactOrder (33 bytes)
+
+Compact order payload: `salt`, `side`, `amount_in`, `amount_out`, and
+`expiration`, without `maker`, `market`, `base_mint`, `quote_mint`, or the
+signature. `deserialize_order` requires exactly 33 bytes.
 
 #### MakerFill
 
@@ -216,7 +221,8 @@ from lightcone_sdk.program import (
 - Both matching builders require `base_deposit_mint` and `quote_deposit_mint`. They derive two fixed GDTs in canonical conditional-mint order. Both live registrations must be active when the program executes a trade.
 - Trading supports at most eleven makers in the instruction parser. Full-fill and funding masks use little-endian u16 values, maker bits 0 through 10, and taker bit 15. Reserved bits and absent-maker bits are invalid.
 - A selected global funding deposit must use the participant's signed give-side collateral: quote collateral for BUY and base collateral for SELL.
-- `deposit_to_global` accepts eight business accounts and emits one GlobalDeposit event. It does not initialize a user nonce.
+- `deposit_to_global` accepts eight business accounts and emits one GlobalDeposit event.
+- Orders are nonce-free: instruction value 6 (the removed `IncrementNonce`) is unassigned, there is no user-nonce account or PDA, and order signing and the submit body changed with the cutover. See [SignedOrder](#signedorder--fullorder-225-bytes) and [ADR 0005](../../../../docs/adr/0005-nonce-free-order-identity.md).
 - `close_orderbook` closes a resolved book directly. Instruction IDs 21, 23, 26, and 34 and their ALT helpers are removed.
 - Event completion uses schema 2. The SDK keeps the authenticated trailer and does not encode or decode completion batches.
 
@@ -230,7 +236,6 @@ from lightcone_sdk.program import (
     SEED_MINT_AUTHORITY,
     SEED_CONDITIONAL_MINT,
     SEED_ORDER_STATUS,
-    SEED_USER_NONCE,
     SEED_POSITION,
     SEED_EVENT_AUTHORITY,
 )
@@ -244,7 +249,6 @@ from lightcone_sdk.program import (
     MARKET_DISCRIMINATOR,
     ORDER_STATUS_DISCRIMINATOR,
     POSITION_DISCRIMINATOR,
-    USER_NONCE_DISCRIMINATOR,
 )
 ```
 
@@ -256,13 +260,13 @@ from lightcone_sdk.program import (
     EXCHANGE_SIZE,      # 216 bytes
     MARKET_SIZE,        # 216 bytes
     ORDER_STATUS_SIZE,  # 32 bytes
-    USER_NONCE_SIZE,    # 16 bytes
     POSITION_SIZE,      # 80 bytes
     GLOBAL_DEPOSIT_TOKEN_SIZE, # 47 bytes
 
     # Order sizes
-    FULL_ORDER_SIZE,    # 233 bytes
-    COMPACT_ORDER_SIZE, # 37 bytes
+    ORDER_PREIMAGE_SIZE, # 161 bytes (signed and hashed)
+    SIGNED_ORDER_SIZE,  # 225 bytes (FULL_ORDER_SIZE alias)
+    ORDER_SIZE,         # 33 bytes (COMPACT_ORDER_SIZE alias)
     SIGNATURE_SIZE,     # 64 bytes
     ORDER_HASH_SIZE,    # 32 bytes
 
@@ -281,7 +285,7 @@ Every `build_*_instruction` appends the event-authority PDA and executable progr
 account as read-only, non-signer accounts, in that order. These are always the
 last two accounts; callers must not append another trailer.
 
-See the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules and the governance CPI allowlist. The [program source at `db552338`](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src) defines the current binary interfaces, preparation behavior, limits, and errors.
+See the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules and the governance CPI allowlist. The nonce-free [program source at `f1092ae7`](https://github.com/lightcone-street/lightcone-pinnochio/tree/f1092ae7cc13910528437a8c33bb53c893687a32/src) defines the current binary interfaces, preparation behavior, limits, and errors; its ABI is unchanged from `9702f231`. The order-identity and program-client vector tests pin the backend's order-signing vectors and the instruction bytes produced by the program team's `lightcone-client` at that commit.
 
 The SDK neither builds nor decodes event batches; `INSTRUCTION_EVENT_BATCH` is
 reserved. Builders do not add a compute-budget instruction. Callers must include
@@ -381,7 +385,6 @@ from lightcone_sdk.program import (
     get_mint_authority_pda,
     get_conditional_mint_pda,
     get_order_status_pda,
-    get_user_nonce_pda,
     get_position_pda,
     get_all_conditional_mints,
     PROGRAM_ID,
@@ -410,9 +413,6 @@ cond_mint_pda, bump = get_conditional_mint_pda(
 # Order status PDA
 order_status_pda, bump = get_order_status_pda(order_hash, PROGRAM_ID)
 
-# User nonce PDA
-user_nonce_pda, bump = get_user_nonce_pda(user_pubkey, PROGRAM_ID)
-
 # Position PDA
 position_pda, bump = get_position_pda(owner_pubkey, market_pubkey, PROGRAM_ID)
 
@@ -428,6 +428,8 @@ from lightcone_sdk.program import (
     create_ask_order,
     create_signed_bid_order,
     create_signed_ask_order,
+    generate_salt,
+    get_order_message,
     hash_order,
     sign_order,
     verify_order_signature,
@@ -444,16 +446,17 @@ from lightcone_sdk.program import (
 from solders.keypair import Keypair
 
 # Create orders
-bid_order = create_bid_order(BidOrderParams(
-    nonce=1,
+bid_params = BidOrderParams(
+    salt=generate_salt(),     # The order's identity; reuse it to resubmit
     maker=maker_pubkey,
     market=market_pubkey,
     base_mint=yes_token_mint,
     quote_mint=no_token_mint,
-    maker_amount=1_000_000,   # Quote tokens given
-    taker_amount=500_000,     # Base tokens received
+    amount_in=1_000_000,      # Quote atoms given
+    amount_out=500_000,       # Base atoms received
     expiration=0,
-))
+)
+bid_order = create_bid_order(bid_params)
 
 # Create and sign in one step
 keypair = Keypair()
@@ -463,14 +466,15 @@ signed_bid = create_signed_bid_order(bid_params, keypair, rules)
 # Signing helpers require fetched OrderbookRules and preflight the exact price
 # ratio, size quantum, and durable field ranges before producing a signature.
 
-# Hash order (keccak256)
+# Hash order (keccak256 of the 161-byte preimage)
 order_hash = hash_order(order)  # 32 bytes
+message = get_order_message(order)  # 64 ASCII hex bytes the wallet signs
 
 # Verify signature
 is_valid = verify_order_signature(order)
 
 # Serialize/deserialize
-order_bytes = serialize_full_order(order)     # 233 bytes
+order_bytes = serialize_full_order(order)     # 225 bytes
 order = deserialize_full_order(order_bytes)
 
 # Validation
@@ -574,7 +578,6 @@ exchange_addr = client.get_exchange_address()
 market_addr = client.get_market_address(market_id=0)
 position_addr = client.get_position_address(owner_pubkey, market_pubkey)
 order_status_addr = client.get_order_status_address(order_hash_bytes)
-user_nonce_addr = client.get_user_nonce_address(user_pubkey)
 
 # Get market by address (makes RPC call)
 market = await client.get_market_by_address(market_pubkey)
@@ -586,7 +589,6 @@ market = await client.get_market_by_address(market_pubkey)
 | `get_market_address(market_id)` | Pubkey | Market PDA for given ID |
 | `get_position_address(owner, market)` | Pubkey | Position PDA |
 | `get_order_status_address(order_hash)` | Pubkey | Order status PDA |
-| `get_user_nonce_address(user)` | Pubkey | User nonce PDA |
 | `get_market_by_address(address)` | Market | Fetch and deserialize market |
 
 ### Order Helpers
@@ -701,7 +703,6 @@ from lightcone_sdk.program import (
     deserialize_market,
     deserialize_position,
     deserialize_order_status,
-    deserialize_user_nonce,
 )
 
 # From raw account data bytes
@@ -709,7 +710,6 @@ exchange = deserialize_exchange(account_data)
 market = deserialize_market(account_data)
 position = deserialize_position(account_data)
 order_status = deserialize_order_status(account_data)
-user_nonce = deserialize_user_nonce(account_data)
 ```
 
 ## Instruction Builders
@@ -724,7 +724,6 @@ from lightcone_sdk.program import (
     build_mint_complete_set_instruction,
     build_merge_complete_set_instruction,
     build_cancel_order_instruction,
-    build_increment_nonce_instruction,
     build_settle_market_instruction,
     build_redeem_winnings_instruction,
     build_set_paused_instruction,

@@ -66,7 +66,9 @@ resources = V1ResourceConfig(
 client = (LightconeClientBuilder().native_signer(keypair)
           .transaction_resources(resources).build())
 context = await client.transaction_context()
-tx = client.orders().increment_nonce_tx(keypair.pubkey(), context)
+tx = (client.positions().deposit_to_global()
+      .user(keypair.pubkey()).mint(mint).amount(1_000_000)
+      .build_tx(context))
 # Fluent builders use .build_tx(context); .sign_and_submit() obtains configured context.
 confirmed = await client.sign_and_submit_tx_confirmed_with_slot(tx)
 ```
@@ -96,8 +98,10 @@ attempt. Confirmation retains the original expiry for ordinary and SOL-prepared
 transactions. A changed budget requires a fresh plan and signatures.
 
 The Privy backend only returns a submission hash, so it cannot satisfy these
-checks. Use a v1-capable `ExternalSigner` that returns signed bytes; Privy off-chain
-order signing remains available. See the [v1 ADR](../docs/adr/0004-solana-v1.md).
+checks. Use a v1-capable `ExternalSigner` that returns signed bytes. Privy order
+signing is not supported either: order submission and cancellation require a
+native signer or an `ExternalSigner`, and the Privy branches raise
+`ValidationError`. See the [v1 ADR](../docs/adr/0004-solana-v1.md).
 
 
 
@@ -189,7 +193,6 @@ client = (
 nonce = await client.auth().get_nonce()
 message, signature_bs58, pubkey_bytes = sign_login_message(keypair, nonce)
 await client.auth().login_with_message(message, signature_bs58, pubkey_bytes)
-client.set_order_nonce(await client.orders().current_nonce(keypair.pubkey()))
 ```
 
 ## API Key
@@ -298,15 +301,34 @@ for attempt in range(15):
 ### Step 3: Place an Order
 
 ```python
-order = await (
+envelope = (
     client.orders().limit_order()
     .maker(keypair.pubkey())
     .bid()
     .price(order_price)
     .size(order_size)
-    .submit(client, orderbook)
 )
+order = await envelope.submit(client, orderbook)
+print(order.status, order.open_base())
 ```
+
+An order's identity is its signed fields; the `u64` salt is the only
+distinguishing value, so the envelope draws one salt on first use and keeps it.
+Submission is never retried. If the outcome is unknown (`ENGINE_UNAVAILABLE`, a
+timeout, or a lost connection), call `envelope.submit(client, orderbook)` again
+on the same envelope, which resubmits the identical order: a `DUPLICATE_ORDER`
+rejection or an `ALREADY_EXISTS` error proves the first submission was accepted,
+and any other result is the outcome of this one. Never sign a replacement with a
+new salt, which is a different order. Order reads list only open and pending
+orders, so they cannot prove an order was never accepted.
+
+The response reports the committed order: `status` is `accepted`,
+`accepted_pending`, or `filled` (`UNKNOWN` for a status this SDK version does not
+know); `state` holds the `original`, `confirmed`, `pending`, `open`,
+`executable`, and `cancelled` base quantities (`Decimal` in base-token units) with
+the `committed_revision`; and `fills` lists up to 16 authenticated fills with
+signed fee estimates in raw fee-mint atoms. `state` and `initial_cohort` are
+`None` when the acceptance is durable but its committed view is not yet readable.
 
 ### Step 4: Monitor
 
@@ -320,11 +342,53 @@ await ws.subscribe(BookUpdateParams(orderbook_ids=[orderbook.orderbook_id]))
 await ws.subscribe(UserParams(wallet_address=str(keypair.pubkey())))
 ```
 
+The `user` channel sends one snapshot, then committed facts tagged by
+`event_type`: `order` (an order's complete committed state), `funding` (funding
+account balances, reservations, and live `available`/`ready`), `fill` (the
+`trades` payload for the wallet's fills), `closure` (an accepted-order cutoff),
+`recovery_completed`, and `notification`. Each frame decodes to a `UserUpdate`
+whose `data` holds the typed payload. Retired and future event types decode as
+`UserUpdate(event_type="unknown", data=None, raw_event_type=...)`. Live facts
+carry `commit` (`effect_id`, `committed_revision`, `projection_generation`,
+`actionable`); revisions and sequences are exact `int`s.
+
+```python
+from lightcone_sdk.domain.order import convert_snapshot_orders
+
+open_orders = None
+
+def on_user(update):
+    global open_orders
+    if update.event_type == "snapshot":
+        open_orders = convert_snapshot_orders(update.data.orders)
+    elif update.event_type == "order":
+        open_orders.apply(update.data)
+    elif update.event_type == "closure":
+        if open_orders.apply_closure(update.data) is None:
+            ...  # scope not evaluable from order data: refetch the orders
+```
+
+Seed `UserOpenLimitOrders` with `convert_snapshot_orders(snapshot.orders)` (merge
+later REST pages with `limit_order_from_user_order` and `apply_order`), then call
+`apply(update)` for every `order` fact and `apply_closure(closure)` for every
+`closure`. Application is revision-guarded, so older state cannot reopen a closed
+order, and the container replaces stored orders instead of changing them.
+`apply_closure` returns `None` for scopes it cannot evaluate from order data
+(deposit token, account, settlement profile): refetch the orders then.
+`recovery_completed` means the engine rebuilt committed state and cached user
+state is stale, but no snapshot follows it: `clear()` the container, then
+unsubscribe and resubscribe `UserParams` for a new snapshot, or reseed from REST
+pages. After a reconnect the client resubscribes automatically; `clear()` the
+container and reseed from the snapshot that follows.
+
 Book streams are snapshot-only: every accepted `book_update` replaces the full
 top-20 view. `OrderbookState` discards equal/older `seq` values within a
 subscription generation and accepts forward gaps. Call `begin_generation()` on
-reconnect/resubscribe; `resync: true` requires unsubscribe/resubscribe with the
-same aggregation. Each `(orderbook, aggregation)` pair needs its own state.
+reconnect/resubscribe; `resync: true` (a frame without `seq`, which reads as `0`)
+requires unsubscribe/resubscribe with the same aggregation. Each frame's `ready`
+flag reports whether the engine's committed book is live for matching, and
+`OrderbookState.ready` tracks the last accepted frame (REST depth carries the
+same `ready`). Each `(orderbook, aggregation)` pair needs its own state.
 Truncation flags are preserved and mean that side is not exhaustive. See
 [`examples/ws_book_and_trades.py`](examples/ws_book_and_trades.py).
 Each decoded bid and ask level includes exact decimal-string `quote_notional`.
@@ -334,6 +398,8 @@ price-to-base-size `OrderbookState` dictionaries do not retain quote notional;
 read it from the decoded `WsOrderBook` levels.
 Ticker consumers should use the supplied `mid_price`; it is
 engine-authoritative and may use one-sided-book or last-trade fallback.
+`metrics().orderbook_tickers()` follows the REST ticker pages (8 per request) and
+reports `has_more` with a resumable `next_cursor` if it reaches its page cap.
 REST depth is a coherent projection that may briefly lag a mutation. Use its
 `revision` and `captured_at_ms` metadata, and expect revision gaps.
 
@@ -341,8 +407,8 @@ Order submission accepts strings or exact `Decimal` values and uses Python
 integer arithmetic. `submit()` fetches and caches
 `/api/orderbooks/{id}/decimals` before invoking a signer. Direct
 `sign()`/`finalize()` calls require the returned `OrderbookRules`. Raw amounts,
-explicit salts, and derived prices are checked against the same signed-64-bit
-rules; no tick or size normalization is implicit.
+explicit salts, and derived prices are preflighted against the same admission
+rules and the nonzero `u64` atom range; no tick or size normalization is implicit.
 
 The envelope generates a salt when omitted. The price is quote tokens per base token, and the size is base tokens. Example values must satisfy the selected orderbook's trading rules and available collateral.
 
@@ -357,14 +423,22 @@ from lightcone_sdk import sign_cancel_order
 from lightcone_sdk.domain.order import CancelBody
 
 signature = sign_cancel_order(order.order_hash, keypair)
-await client.orders().cancel(
+cancelled = await client.orders().cancel(
     CancelBody(
         order_hash=order.order_hash,
         maker=str(keypair.pubkey()),
         signature=signature,
     )
 )
+print(cancelled.status, cancelled.revision)
 ```
+
+`cancel()` reports a `CancelStatus` (`cancelled`, `already_closed`, or
+`already_filled`), the committed `revision`, and `quantities` in raw base-token
+atoms (`newly_cancelled_base`, `confirmed_base`, `pending_base`,
+`remaining_open_base`). `cancel_all()` commits an accepted-order cutoff: its
+`closure` reports the `committed_revision`, `scope`, and `accepted_seq_cutoff`,
+and per-order facts follow on the `user` channel. Neither is retried.
 
 ### Step 6: Exit a Position
 
@@ -426,7 +500,17 @@ print(f"snapshot slot {snapshot.context_slot}: {len(snapshot.balances)} balances
 positions = await client.positions().positions_with_cookies(
     cookie_header=cookie_header,
 )
+print(f"revision {positions.committed_revision}: {len(positions.funding_accounts)} accounts")
+next_page = await client.positions().positions_page_with_cookies(
+    None, positions.next_cursor, None, cookie_header
+)
 ```
+
+Positions are committed funding accounts (`FundingAccount`): global deposit
+accounts and the conditional-token accounts of each market, with observed
+balances, `DecimalText` reservations, and the committed revision. The public
+`get(wallet)` and `get_for_market(wallet, market)` routes return the first page
+only; page further with `positions_page()` as the authenticated owner.
 
 ### External wallet SOL balances
 
@@ -616,15 +700,15 @@ The authenticated markets client provides paginated `favorite_markets(limit=None
 | Example | Description |
 |---------|-------------|
 | [`cancel_order`](examples/cancel_order.py) | Cancel a single order by hash, cancel all orders in an orderbook, and withdraw the released collateral from the global pool |
-| [`user_orders`](examples/user_orders.py) | Fetch open orders for an authenticated user |
+| [`user_orders`](examples/user_orders.py) | Fetch open and pending orders with their recorded quantities and funding accounts |
 
 ### On-Chain Operations
 
 | Example | Description |
 |---------|-------------|
 | [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.py) | Deposit to the global pool, move capital into a market, withdraw from global, and merge the complete set |
-| [`read_onchain`](examples/read_onchain.py) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
-| [`onchain_transactions`](examples/onchain_transactions.py) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
+| [`read_onchain`](examples/read_onchain.py) | Read exchange state, market state, position, and PDA derivations via RPC |
+| [`onchain_transactions`](examples/onchain_transactions.py) | Build, sign, and submit deposit and merge transactions on-chain |
 
 Every instruction builder appends the program's event transport trailer (the
 event-authority PDA, then the program account) automatically, and public
@@ -650,7 +734,8 @@ or one of its subclasses:
 | `HttpError` | REST request failures |
 | `WsError` | WebSocket connection/protocol errors |
 | `AuthError` | Authentication failures |
-| `DeserializationError` | Required fields are missing while decoding REST or WS payloads |
+| `DeserializationError` | A REST body or WS frame does not match the expected shape (the message names the field), including a malformed 2xx body |
+| `ValidationError` | Invalid inputs and domain conversion failures (for example an order fact with no limit price, a non-advancing ticker cursor, or Privy order signing) |
 | `MissingMarketContext` | Market context not provided for operation requiring `DepositSource.MARKET` |
 | `SigningError` | Signing operation failures |
 | `UserCancelled` | User cancelled wallet signing prompt |
@@ -660,8 +745,9 @@ or one of its subclasses:
 
 Strict wallet-balance REST and nested WebSocket decoders raise `TypeError` for
 malformed payloads. Exact state arithmetic can raise `ScalingError` or `ValueError`.
-`WsClient` logs and drops malformed inbound frames instead of emitting them as a
-normal message or `WsEventType.ERROR`.
+`WsClient` never emits a malformed inbound frame as a message: it logs it and
+emits a `WsEventType.ERROR` event (`"Deserialization error: …"`), then keeps
+receiving. Handlers that treat `ERROR` as connection loss see these too.
 
 ### API Rejections
 
@@ -671,12 +757,60 @@ When the backend rejects a request, the SDK raises `ApiRejected(details)` where 
 |-------|------|-------------|
 | `reason` | `str` | Human-readable rejection message |
 | `rejection_code` | `RejectionCode \| None` | Machine-readable rejection code |
-| `error_code` | `str \| None` | API-level error code such as `"NOT_FOUND"` |
+| `error_code` | `str \| None` | API-level error code such as `"NOT_FOUND"`; `error_code_kind()` returns it as a typed `ErrorCode` |
 | `error_log_id` | `str \| None` | Backend support correlation ID (`LCERR_*`) |
 | `request_id` | `str \| None` | SDK-generated `x-request-id` header for tracing |
 | `existing_method` | `str \| None` | Primary method of the conflicting Account when identity ownership has one deterministic owner |
 
-Known rejection codes include `INSUFFICIENT_BALANCE`, `EXPIRED`, `NONCE_MISMATCH`, `SELF_TRADE`, `MARKET_INACTIVE`, `BELOW_MIN_ORDER_SIZE`, `INVALID_NONCE`, `BROADCAST_FAILURE`, `ORDER_NOT_FOUND`, `NOT_ORDER_MAKER`, `ORDER_ALREADY_FILLED`, `ORDER_ALREADY_CANCELLED`, `DUPLICATE_ORDER`, `POST_ONLY_WOULD_CROSS`, `FOK_NO_FILL`, `IOC_NO_FILL`, `WOULD_CROSS_UNAVAILABLE_LIQUIDITY`, `WOULD_CROSS_BOOK`, `MARKET_NOT_FOUND`, `ORDERBOOK_NOT_FOUND`, `TOKEN_PAIR_MISMATCH`, `INSUFFICIENT_MARKET_FEE_BUFFER`, and `SIGNATURE_EXPIRED`. Unknown codes are preserved verbatim for forward compatibility.
+#### `RejectionCode`
+
+Business outcomes of a trading mutation, delivered with HTTP 200 and a `rejection_code`. Each has a human-readable `.label()`; `.known()` returns the code (or `None` for one this SDK version does not know, which keeps its raw text). `.is_transient()` is true for `STALE_STATE`, `REQUEST_EXPIRED`, `TRADING_CAPACITY_UNAVAILABLE`, and `TRADING_NOT_READY`, where the same signed order may be submitted again.
+
+| Wire code | Label | When |
+|-----------|-------|------|
+| `DUPLICATE_ORDER` | "Duplicate Order" | This signed order identity was already accepted |
+| `INSUFFICIENT_BALANCE` | "Insufficient Balance" | Requested funding cannot cover the complete order |
+| `FOK_INSUFFICIENT_LIQUIDITY` | "FOK Insufficient Liquidity" | A fill-or-kill order's full base target is not executable |
+| `SELF_TRADE` | "Self Trade" | The order would cross the same wallet's liquidity |
+| `INVALID_ORDER` | "Invalid Order" | Price/size precision, tick, or minimum-size rule violated |
+| `INVALID_REQUEST` | "Invalid Request" | The request exceeds supported limits |
+| `ORDER_EXPIRED` | "Order Expired" | The signed order had already expired |
+| `TRADING_PAUSED` | "Trading Paused" | Trading is paused for the market, exchange, or deposit token |
+| `INVALID_SIGNATURE` | "Invalid Signature" | The mutation signature did not verify |
+| `CANCEL_ALL_REPLAY` | "Cancel-All Replay" | A cancel-all salt was already consumed |
+| `STALE_STATE` | "Stale State" | Trading state changed while processing |
+| `REQUEST_EXPIRED` | "Request Expired" | The request expired before acceptance |
+| `TRADING_CAPACITY_UNAVAILABLE` | "Trading Capacity Unavailable" | Capacity unavailable, including the 250-open-order wallet cap |
+| `TRADING_NOT_READY` | "Trading Not Ready" | Committed trading state is not ready |
+| `INTERNAL_ERROR` | "Internal Error" | Committed order state could not be read |
+| `ORDER_NOT_FOUND` | "Order Not Found" | Cancel of an order hash that was never accepted |
+| `ORDERBOOK_NOT_FOUND` | "Orderbook Not Found" | The engine does not know the orderbook |
+
+#### `ErrorCode`
+
+Transport, validation, authorization, and availability failures carry an `error_code` on a 4xx/5xx envelope. `ApiRejectedDetails.error_code_kind()` returns it as a typed `ErrorCode` (`.known()` is `None` for a code this SDK version does not know); `.is_retryable()` marks the conditions that may clear on their own.
+
+| Code | HTTP | When |
+|------|------|------|
+| `INVALID_ARGUMENT` | 400 | Malformed field, bad side, zero amount, non-canonical key, bad cancel-all salt or timestamp |
+| `FAILED_PRECONDITION` | 400 | Engine precondition failed outside the business-rejection path |
+| `FORBIDDEN` | 403 | Mutation signature rejected (a stale cancel-all timestamp is `INVALID_ARGUMENT`) |
+| `AUTH_REQUIRED` | 401 | Order mutation without a session |
+| `AUTH_WALLET_MISMATCH` | 403 | Session wallet differs from the order maker / cancellation wallet |
+| `ALREADY_EXISTS` | 409 | Duplicate order identity or reused cancel-all salt |
+| `ABORTED` | 409 | Trading state changed; retry |
+| `RESOURCE_EXHAUSTED` | 429 | Engine admission queue or capacity exhausted |
+| `ENGINE_UNAVAILABLE` | 503 | Engine unavailable. For submission the outcome is unknown: resubmit the identical signed request, where `DUPLICATE_ORDER` or `ALREADY_EXISTS` proves the first was accepted; never re-sign with a new salt |
+| `TRADING_UNAVAILABLE` | 503 | Committed trading state or orderbook metadata unavailable |
+| `ENGINE_INTERNAL_ERROR` | 500 | Engine failure without a public reason |
+| `INVALID_TIF`, `INVALID_DEPOSIT_SOURCE`, `INVALID_SIGNATURE`, `INVALID_PUBKEY`, `INVALID_CURSOR`, `INVALID_ORDER_HASH`, `UNEXPECTED_QUERY`, `INVALID_LIMIT` | 400 | Request validation |
+| `NOT_FOUND` | 404 | Resource not found |
+| `ORDERBOOK_DECIMALS_NOT_FOUND` | 404 | No decimals or trading rules for the orderbook. `Orders.submit` fetches these first, so an unknown orderbook fails here before reaching the submit route |
+| `ORDERBOOK_CONFIGURATION_ERROR` | 500 | The orderbook's stored trading rules are invalid |
+| `NON_CANONICAL_ENCODING` | 400 | Percent-encoded unreserved characters on a route that rejects them |
+| `RATE_LIMITED` | 429 | Request rate limit |
+
+Some failures carry no envelope at all: request-body extractor errors (for example an unknown field such as `nonce`) answer `400 text/plain`, and authenticated GETs without a session answer `401 text/plain`. These surface as `HttpError` with `BAD_REQUEST` (with the backend text) and `UNAUTHORIZED` (`is_unauthorized(error)` covers both 401 forms). A 2xx body that does not match the expected response shape raises `DeserializationError`, naming the offending field; it is never retried.
 
 ```python
 from lightcone_sdk import ApiRejected
@@ -728,4 +862,6 @@ The SDK stays credential-agnostic: what "restore" means belongs to the host. For
 
 ## Supported order responses
 
-Refer to the [shared order-response contract](../README.md#supported-order-responses). `UserSnapshotOrder.from_dict` decodes a limit order. REST and WebSocket snapshots contain these orders alongside account metadata. Live order events contain `OrderUpdate`. The snapshot converter returns `UserOpenLimitOrders`.
+Refer to the [shared order-response contract](../README.md#supported-order-responses). REST user orders (`UserOrder`, with its recorded quantities in `state`), WebSocket snapshot orders (`UserSnapshotOrder`), and live `order` facts (`OrderUpdate`) all carry an order's committed state and convert to `LimitOrder` with `limit_order_from_user_order`, `limit_order_from_snapshot`, and `limit_order_from_update`. Their pages also carry funding accounts (`FundingAccount`) and the committed revision; there is no account nonce. `convert_snapshot_orders` returns `UserOpenLimitOrders`.
+
+Unit conventions: quantities named `*_base` and order sizes are `Decimal` in base-token units; `amount_in`/`amount_out` and `maker_amount`/`taker_amount` are in the units of the token each side gives or receives; prices are quote units per base unit; fields ending in `_atoms` are raw integer atoms (`int`); order and trade revisions, sequences, generations, and slots are `int`. Funding reservations are `DecimalText` because they can exceed the 96-bit decimal range; `to_decimal()` returns `None` beyond it.

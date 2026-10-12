@@ -1,6 +1,12 @@
 """Lightcone SDK - Python SDK for the Lightcone protocol on Solana."""
 
-__version__ = "0.7.0"
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _package_version
+
+try:
+    __version__ = _package_version("lightcone-sdk")
+except PackageNotFoundError:  # imported from a source tree that is not installed
+    __version__ = "0+unknown"
 
 # ============================================================================
 # Layer 1: Core
@@ -58,6 +64,45 @@ from .domain.market import (
     MarketResolutionResponse,
 )
 
+# Committed-trading order responses, the WS ``user`` channel, and the open-order
+# container. The domain order status is ``lightcone_sdk.domain.order.OrderStatus``;
+# the top-level ``OrderStatus`` is the on-chain order-status account.
+from .domain.order import (
+    ApplyOutcome,
+    CancelAllBody,
+    CancelAllSuccess,
+    CancelBody,
+    CancelQuantities,
+    CancelStatus,
+    CancelSuccess,
+    ClosureAck,
+    ClosureScope,
+    ClosureUpdate,
+    FillInfo,
+    InitialCohort,
+    InitialCohortState,
+    LimitOrder,
+    NotificationUpdate,
+    OrderFillEvent,
+    OrderState,
+    OrderType,
+    OrderUpdate,
+    RecordedOrderState,
+    RecoveryCompleted,
+    Role,
+    SubmitOrderResponse,
+    SubmitOrderStatus,
+    UserOpenLimitOrders,
+    UserOrder,
+    UserOrderFill,
+    UserOrderFillsResponse,
+    UserOrdersResponse,
+    UserSnapshot,
+    UserSnapshotOrder,
+    UserUpdate,
+    convert_snapshot_orders,
+)
+
 # External-wallet balance wire models, reducer state, and lifecycle results.
 from .domain.position import (
     SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS,
@@ -79,6 +124,23 @@ from .domain.position import (
     WalletNativeSolBalanceUpdate,
     native_withdraw_seed,
 )
+
+# Committed custody funding (positions routes and the WS ``user`` channel).
+from .domain.position.wire import (
+    FundingAccount,
+    FundingUpdate,
+    MarketPositionsResponse,
+    ObservationState,
+    PositionsResponse,
+)
+from .domain.trade import (
+    Trade,
+    TradeHistory,
+    TradesPage,
+    WsTrade,
+    trade_from_wire,
+    trade_from_ws,
+)
 from .env import PROGRAM_ID, LightconeEnv
 from .error import (
     ApiRejected,
@@ -96,6 +158,7 @@ from .error import (
     TransactionExpired,
     TransactionFailed,
     UserCancelled,
+    ValidationError,
     WsError,
     WsErrorKind,
 )
@@ -323,10 +386,13 @@ from .rpc import CanonicalWsolAccountInfo, Rpc, TransactionSimulation
 from .shared import (
     ApiRejectedDetails,
     ApiResponse,
+    CommitInfo,
+    DecimalText,
     DepositSource,
+    ErrorCode,
+    FundingSource,
     OrderBookId,
     OrderbookRules,
-    OrderUpdateType,
     PubkeyStr,
     RejectionCode,
     Resolution,
@@ -422,16 +488,66 @@ __all__ = [
     "MarketResolutionKind",
     "MarketResolutionPayout",
     "MarketResolutionResponse",
+    # Orders (committed trading)
+    "ApplyOutcome",
+    "CancelAllBody",
+    "CancelAllSuccess",
+    "CancelBody",
+    "CancelQuantities",
+    "CancelStatus",
+    "CancelSuccess",
+    "ClosureAck",
+    "ClosureScope",
+    "ClosureUpdate",
+    "FillInfo",
+    "InitialCohort",
+    "InitialCohortState",
+    "LimitOrder",
+    "NotificationUpdate",
+    "OrderFillEvent",
+    "OrderState",
+    "OrderType",
+    "OrderUpdate",
+    "RecordedOrderState",
+    "RecoveryCompleted",
+    "Role",
+    "SubmitOrderResponse",
+    "SubmitOrderStatus",
+    "UserOpenLimitOrders",
+    "UserOrder",
+    "UserOrderFill",
+    "UserOrderFillsResponse",
+    "UserOrdersResponse",
+    "UserSnapshot",
+    "UserSnapshotOrder",
+    "UserUpdate",
+    "convert_snapshot_orders",
+    # Funding accounts
+    "FundingAccount",
+    "FundingUpdate",
+    "MarketPositionsResponse",
+    "ObservationState",
+    "PositionsResponse",
+    # Trades
+    "Trade",
+    "TradeHistory",
+    "TradesPage",
+    "WsTrade",
+    "trade_from_wire",
+    "trade_from_ws",
     # Shared types
     "OrderBookId",
     "PubkeyStr",
     "ApiResponse",
     "ApiRejectedDetails",
     "RejectionCode",
+    "ErrorCode",
     "Side",
     "TimeInForce",
-    "OrderUpdateType",
     "DepositSource",
+    "FundingSource",
+    "CommitInfo",
+    "DecimalText",
     "Resolution",
     "SubmitOrderRequest",
     # Shared utils
@@ -455,6 +571,8 @@ __all__ = [
     # Errors
     "SdkError",
     "ApiRejected",
+    "DeserializationError",
+    "ValidationError",
     "MissingMarketContext",
     "SigningError",
     "UserCancelled",

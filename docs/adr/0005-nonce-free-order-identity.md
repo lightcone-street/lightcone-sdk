@@ -1,6 +1,6 @@
 # ADR 0005: Nonce-free order identity
 
-- Status: Accepted for Rust and TypeScript; Python pending
+- Status: Accepted for Rust, TypeScript, and Python
 - Date: 2026-10-09
 
 ## Decision
@@ -27,15 +27,14 @@ or compact orders decode only at their exact lengths.
 
 This is a breaking change to the order structs, size constants, signing
 preimage, request body, and on-chain helpers; the Rust crate releases it as a
-new minor version, and the TypeScript package as `0.9.0-rc.1`. TypeScript
-removes its Privy order-signing and cancel helpers, because the backend has no
-nonce-free Privy order route; order submission and cancellation require a native
-signer or an `ExternalSigner`. Python keeps the nonce until it is ported, and its
-orders are rejected by a nonce-free backend.
+new minor version, and the TypeScript and Python packages as `0.9.0-rc.1`.
+TypeScript and Python remove their Privy order-signing and cancel helpers,
+because the backend has no nonce-free Privy order route; order submission and
+cancellation require a native signer or an `ExternalSigner`.
 
 ## Validation
 
 Inline known-answer tests pin the backend's order-signing vectors and the
 instruction bytes produced by the program team's `lightcone-client` at the
-referenced commit. They replace the removed fixture files. The TypeScript tests
-assert the same bytes.
+referenced commit. They replace the removed fixture files. The TypeScript and
+Python tests assert the same bytes.
