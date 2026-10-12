@@ -167,6 +167,7 @@ def test_depth_metadata_defaults_and_rules_cache_deduplicates():
     assert depth.asks_truncated is False
     assert depth.revision == 1842
     assert depth.captured_at_ms == 1785776400123
+    assert depth.ready is False
 
     class Http:
         calls = 0

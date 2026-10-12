@@ -9,9 +9,23 @@ can wrap a field in ``decimal.Decimal`` themselves.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from ...shared.types import Resolution
+from ...shared.wire_decode import (
+    I16,
+    MISSING,
+    take,
+    wire_array,
+    wire_bool,
+    wire_decimal,
+    wire_object,
+    wire_opt_int,
+    wire_opt_str,
+    wire_orderbook_id,
+    wire_pubkey,
+    wire_rfc3339,
+)
 
 
 def _str_list(raw: list) -> list[str]:
@@ -381,42 +395,77 @@ class OrderbookTickerEntry:
     computed_at: Optional[str] = None
 
     @staticmethod
-    def from_dict(d: dict) -> "OrderbookTickerEntry":
-        def _opt_str(key: str) -> Optional[str]:
-            v = d.get(key)
-            return None if v is None else str(v)
-
-        def _opt_int(key: str) -> Optional[int]:
-            v = d.get(key)
-            return None if v is None else int(v)
-
+    def from_dict(value: Any, name: str = "ticker") -> OrderbookTickerEntry:
+        """Decode one ticker; raises ``DeserializationError`` naming a
+        malformed field. Prices are validated plain decimal text."""
+        data = wire_object(value, name)
+        computed_at = wire_opt_str(take(data, "computed_at"), f"{name}.computed_at")
+        if computed_at is not None:
+            wire_rfc3339(computed_at, f"{name}.computed_at")
         return OrderbookTickerEntry(
-            orderbook_id=str(d.get("orderbook_id", "")),
-            market_pubkey=str(d.get("market_pubkey", "")),
-            outcome_index=_opt_int("outcome_index"),
-            outcome_name=_opt_str("outcome_name"),
-            outcome_name_long=_opt_str("outcome_name_long"),
-            base_deposit_asset=str(d.get("base_deposit_asset", "")),
-            quote_deposit_asset=str(d.get("quote_deposit_asset", "")),
-            best_bid=_opt_str("best_bid"),
-            best_ask=_opt_str("best_ask"),
-            midpoint=_opt_str("midpoint"),
-            computed_at=_opt_str("computed_at"),
+            orderbook_id=wire_orderbook_id(
+                take(data, "orderbook_id"), f"{name}.orderbook_id"
+            ),
+            market_pubkey=wire_pubkey(
+                take(data, "market_pubkey"), f"{name}.market_pubkey"
+            ),
+            outcome_index=wire_opt_int(
+                take(data, "outcome_index"), f"{name}.outcome_index", *I16
+            ),
+            outcome_name=wire_opt_str(
+                take(data, "outcome_name"), f"{name}.outcome_name"
+            ),
+            outcome_name_long=wire_opt_str(
+                take(data, "outcome_name_long"), f"{name}.outcome_name_long"
+            ),
+            base_deposit_asset=wire_pubkey(
+                take(data, "base_deposit_asset"), f"{name}.base_deposit_asset"
+            ),
+            quote_deposit_asset=wire_pubkey(
+                take(data, "quote_deposit_asset"), f"{name}.quote_deposit_asset"
+            ),
+            best_bid=_opt_decimal_text(take(data, "best_bid"), f"{name}.best_bid"),
+            best_ask=_opt_decimal_text(take(data, "best_ask"), f"{name}.best_ask"),
+            midpoint=_opt_decimal_text(take(data, "midpoint"), f"{name}.midpoint"),
+            computed_at=computed_at,
         )
+
+
+def _opt_decimal_text(value: Any, name: str) -> str | None:
+    """Optional plain decimal text, validated and kept as text."""
+    if value is MISSING or value is None:
+        return None
+    wire_decimal(value, name)
+    return value
 
 
 @dataclass
 class OrderbookTickersResponse:
-    """Response of /api/metrics/orderbooks/tickers."""
+    """Response of /api/metrics/orderbooks/tickers.
+
+    One page holds at most 8 tickers. ``next_cursor`` (an orderbook pubkey)
+    continues the listing while ``has_more`` is true.
+    """
 
     tickers: list[OrderbookTickerEntry] = field(default_factory=list)
+    next_cursor: str | None = None
+    has_more: bool = False
 
     @staticmethod
-    def from_dict(d: dict) -> "OrderbookTickersResponse":
+    def from_dict(value: Any) -> OrderbookTickersResponse:
+        data = wire_object(value, "orderbook_tickers")
         return OrderbookTickersResponse(
-            tickers=[
-                OrderbookTickerEntry.from_dict(x) for x in d.get("tickers", [])
-            ],
+            tickers=wire_array(
+                take(data, "tickers"),
+                "orderbook_tickers.tickers",
+                OrderbookTickerEntry.from_dict,
+            ),
+            next_cursor=wire_opt_str(
+                take(data, "next_cursor"), "orderbook_tickers.next_cursor"
+            ),
+            has_more=wire_bool(
+                take(data, "has_more"), "orderbook_tickers.has_more", default=False
+            ),
         )
 
 

@@ -79,6 +79,7 @@ async def main():
                 book.apply(update)
                 print(
                     f"book[{aggregation.key_suffix()}]: seq={book.sequence} "
+                    f"ready={book.ready} "
                     f"bid={book.best_bid()} "
                     f"ask={book.best_ask()}"
                 )

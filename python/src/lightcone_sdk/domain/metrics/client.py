@@ -3,8 +3,12 @@ volume metrics, market leaderboard, and time-series history."""
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Optional
 from urllib.parse import quote as url_quote
+
+from ...error import ValidationError
+from ...shared.query import query_u32
 
 from .wire import (
     CategoriesMetrics,
@@ -29,6 +33,35 @@ from .wire import (
 
 if TYPE_CHECKING:
     from ...client import LightconeClient
+
+#: Upper bound on pages followed by :meth:`Metrics.orderbook_tickers` (8
+#: tickers per page), so a misbehaving cursor can never loop forever.
+MAX_TICKER_PAGES = 1_000
+
+
+async def _collect_ticker_pages(
+    max_pages: int,
+    fetch: Callable[[str | None], Awaitable[OrderbookTickersResponse]],
+) -> OrderbookTickersResponse:
+    """Follow ticker pages until the last one or ``max_pages``, which leaves
+    ``has_more`` true with the cursor to resume from. A page that reports more
+    without an advancing cursor raises ``ValidationError`` instead of
+    truncating silently."""
+    tickers = []
+    cursor: str | None = None
+    for _ in range(max_pages):
+        response = await fetch(cursor)
+        tickers.extend(response.tickers)
+        if not response.has_more:
+            return OrderbookTickersResponse(tickers=tickers)
+        next_cursor = response.next_cursor
+        if next_cursor is None or next_cursor == cursor:
+            raise ValidationError(
+                "orderbook tickers page reported more without an advancing cursor "
+                f"(after {cursor}: {next_cursor})"
+            )
+        cursor = next_cursor
+    return OrderbookTickersResponse(tickers=tickers, next_cursor=cursor, has_more=True)
 
 
 class Metrics:
@@ -57,20 +90,46 @@ class Metrics:
     async def orderbook_tickers(
         self, deposit_asset: Optional[str] = None
     ) -> OrderbookTickersResponse:
-        """GET /api/metrics/orderbooks/tickers[?deposit_asset=<mint>]
+        """GET /api/metrics/orderbooks/tickers[?deposit_asset=<mint>&cursor=<orderbook>]
 
-        Batch BBO + midpoint per active orderbook (same shape as the WS
-        ``Ticker`` stream, delivered in one REST call). Optionally filter to
-        orderbooks whose base conditional-token is backed by
-        ``deposit_asset``. Prices per orderbook are scaled using that
-        orderbook's own decimals.
+        Batch BBO + midpoint for every ready orderbook (same shape as the WS
+        ``Ticker`` stream). Optionally filter to orderbooks whose base
+        conditional-token is backed by ``deposit_asset``. Prices per orderbook
+        are scaled using that orderbook's own decimals.
+
+        The endpoint pages at most 8 tickers per request; this follows every
+        page and returns them merged with ``has_more`` false. If it stops at
+        its page cap first, ``has_more`` stays true and ``next_cursor``
+        resumes with :meth:`orderbook_tickers_page`. A page that reports more
+        without an advancing cursor raises ``ValidationError``.
         """
-        params: dict[str, str] | None = None
+        return await _collect_ticker_pages(
+            MAX_TICKER_PAGES,
+            lambda cursor: self.orderbook_tickers_page(deposit_asset, cursor),
+        )
+
+    async def orderbook_tickers_page(
+        self,
+        deposit_asset: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> OrderbookTickersResponse:
+        """One page of :meth:`orderbook_tickers`.
+
+        ``cursor`` is a previous page's ``next_cursor`` (an orderbook pubkey);
+        ``limit`` defaults to 8 and must be within 1..8 (other values are
+        rejected with ``INVALID_LIMIT``).
+        """
+        params: dict[str, str] = {}
         mint = deposit_asset.strip() if deposit_asset else None
         if mint:
-            params = {"deposit_asset": mint}
+            params["deposit_asset"] = mint
+        if cursor is not None:
+            params["cursor"] = cursor
+        if limit is not None:
+            params["limit"] = query_u32("limit", limit)
         data = await self._client._http.get(
-            "/api/metrics/orderbooks/tickers", params=params
+            "/api/metrics/orderbooks/tickers", params=params or None
         )
         return OrderbookTickersResponse.from_dict(data)
 

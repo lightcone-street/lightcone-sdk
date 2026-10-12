@@ -54,6 +54,8 @@ class OrderbookState:
     """Local orderbook state replaced wholesale by snapshot frames.
 
     ``sequence`` is the last accepted engine revision. Forward gaps are normal.
+    ``ready`` is the last accepted frame's committed-book readiness: a book
+    that is not ready may show stale or empty depth.
     """
 
     orderbook_id: str
@@ -63,6 +65,7 @@ class OrderbookState:
     aggregation: BookAggregation = FULL_PRECISION
     bids_truncated: bool = False
     asks_truncated: bool = False
+    ready: bool = False
     _last_sequence: Optional[int] = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -108,6 +111,7 @@ class OrderbookState:
         self._last_sequence = update.seq
         self.bids_truncated = bool(getattr(update, "bids_truncated", False))
         self.asks_truncated = bool(getattr(update, "asks_truncated", False))
+        self.ready = bool(getattr(update, "ready", False))
         return OrderbookApplyResult.applied()
 
     def _apply_dict(self, update: dict) -> OrderbookApplyResult:
@@ -121,15 +125,17 @@ class OrderbookState:
             return OrderbookApplyResult.refresh_required(
                 OrderbookRefreshReason.server_resync()
             )
-        if "seq" not in update:
-            raise ValueError("book_update seq is required")
-        sequence = update["seq"]
+        # Resync frames carry no seq; a missing seq reads as 0.
+        sequence = update.get("seq", 0)
         if (
             not isinstance(sequence, int)
             or isinstance(sequence, bool)
             or sequence < 0
         ):
             raise ValueError("book_update seq must be a non-negative integer")
+        ready = update.get("ready", False)
+        if not isinstance(ready, bool):
+            raise ValueError("book_update ready must be a boolean")
         if self._last_sequence is not None and sequence <= self._last_sequence:
             return OrderbookApplyResult.discarded_stale()
 
@@ -159,6 +165,7 @@ class OrderbookState:
         self._last_sequence = sequence
         self.bids_truncated = bool(update.get("bids_truncated", False))
         self.asks_truncated = bool(update.get("asks_truncated", False))
+        self.ready = ready
         return OrderbookApplyResult.applied()
 
     def best_bid(self) -> Optional[str]:
@@ -199,3 +206,4 @@ class OrderbookState:
         self._last_sequence = None
         self.bids_truncated = False
         self.asks_truncated = False
+        self.ready = False

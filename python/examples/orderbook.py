@@ -17,6 +17,7 @@ async def main():
     print("market:", m.slug)
     print("orderbook:", orderbook_id)
     print(f"best bid: {depth.best_bid}, best ask: {depth.best_ask}")
+    print(f"ready: {depth.ready} (revision {depth.revision})")
     print(f"levels: {len(depth.bids)} bids / {len(depth.asks)} asks")
     print(f"depth decimals: price={depth.decimals.price}, size={depth.decimals.size}")
 
