@@ -60,6 +60,8 @@ I64_MAX: Final = (1 << 63) - 1
 I128_MIN: Final = -(1 << 127)
 I128_MAX: Final = (1 << 127) - 1
 
+# Digits in the widest wire integer (i128); longer text is out of range.
+_MAX_INTEGER_DIGITS = 39
 _DIGITS = re.compile(r"[0-9]+")
 _SIGNED_DIGITS = re.compile(r"-?[0-9]+")
 _DECIMAL = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
@@ -190,6 +192,9 @@ def _integer_text(value: Any, field: str, signed: bool) -> int:
         pattern = _SIGNED_DIGITS if signed else _DIGITS
         if pattern.fullmatch(value) is None:
             raise wire_error(field, f"invalid integer text {value!r}")
+        if len(value.lstrip("-").lstrip("0")) > _MAX_INTEGER_DIGITS:
+            # Beyond every wire integer range (and Python's int(str) digit cap).
+            raise wire_error(field, f"integer out of range: {value[:48]}…")
         return int(value)
     if isinstance(value, bool) or not isinstance(value, int):
         raise wire_error(

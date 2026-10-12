@@ -107,7 +107,7 @@ async def test_http_200_error_envelope_is_rejected() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("body", ["<html>not json</html>", '{"value": NaN}'])
+@pytest.mark.parametrize("body", ["<html>not json</html>", '{"value": NaN}', ""])
 async def test_non_json_2xx_body_is_a_deserialization_error_never_retried(
     body: str,
 ) -> None:

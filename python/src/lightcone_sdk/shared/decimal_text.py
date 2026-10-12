@@ -48,7 +48,12 @@ class DecimalText(str):
         decimal's range (a 96-bit mantissa and at most 28 fractional digits)."""
         unsigned = self[1:] if self.is_negative() else str(self)
         whole, _, fraction = unsigned.partition(".")
-        if len(fraction) > _MAX_SCALE or int(whole + fraction) > _MAX_MANTISSA:
+        digits = (whole + fraction).lstrip("0")
+        # 2**96 - 1 has 29 digits; check length before int() (Python caps
+        # int(str) at 4,300 digits).
+        if len(fraction) > _MAX_SCALE or len(digits) > 29:
+            return None
+        if int(digits or "0") > _MAX_MANTISSA:
             return None
         return Decimal(str(self))
 

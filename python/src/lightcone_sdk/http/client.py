@@ -764,11 +764,9 @@ def _decode_json_body(raw: bytes) -> Any:
     """Decode a delivered 2xx body as strict JSON.
 
     A body that is not JSON is a contract mismatch, not a transport failure:
-    it raises :class:`DeserializationError` and is never retried. An empty
-    body decodes as ``None``. ``NaN`` and ``Infinity`` are rejected.
+    it raises :class:`DeserializationError` and is never retried, as does an
+    empty body. ``NaN`` and ``Infinity`` are rejected.
     """
-    if not raw.strip():
-        return None
     try:
         return json.loads(raw.decode("utf-8"), parse_constant=_reject_json_constant)
     except (UnicodeDecodeError, ValueError) as error:

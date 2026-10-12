@@ -86,6 +86,13 @@ class TestCommittedWireEncodings:
         with pytest.raises(DeserializationError):
             wire_u64(value, "revision")
 
+    def test_reports_oversized_integer_text_as_out_of_range(self) -> None:
+        # Longer than Python's 4,300-digit int(str) cap: still a named decode error.
+        for decode in (wire_u64, wire_i128):
+            with pytest.raises(DeserializationError, match="revision: integer out of"):
+                decode("1" * 5000, "revision")
+        assert wire_u64("0" * 60 + "7", "revision") == 7
+
     def test_rejects_malformed_i128_and_sides(self) -> None:
         for value in ("", str(1 << 127), True):
             with pytest.raises(DeserializationError):
@@ -234,6 +241,10 @@ class TestDecimalText:
         )
         assert DecimalText("0." + "1" * 29).to_decimal() is None
 
+    def test_reports_oversized_text_as_beyond_range(self) -> None:
+        assert DecimalText("1" * 5000).to_decimal() is None
+        assert DecimalText("0" * 40 + "7.5").to_decimal() == Decimal("7.5")
+
     def test_converts_values_and_reports_sign(self) -> None:
         text = DecimalText("-0.000001")
         assert text.is_negative()
@@ -283,6 +294,14 @@ class TestQuotePerBase:
             result = quote_per_base(Decimal(quote), Decimal(base))
         assert result is not None
         assert format(result, "f") == expected
+
+    def test_has_no_price_for_inputs_beyond_the_rust_decimal_range(self) -> None:
+        assert quote_per_base(Decimal("1" * 5000), Decimal("1")) is None
+        assert (
+            quote_per_base(Decimal("1"), Decimal("79228162514264337593543950336"))
+            is None
+        )
+        assert quote_per_base(Decimal("1"), Decimal("0." + "0" * 28 + "1")) is None
 
     def test_has_no_price_for_a_zero_base_or_out_of_range_quotient(self) -> None:
         assert quote_per_base(Decimal("1"), Decimal("0")) is None

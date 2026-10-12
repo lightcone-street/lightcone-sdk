@@ -31,6 +31,8 @@ def is_zero(value: str) -> bool:
 
 _MAX_MANTISSA = (1 << 96) - 1
 _MAX_SCALE = 28
+# Far beyond any decimal the Rust SDK can hold, and below Python's int(str) cap.
+_MAX_SUPPORTED_DIGITS = 1000
 
 
 def _scaled(value: Decimal) -> tuple[int, int]:
@@ -38,6 +40,8 @@ def _scaled(value: Decimal) -> tuple[int, int]:
     if not value.is_finite():
         raise ValueError(f"expected a finite decimal, got {value}")
     sign, digits, exponent = value.as_tuple()
+    if len(digits) + max(exponent, 0) > _MAX_SUPPORTED_DIGITS:
+        raise ValueError("decimal exceeds the supported range")
     mantissa = int("".join(map(str, digits)) or "0")
     if exponent > 0:
         mantissa *= 10**exponent
@@ -64,13 +68,20 @@ def quote_per_base(quote: Decimal, base: Decimal) -> Decimal | None:
 
     Matches the Rust SDK's ``quote_per_base``: the quotient keeps the largest
     scale, at most 28, whose mantissa fits in 96 bits, and rounds half to
-    even. Returns ``None`` for a zero base amount or a quotient beyond the
-    96-bit range. Independent of the active ``decimal`` context.
+    even. Returns ``None`` for a zero base amount, an input or quotient beyond
+    the 96-bit/28-scale range. Independent of the active ``decimal`` context.
     """
-    quote_mantissa, quote_scale = _scaled(quote)
-    base_mantissa, base_scale = _scaled(base)
+    try:
+        quote_mantissa, quote_scale = _scaled(quote)
+        base_mantissa, base_scale = _scaled(base)
+    except ValueError:
+        return None
     if base_mantissa == 0:
         return None
+    # Inputs the Rust SDK decimal cannot hold have no price there either.
+    for mantissa, scale in ((quote_mantissa, quote_scale), (base_mantissa, base_scale)):
+        if abs(mantissa) > _MAX_MANTISSA or scale > _MAX_SCALE:
+            return None
     negative = (quote_mantissa < 0) != (base_mantissa < 0)
     numerator = abs(quote_mantissa) * 10**base_scale
     denominator = abs(base_mantissa) * 10**quote_scale
