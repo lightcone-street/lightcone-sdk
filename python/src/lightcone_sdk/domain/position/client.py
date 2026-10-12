@@ -73,6 +73,7 @@ from ...program.types import (
 )
 from ...program.utils import validate_outcome_count, validate_outcome_index
 from ...rpc import require_connection
+from ...shared.query import query_u32
 from ...shared.signing import require_native_conversion_strategy
 from ..market import Market
 from . import DepositTokenBalancesSnapshot
@@ -93,7 +94,7 @@ from .state import (
     SolBalanceBreakdown,
     WalletDepositBalancesState,
 )
-from .wire import MarketPositionsResponseWire, PositionsResponseWire
+from .wire import MarketPositionsResponse, PositionsResponse
 
 if TYPE_CHECKING:
     from ...client import LightconeClient
@@ -224,34 +225,41 @@ class Positions:
 
     # ── HTTP methods ─────────────────────────────────────────────────────
 
-    async def get(self, user_pubkey: str) -> PositionsResponseWire:
-        """Get all positions for a user."""
+    async def get(self, user_pubkey: str) -> PositionsResponse:
+        """Get a wallet's committed funding accounts (global deposit accounts and
+        conditional-token accounts) across all markets.
+
+        Public route; it returns the first page only because it rejects query
+        strings. Page further with :meth:`positions_page` as the authenticated
+        owner.
+        """
         data = await self._client._http.get(f"/api/users/{user_pubkey}/positions")
-        return PositionsResponseWire.from_dict(data)
+        return PositionsResponse.from_dict(data)
 
     async def get_for_market(
         self,
         user_pubkey: str,
         market_pubkey: str,
-    ) -> MarketPositionsResponseWire:
-        """Get positions in a specific market."""
+    ) -> MarketPositionsResponse:
+        """Get a wallet's global accounts and its conditional accounts in one
+        market (first page; public route)."""
         data = await self._client._http.get(
             f"/api/users/{user_pubkey}/markets/{market_pubkey}/positions"
         )
-        return MarketPositionsResponseWire.from_dict(data)
+        return PositionsResponse.from_dict(data)
 
-    async def positions(self) -> PositionsResponseWire:
-        """Get all conditional-token positions for the authenticated user.
+    async def positions(self) -> PositionsResponse:
+        """Get the authenticated user's funding accounts across every market
+        (first page, default limit).
 
-        Wallet is resolved server-side from the ``cookie_header`` cookie; no
-        parameter required. Same response shape as ``get(wallet)``.
+        The wallet is resolved server-side from the auth cookie. Same response
+        shape as :meth:`get`.
 
         GET /api/users/positions
         """
-        data = await self._client._http.get("/api/users/positions")
-        return PositionsResponseWire.from_dict(data)
+        return await self.positions_page()
 
-    async def positions_with_cookies(self, cookie_header: str) -> PositionsResponseWire:
+    async def positions_with_cookies(self, cookie_header: str) -> PositionsResponse:
         """Same as :meth:`positions`, with an explicit per-call ``cookie_header``.
 
         Intended for server-side cookie forwarding (SSR / server functions)
@@ -259,38 +267,63 @@ class Positions:
         process-wide cookie store. The token is used only for this call and
         never written back to the shared store.
         """
-        data = await self._client._http.get_with_cookies(
-            "/api/users/positions",
-            cookie_header=cookie_header,
-        )
-        return PositionsResponseWire.from_dict(data)
+        return await self.positions_page_with_cookies(None, None, None, cookie_header)
 
-    async def positions_for_market(
-        self, market_pubkey: str
-    ) -> MarketPositionsResponseWire:
-        """Get the authenticated user's positions in a specific market.
+    async def positions_for_market(self, market_pubkey: str) -> MarketPositionsResponse:
+        """Get the authenticated user's global accounts and conditional accounts
+        in a specific market (first page).
 
-        Wallet is resolved server-side from the ``cookie_header`` cookie.
+        The wallet is resolved server-side from the auth cookie.
 
         GET /api/users/markets/{market_pubkey}/positions
         """
-        data = await self._client._http.get(
-            f"/api/users/markets/{market_pubkey}/positions"
-        )
-        return MarketPositionsResponseWire.from_dict(data)
+        return await self.positions_page(market_pubkey)
 
     async def positions_for_market_with_cookies(
         self, market_pubkey: str, cookie_header: str
-    ) -> MarketPositionsResponseWire:
+    ) -> MarketPositionsResponse:
         """Same as :meth:`positions_for_market`, with an explicit per-call ``cookie_header``.
 
         For server-side cookie forwarding (SSR / route handlers).
         """
-        data = await self._client._http.get_with_cookies(
-            f"/api/users/markets/{market_pubkey}/positions",
-            cookie_header=cookie_header,
+        return await self.positions_page_with_cookies(
+            market_pubkey, None, None, cookie_header
         )
-        return MarketPositionsResponseWire.from_dict(data)
+
+    async def positions_page(
+        self,
+        market_pubkey: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> PositionsResponse:
+        """One page of the authenticated user's funding accounts, optionally
+        scoped to a market.
+
+        ``cursor`` is a previous ``next_cursor`` (also the
+        ``next_funding_cursor`` of user orders); ``limit`` defaults to 200 and
+        is clamped to 1..256 server-side. Pages are filtered after a bounded
+        scan, so a page can be empty while ``has_more`` is true.
+        """
+        data = await self._client._http.get(
+            _positions_path(market_pubkey), params=_positions_params(cursor, limit)
+        )
+        return PositionsResponse.from_dict(data)
+
+    async def positions_page_with_cookies(
+        self,
+        market_pubkey: str | None,
+        cursor: str | None,
+        limit: int | None,
+        cookie_header: str,
+    ) -> PositionsResponse:
+        """Same as :meth:`positions_page`, forwarding the supplied raw ``Cookie``
+        header for server-side cookie forwarding."""
+        data = await self._client._http.get_with_cookies(
+            _positions_path(market_pubkey),
+            cookie_header=cookie_header,
+            params=_positions_params(cursor, limit),
+        )
+        return PositionsResponse.from_dict(data)
 
     async def deposit_token_balances(
         self, min_context_slot: int | None = None
@@ -1217,3 +1250,20 @@ class Positions:
         if response.value is None:
             return None
         return deserialize_position(response.value.data)
+
+
+def _positions_path(market_pubkey: str | None) -> str:
+    """Authenticated positions route, optionally scoped to one market."""
+    if market_pubkey is None:
+        return "/api/users/positions"
+    return f"/api/users/markets/{market_pubkey}/positions"
+
+
+def _positions_params(cursor: str | None, limit: int | None) -> dict[str, str] | None:
+    """Positions query; the routes reject unknown query keys."""
+    params: dict[str, str] = {}
+    if cursor is not None:
+        params["cursor"] = cursor
+    if limit is not None:
+        params["limit"] = query_u32("limit", limit)
+    return params or None

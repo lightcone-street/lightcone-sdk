@@ -12,23 +12,29 @@ async def main():
     pubkey = str(keypair.pubkey())
     print(f"logged in: {pubkey}")
 
-    # 1. First page of user orders
-    snapshot = await client.orders().get_user_orders(50)
+    # 1. First page of open and pending orders, with a first page of funding
+    #    accounts. Quantities are committed at `committed_revision`.
+    page = await client.orders().get_user_orders(50)
 
-    limit_orders = [o for o in snapshot.orders if o.order_type == "limit"]
+    print(f"orders: {len(page.orders)} (revision {page.committed_revision})")
+    print(f"funding accounts: {len(page.funding_accounts)}")
+    print(f"has more: {page.has_more}")
 
-    print(f"orders: {len(limit_orders)} limit")
-    print(f"market balances: {len(snapshot.market_balances)}")
-    print(f"has more: {snapshot.has_more}")
+    if page.orders:
+        first = page.orders[0]
+        print(
+            f"first order: {first.order_hash} {first.side.as_wire()} "
+            f"@ {first.price} tif={first.tif.as_wire() if first.tif else 'unknown'}"
+        )
+        if first.state is not None:
+            print(
+                f"  open={first.state.open_base} pending={first.state.pending_base} "
+                f"filled={first.state.confirmed_base}"
+            )
 
-    if limit_orders:
-        first = limit_orders[0]
-        side = "BID" if first.side == 0 else "ASK"
-        print(f"first limit: {first.order_hash} {side} @ {first.price}")
-
-    # 2. Pagination
-    if snapshot.next_cursor:
-        page2 = await client.orders().get_user_orders(50, snapshot.next_cursor)
+    # 2. Pagination. A page can be empty while `has_more` is true.
+    if page.has_more and page.next_cursor:
+        page2 = await client.orders().get_user_orders(50, page.next_cursor)
         print(f"next page: {len(page2.orders)} order(s)")
     else:
         print("no more pages")

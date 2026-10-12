@@ -1,92 +1,140 @@
 """Order wire-to-domain conversion."""
 
-from . import (
-    FillInfo,
-    LimitOrder,
-    OrderStatus,
-    SubmitOrderResponse,
-    SubmitOrderStatus,
-    UserSnapshotOrder,
-)
-from .state import UserOpenLimitOrders
-from .wire import WsOrder
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from ...error import ValidationError
+from .model import LimitOrder, OrderStatus
+from .wire import OrderUpdate, UserOrder, UserSnapshotOrder
+
+if TYPE_CHECKING:
+    from .state import UserOpenLimitOrders
 
 
-def order_from_ws(ws: WsOrder, market_pubkey: str, orderbook_id: str) -> LimitOrder:
-    status = OrderStatus.OPEN
-    if ws.status:
-        try:
-            status = OrderStatus(ws.status.upper())
-        except ValueError:
-            pass
+def limit_order_from_update(update: OrderUpdate) -> LimitOrder:
+    """Convert a live ``order`` fact.
 
-    return LimitOrder(
-        order_hash=ws.order_hash,
-        market_pubkey=market_pubkey,
-        orderbook_id=orderbook_id,
-        side=ws.side,
-        size=ws.size,
-        price=ws.price,
-        filled_size=ws.filled_size or "0",
-        remaining_size=ws.remaining_size or "0",
-        status=status,
-    )
-
-
-def submit_response_from_dict(d: dict) -> SubmitOrderResponse:
-    fills = [
-        FillInfo(
-            counterparty=f.get("counterparty", ""),
-            counterparty_order_hash=f.get("counterparty_order_hash", ""),
-            fill_amount=f.get("fill_amount", "0"),
-            price=f.get("price", "0"),
-            is_maker=f.get("is_maker", False),
+    Raises :class:`~lightcone_sdk.error.ValidationError` when its signed
+    amounts define no limit price.
+    """
+    price = update.price()
+    if price is None:
+        raise ValidationError(
+            f"order {update.order_hash}: signed amounts define no limit price"
         )
-        for f in d.get("fills", [])
-    ]
-    return SubmitOrderResponse(
-        order_hash=d.get("order_hash", ""),
-        status=SubmitOrderStatus(d.get("status", "accepted")),
-        filled=d.get("filled", "0"),
-        remaining=d.get("remaining", "0"),
-        fills=fills,
-    )
-
-
-def limit_snapshot_to_order(snapshot: UserSnapshotOrder) -> LimitOrder:
-    """Convert a limit-type UserSnapshotOrder to a LimitOrder domain type."""
-    try:
-        status = OrderStatus(snapshot.status.upper())
-    except ValueError:
-        status = OrderStatus.OPEN
-
     return LimitOrder(
-        market_pubkey=snapshot.market_pubkey,
-        orderbook_id=snapshot.orderbook_id,
-        order_hash=snapshot.order_hash,
-        side=snapshot.side,
-        size=snapshot.size,
-        price=snapshot.price,
-        filled_size=snapshot.filled,
-        remaining_size=snapshot.remaining,
-        created_at=snapshot.created_at,
-        status=status,
-        outcome_index=snapshot.outcome_index,
-        tx_signature=snapshot.tx_signature,
-        base_mint=snapshot.base_mint,
-        quote_mint=snapshot.quote_mint,
+        status=OrderStatus.derive(
+            update.closed_reason,
+            update.original_base,
+            update.confirmed_base,
+            update.pending_base,
+        ),
+        market_pubkey=update.market_pubkey,
+        orderbook_id=update.orderbook_id,
+        base_mint=update.base_mint,
+        quote_mint=update.quote_mint,
+        order_hash=update.order_hash,
+        side=update.side,
+        price=price,
+        size=update.original_base,
+        filled_size=update.confirmed_base,
+        pending_size=update.pending_base,
+        remaining_size=update.open_base,
+        cancelled_size=update.cancelled_base,
+        time_in_force=update.tif,
+        funding_source=update.funding_source,
+        closed_reason=update.closed_reason,
+        accepted_seq=update.accepted_seq,
+        committed_revision=update.commit.committed_revision,
+        created_at=update.accepted_at,
+        expiration=update.expiration,
     )
 
 
-def convert_snapshot_orders(
-    snapshots: list[UserSnapshotOrder],
-) -> UserOpenLimitOrders:
-    """Group open limit orders from a decoded account snapshot."""
+def limit_order_from_snapshot(order: UserSnapshotOrder) -> LimitOrder:
+    """Convert one order of the WS ``user`` snapshot."""
+    return LimitOrder(
+        status=OrderStatus.derive(
+            order.closed_reason,
+            order.original_base,
+            order.confirmed_base,
+            order.pending_base,
+        ),
+        market_pubkey=order.market_pubkey,
+        orderbook_id=order.orderbook_id,
+        base_mint=order.base_mint,
+        quote_mint=order.quote_mint,
+        order_hash=order.order_hash,
+        side=order.side,
+        price=order.price,
+        size=order.original_base,
+        filled_size=order.confirmed_base,
+        pending_size=order.pending_base,
+        remaining_size=order.open_base,
+        cancelled_size=order.cancelled_base,
+        time_in_force=order.tif,
+        funding_source=order.funding_source,
+        closed_reason=order.closed_reason,
+        accepted_seq=order.accepted_seq,
+        committed_revision=order.committed_revision,
+        created_at=order.created_at,
+        expiration=order.expiration,
+    )
+
+
+def limit_order_from_user_order(order: UserOrder) -> LimitOrder | None:
+    """Convert a REST order; ``None`` when the backend omitted the recorded quantities."""
+    state = order.state
+    if state is None:
+        return None
+    return LimitOrder(
+        status=OrderStatus.derive(
+            state.closed_reason,
+            state.original_base,
+            state.confirmed_base,
+            state.pending_base,
+        ),
+        market_pubkey=order.market_pubkey,
+        orderbook_id=order.orderbook_id,
+        base_mint=order.base_mint,
+        quote_mint=order.quote_mint,
+        order_hash=order.order_hash,
+        side=order.side,
+        price=order.price,
+        size=state.original_base,
+        filled_size=state.confirmed_base,
+        pending_size=state.pending_base,
+        remaining_size=state.open_base,
+        cancelled_size=state.cancelled_base,
+        time_in_force=order.tif,
+        funding_source=order.source,
+        closed_reason=state.closed_reason,
+        accepted_seq=state.accepted_seq,
+        committed_revision=state.committed_revision,
+        created_at=order.created_at,
+        expiration=order.expiration,
+    )
+
+
+def convert_snapshot_orders(orders: list[UserSnapshotOrder]) -> UserOpenLimitOrders:
+    """Build the open-order container from a WS ``user`` snapshot page.
+
+    Orders that are neither resting nor awaiting fill confirmation are
+    skipped. The snapshot is the first bounded page only; merge later REST
+    pages with :meth:`UserOpenLimitOrders.apply_order`.
+    """
+    from .state import UserOpenLimitOrders
+
     open_orders = UserOpenLimitOrders()
-
-    for snapshot in snapshots:
-        order = limit_snapshot_to_order(snapshot)
-        if order.remaining_size not in ("0", "", None):
-            open_orders.upsert(order)
-
+    for order in orders:
+        open_orders.apply_order(limit_order_from_snapshot(order))
     return open_orders
+
+
+__all__ = [
+    "convert_snapshot_orders",
+    "limit_order_from_snapshot",
+    "limit_order_from_update",
+    "limit_order_from_user_order",
+]

@@ -8,7 +8,7 @@ from solders.instruction import Instruction
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from ...error import DeserializationError, SigningError, ValidationError, _require
+from ...error import SigningError, ValidationError
 from ...program.accounts import deserialize_order_status
 from ...program.envelope import LimitOrderEnvelope
 from ...program.errors import InvalidSideError
@@ -36,6 +36,7 @@ from ...program.types import (
     SignedOrder,
 )
 from ...rpc import require_connection
+from ...shared.query import query_u32
 from ...shared.scaling import (
     OrderbookRules,
     validate_raw_amounts,
@@ -49,12 +50,9 @@ from . import (
     CancelBody,
     CancelSuccess,
     SubmitOrderResponse,
-    UserMarketBalance,
     UserOrderFillsResponse,
     UserOrdersResponse,
-    UserSnapshotOrder,
 )
-from .convert import submit_response_from_dict
 
 if TYPE_CHECKING:
     from ...client import LightconeClient
@@ -127,29 +125,34 @@ class Orders:
     # ── HTTP methods ─────────────────────────────────────────────────────
 
     async def submit(self, request: SubmitOrderRequest) -> SubmitOrderResponse:
-        """Submit a limit order."""
+        """Submit a signed limit order. Not retried.
+
+        An ``ENGINE_UNAVAILABLE`` error means the outcome is unknown. Resolve
+        it by submitting the identical signed ``request`` again: a
+        ``DUPLICATE_ORDER`` rejection or an ``ALREADY_EXISTS`` error proves
+        the first submission was accepted; any other result is the outcome of
+        this one. Never sign a replacement with a new salt, which is a
+        different order. Order reads list only open and pending orders, so
+        they cannot prove an order was never accepted.
+        """
         await self._preflight_submit(request)
         data = await self._client._http.post("/api/orders/submit", request.to_dict())
-        return submit_response_from_dict(data)
+        return SubmitOrderResponse.from_dict(data)
 
     async def cancel(self, body: CancelBody) -> CancelSuccess:
-        """Cancel a single order."""
+        """Cancel one order's open remainder. Not retried."""
         data = await self._client._http.post("/api/orders/cancel", body.to_dict())
-        return CancelSuccess(
-            order_hash=data.get("order_hash", body.order_hash),
-            remaining=data.get("remaining", "0"),
-        )
+        return CancelSuccess.from_dict(data)
 
     async def cancel_all(self, body: CancelAllBody) -> CancelAllSuccess:
-        """Cancel all orders for a user."""
+        """Close every order of the wallet (optionally on one orderbook)
+        accepted up to a committed cutoff. Not retried.
+
+        ``body.timestamp`` must be within 30 seconds of server time, and
+        ``body.salt`` non-empty, at most 128 bytes, and never reused.
+        """
         data = await self._client._http.post("/api/orders/cancel-all", body.to_dict())
-        return CancelAllSuccess(
-            cancelled_order_hashes=data.get("cancelled_order_hashes", []),
-            count=data.get("count", 0),
-            user_pubkey=data.get("user_pubkey", body.user_pubkey),
-            orderbook_id=data.get("orderbook_id", body.orderbook_id or ""),
-            message=data.get("message", ""),
-        )
+        return CancelAllSuccess.from_dict(data)
 
     async def _preflight_submit(self, request: SubmitOrderRequest) -> None:
         """Check exact signed amounts against current orderbook rules before submission."""
@@ -166,19 +169,18 @@ class Orders:
         limit: int | None = None,
         cursor: str | None = None,
     ) -> UserOrdersResponse:
-        """Get the authenticated user's open orders with pagination.
+        """Fetch the authenticated user's open and pending orders, with a first
+        page of funding accounts.
 
-        Wallet is resolved server-side from the ``cookie_header`` cookie.
-        Open orders are JWT-only — there is intentionally no public path-based
-        variant.
+        The wallet is resolved server-side from the auth cookie. Open orders
+        are JWT-only; there is intentionally no public path-based variant.
+        ``limit`` defaults to 200 and is clamped to 1..256 server-side;
+        ``cursor`` is a previous ``next_cursor``.
         """
-        params: dict[str, str] = {}
-        if limit is not None:
-            params["limit"] = str(limit)
-        if cursor is not None:
-            params["cursor"] = cursor
-        data = await self._client._http.get("/api/users/orders", params=params or None)
-        return _user_orders_response_from_wire(data, "")
+        data = await self._client._http.get(
+            "/api/users/orders", params=_user_orders_params(limit, cursor)
+        )
+        return UserOrdersResponse.from_dict(data)
 
     async def get_user_orders_with_cookies(
         self,
@@ -193,37 +195,34 @@ class Orders:
         process-wide cookie store. The token is used only for this call and
         never written back to the shared store.
         """
-        params: dict[str, str] = {}
-        if limit is not None:
-            params["limit"] = str(limit)
-        if cursor is not None:
-            params["cursor"] = cursor
         data = await self._client._http.get_with_cookies(
-            "/api/users/orders", cookie_header=cookie_header, params=params or None
+            "/api/users/orders",
+            cookie_header=cookie_header,
+            params=_user_orders_params(limit, cursor),
         )
-        return _user_orders_response_from_wire(data, "")
+        return UserOrdersResponse.from_dict(data)
 
     async def get_user_order_fills(
         self,
         market_pubkey: str | None = None,
         limit: int | None = None,
         cursor: str | None = None,
+        fills: int | None = None,
     ) -> UserOrderFillsResponse:
         """Fetch the authenticated user's filled orders with nested fill events.
 
-        Wallet is resolved server-side from the ``cookie_header`` cookie.
-        Includes orders where the user was either maker or taker.
-        Optionally filter by market. Returns orders sorted by most recent fill first.
+        The wallet is resolved server-side from the auth cookie. Includes
+        orders where the user was either maker or taker. Optionally filter by
+        market. Orders are sorted by most recent fill first; each carries its
+        oldest-first page of ``fills`` fills (default and maximum 16; ``0``
+        reads none and only reports ``fills_has_more``). ``limit`` defaults to
+        20 and is clamped to 1..100 server-side.
         """
-        params: dict[str, str] = {}
-        if market_pubkey is not None:
-            params["market_pubkey"] = market_pubkey
-        if limit is not None:
-            params["limit"] = str(limit)
-        if cursor is not None:
-            params["cursor"] = cursor
         data = await self._client._http.get(
-            "/api/users/order-fills", params=params or None
+            "/api/users/order-fills",
+            params=_order_fills_params(
+                market_pubkey=market_pubkey, limit=limit, cursor=cursor, fills=fills
+            ),
         )
         return UserOrderFillsResponse.from_dict(data)
 
@@ -233,6 +232,8 @@ class Orders:
         limit: int | None,
         cursor: str | None,
         cookie_header: str,
+        *,
+        fills: int | None = None,
     ) -> UserOrderFillsResponse:
         """Same as :meth:`get_user_order_fills`, with an explicit per-call ``cookie_header``.
 
@@ -241,15 +242,12 @@ class Orders:
         process-wide cookie store. The token is used only for this call and
         never written back to the shared store.
         """
-        params: dict[str, str] = {}
-        if market_pubkey is not None:
-            params["market_pubkey"] = market_pubkey
-        if limit is not None:
-            params["limit"] = str(limit)
-        if cursor is not None:
-            params["cursor"] = cursor
         data = await self._client._http.get_with_cookies(
-            "/api/users/order-fills", cookie_header=cookie_header, params=params or None
+            "/api/users/order-fills",
+            cookie_header=cookie_header,
+            params=_order_fills_params(
+                market_pubkey=market_pubkey, limit=limit, cursor=cursor, fills=fills
+            ),
         )
         return UserOrderFillsResponse.from_dict(data)
 
@@ -259,21 +257,75 @@ class Orders:
         market_pubkey: str | None = None,
         limit: int | None = None,
         cursor: str | None = None,
+        fills: int | None = None,
     ) -> UserOrderFillsResponse:
         """Public variant of :meth:`get_user_order_fills`.
 
         Takes the user's wallet via the URL path
         (``GET /api/users/{wallet}/order-fills``) and requires no auth.
         """
-        params: dict[str, str] = {}
-        if market_pubkey is not None:
-            params["market_pubkey"] = market_pubkey
-        if limit is not None:
-            params["limit"] = str(limit)
-        if cursor is not None:
-            params["cursor"] = cursor
         data = await self._client._http.get(
-            f"/api/users/{wallet_address}/order-fills", params=params or None
+            f"/api/users/{wallet_address}/order-fills",
+            params=_order_fills_params(
+                market_pubkey=market_pubkey, limit=limit, cursor=cursor, fills=fills
+            ),
+        )
+        return UserOrderFillsResponse.from_dict(data)
+
+    async def get_order_fill_page(
+        self,
+        order_hash: str,
+        fill_cursor: str | None = None,
+        fills: int | None = None,
+    ) -> UserOrderFillsResponse:
+        """Fetch one order of the authenticated user with the next page of its fills.
+
+        Pass the order's ``fills_next_cursor`` (or a submission's
+        ``fills_next_cursor``) as ``fill_cursor``; ``None`` starts at the
+        first fill. ``fills`` is the page size (default and maximum 16; a
+        ``fill_cursor`` needs at least 1). ``order_hash`` must be 64 lowercase
+        hex characters.
+        """
+        data = await self._client._http.get(
+            "/api/users/order-fills",
+            params=_order_fills_params(
+                order_hash=order_hash, fill_cursor=fill_cursor, fills=fills
+            ),
+        )
+        return UserOrderFillsResponse.from_dict(data)
+
+    async def get_order_fill_page_with_cookies(
+        self,
+        order_hash: str,
+        fill_cursor: str | None,
+        cookie_header: str,
+        *,
+        fills: int | None = None,
+    ) -> UserOrderFillsResponse:
+        """Same as :meth:`get_order_fill_page`, forwarding the supplied raw
+        ``Cookie`` header for server-side cookie forwarding."""
+        data = await self._client._http.get_with_cookies(
+            "/api/users/order-fills",
+            cookie_header=cookie_header,
+            params=_order_fills_params(
+                order_hash=order_hash, fill_cursor=fill_cursor, fills=fills
+            ),
+        )
+        return UserOrderFillsResponse.from_dict(data)
+
+    async def get_order_fill_page_by_wallet(
+        self,
+        wallet_address: str,
+        order_hash: str,
+        fill_cursor: str | None = None,
+        fills: int | None = None,
+    ) -> UserOrderFillsResponse:
+        """Public variant of :meth:`get_order_fill_page` for any wallet."""
+        data = await self._client._http.get(
+            f"/api/users/{wallet_address}/order-fills",
+            params=_order_fills_params(
+                order_hash=order_hash, fill_cursor=fill_cursor, fills=fills
+            ),
         )
         return UserOrderFillsResponse.from_dict(data)
 
@@ -410,18 +462,41 @@ class Orders:
         return deserialize_order_status(response.value.data)
 
 
-def _user_orders_response_from_wire(data: dict, wallet: str) -> UserOrdersResponse:
-    """Decode REST limit orders with their account and pagination metadata."""
-    orders = data.get("orders", [])
-    if not isinstance(orders, list):
-        raise DeserializationError("UserOrdersResponse orders must be an array")
-    return UserOrdersResponse(
-        user_pubkey=data.get("user_pubkey", wallet),
-        orders=[UserSnapshotOrder.from_dict(o) for o in orders],
-        market_balances=[
-            UserMarketBalance.from_dict(b)
-            for b in _require(data, "market_balances", "UserOrdersResponse")
-        ],
-        next_cursor=data.get("next_cursor"),
-        has_more=data.get("has_more", False),
-    )
+def _user_orders_params(limit: int | None, cursor: str | None) -> dict[str, str] | None:
+    params: dict[str, str] = {}
+    if limit is not None:
+        params["limit"] = query_u32("limit", limit)
+    if cursor is not None:
+        params["cursor"] = cursor
+    return params or None
+
+
+def _order_fills_params(
+    *,
+    market_pubkey: str | None = None,
+    limit: int | None = None,
+    cursor: str | None = None,
+    order_hash: str | None = None,
+    fill_cursor: str | None = None,
+    fills: int | None = None,
+) -> dict[str, str] | None:
+    """Query for the order-fills routes.
+
+    Only the parameters given are sent (``fills=0`` included): the backend
+    rejects unknown parameters, combining ``cursor`` with ``order_hash``, and
+    a ``fill_cursor`` with ``fills`` of ``0``.
+    """
+    params: dict[str, str] = {}
+    if market_pubkey is not None:
+        params["market_pubkey"] = market_pubkey
+    if limit is not None:
+        params["limit"] = query_u32("limit", limit)
+    if cursor is not None:
+        params["cursor"] = cursor
+    if order_hash is not None:
+        params["order_hash"] = order_hash
+    if fill_cursor is not None:
+        params["fill_cursor"] = fill_cursor
+    if fills is not None:
+        params["fills"] = query_u32("fills", fills)
+    return params or None

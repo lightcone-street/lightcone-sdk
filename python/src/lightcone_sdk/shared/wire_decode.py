@@ -19,6 +19,7 @@ absent and ``null`` to ``None`` (``Option<T>``).
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -71,6 +72,22 @@ _RFC3339 = re.compile(
     r"([Zz]|[+-][0-9]{2}:[0-9]{2})"
 )
 _EPOCH: Final = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+def _reject_json_constant(token: str) -> Any:
+    raise ValueError(f"non-standard JSON constant {token}")
+
+
+def parse_json(text: str, what: str) -> Any:
+    """Parse strict JSON text (``NaN`` and ``Infinity`` are rejected).
+
+    Raises :class:`~lightcone_sdk.error.DeserializationError` naming ``what``
+    (``"response body"``, ``"WebSocket frame"``) when ``text`` is not JSON.
+    """
+    try:
+        return json.loads(text, parse_constant=_reject_json_constant)
+    except ValueError as error:
+        raise DeserializationError(f"invalid JSON {what}: {error}") from None
 
 
 def take(data: WireRecord, key: str) -> Any:
@@ -415,6 +432,7 @@ __all__ = [
     "U64_MAX",
     "WireRecord",
     "is_decimal_text",
+    "parse_json",
     "take",
     "wire_array",
     "wire_bool",

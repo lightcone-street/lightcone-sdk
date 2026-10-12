@@ -23,6 +23,7 @@ import aiohttp
 
 from ..error import ApiRejected, DeserializationError, HttpError, HttpErrorKind
 from ..shared.api_response import ApiRejectedDetails, ApiResponse
+from ..shared.wire_decode import parse_json
 from .credential_restorer import CredentialRestorer
 from .retry import RetryConfig, RetryPolicy, delay_for_attempt
 
@@ -756,10 +757,6 @@ class LightconeHttp:
         )
 
 
-def _reject_json_constant(token: str) -> Any:
-    raise ValueError(f"non-standard JSON constant {token}")
-
-
 def _decode_json_body(raw: bytes) -> Any:
     """Decode a delivered 2xx body as strict JSON.
 
@@ -768,9 +765,10 @@ def _decode_json_body(raw: bytes) -> Any:
     empty body. ``NaN`` and ``Infinity`` are rejected.
     """
     try:
-        return json.loads(raw.decode("utf-8"), parse_constant=_reject_json_constant)
-    except (UnicodeDecodeError, ValueError) as error:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as error:
         raise DeserializationError(f"invalid JSON response body: {error}") from None
+    return parse_json(text, "response body")
 
 
 def _retry_after_ms(headers: aiohttp.typedefs.LooseHeaders | None) -> int | None:

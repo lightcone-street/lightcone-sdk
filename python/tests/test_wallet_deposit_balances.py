@@ -168,6 +168,34 @@ def test_nested_wallet_balance_wire_variants_are_strictly_decoded() -> None:
         parse_message_in(json.dumps(malformed))
 
 
+def test_unknown_wallet_balance_status_decodes_as_unknown_and_changes_nothing() -> None:
+    status = parse_message_in(
+        json.dumps(
+            {
+                "type": "wallet_deposit_balances",
+                "data": {
+                    "event_type": "wallet_deposit_balance_status",
+                    "wallet_address": "wallet-a",
+                    "status": "throttled",
+                    "code": "RPC_THROTTLED",
+                },
+            }
+        )
+    ).data
+    assert isinstance(status, WalletDepositBalanceStatusEvent)
+    assert status.status is WalletDepositBalanceStatus.UNKNOWN
+    assert status.code == "RPC_THROTTLED"
+
+    state = initialized_state("wallet-a")
+    before = (state.context_slot, dict(state.balances), state.native_sol_balance)
+    assert state.apply_event(status) is WalletDepositBalancesApplyResult.IGNORED
+    assert (
+        state.context_slot,
+        dict(state.balances),
+        state.native_sol_balance,
+    ) == before
+
+
 @pytest.mark.parametrize(
     "message",
     [

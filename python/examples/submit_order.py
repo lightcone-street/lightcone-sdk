@@ -74,8 +74,8 @@ async def main():
     )
     print(
         f"submitted: {response.order_hash} "
-        f"status={response.status.value} filled={response.filled} remaining={response.remaining} "
-        f"fills={len(response.fills)}"
+        f"status={response.status.value} filled={response.filled_base()} "
+        f"open={response.open_base()} fills={len(response.fills)}"
     )
 
     await client.close()

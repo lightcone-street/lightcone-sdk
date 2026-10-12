@@ -1,12 +1,13 @@
 """Position domain types."""
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
 
-from ..order import UserMarketBalance, UserOutcomeBalance
+from ...shared.price import add_decimals
 
 
 @dataclass
@@ -112,7 +113,7 @@ class DepositTokenBalancesSnapshot:
     balances: dict[str, DepositTokenBalance] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: dict[str, object]) -> "DepositTokenBalancesSnapshot":
+    def from_dict(cls, data: dict[str, object]) -> DepositTokenBalancesSnapshot:
         """Strictly decode a complete REST snapshot or raise :class:`TypeError`."""
         raw_balances = _parse_deposit_token_balances(data.get("balances"))
         native_sol_balance = _require_native_sol_balance(data, "deposit-token snapshot")
@@ -130,6 +131,15 @@ class WalletDepositBalanceStatus(str, Enum):
     RECONNECTING = "reconnecting"
     #: Balance values remain usable while token metadata refresh is unavailable.
     METADATA_UNAVAILABLE = "metadata_unavailable"
+    #: A status this SDK version does not know; balances are unchanged.
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def from_wire(cls, value: str) -> WalletDepositBalanceStatus:
+        for member in cls:
+            if member is not cls.UNKNOWN and member.value == value:
+                return member
+        return cls.UNKNOWN
 
 
 @dataclass
@@ -191,8 +201,10 @@ def wallet_deposit_balances_event_from_dict(
 ) -> WalletDepositBalancesEvent:
     """Decode one strict nested wallet event by its exact ``event_type``.
 
-    Required fields, known statuses, exact native SOL, and nested balance shape
-    are validated. Unknown variants or malformed fields raise :class:`TypeError`.
+    Required fields, exact native SOL, and nested balance shape are validated.
+    A status this SDK version does not know decodes as
+    :attr:`WalletDepositBalanceStatus.UNKNOWN`. Unknown variants or malformed
+    fields raise :class:`TypeError`.
     """
     event_type = _require_string(data, "event_type", "wallet balance event")
     wallet_address = _require_string(data, "wallet_address", "wallet balance event")
@@ -221,14 +233,10 @@ def wallet_deposit_balances_event_from_dict(
         )
     if event_type == "wallet_deposit_balance_status":
         raw_status = _require_string(data, "status", "wallet balance status")
-        try:
-            status = WalletDepositBalanceStatus(raw_status)
-        except ValueError as error:
-            raise TypeError(f"unknown wallet balance status: {raw_status}") from error
         return WalletDepositBalanceStatusEvent(
             event_type=event_type,
             wallet_address=wallet_address,
-            status=status,
+            status=WalletDepositBalanceStatus.from_wire(raw_status),
             code=_require_string(data, "code", "wallet balance status"),
         )
     raise TypeError(f"unknown wallet balance event_type: {event_type}")
@@ -322,8 +330,9 @@ class ConditionalBalanceDelta:
     on_book: str = "0"
 
     def total(self) -> str:
-        """Full-precision sum of idle + on-book (mirrors the ``balance`` field)."""
-        return str(Decimal(self.idle) + Decimal(self.on_book))
+        """Exact sum of idle + on-book (mirrors the ``balance`` field), as plain
+        decimal text at the larger of the two scales."""
+        return format(add_decimals(Decimal(self.idle), Decimal(self.on_book)), "f")
 
     def is_zero(self) -> bool:
         """True when the delta holds nothing idle and nothing resting on the book."""
@@ -342,86 +351,6 @@ class ConditionalBalanceDelta:
                 outcome_index=self.outcome_index,
             ),
         )
-
-    def into_user_outcome_balance(self) -> UserOutcomeBalance:
-        return UserOutcomeBalance(
-            outcome_index=self.outcome_index,
-            conditional_token=self.conditional_token,
-            balance=self.total(),
-            balance_idle=self.idle,
-            balance_on_book=self.on_book,
-        )
-
-
-ConditionalTokenBalanceIndex = dict[str, UserOutcomeBalance]
-DepositAssetBalanceIndex = dict[str, ConditionalTokenBalanceIndex]
-
-
-class UserMarketBalanceIndex:
-    """Nested index of a user's conditional-token balances, keyed
-    ``market -> deposit_asset -> conditional_token``. Zero balances are dropped
-    when building from wire records.
-    """
-
-    def __init__(self) -> None:
-        self._inner: dict[str, DepositAssetBalanceIndex] = {}
-
-    def get(self, market_pubkey: str) -> DepositAssetBalanceIndex | None:
-        """Return one market's nested balance index without creating an entry."""
-        return self._inner.get(market_pubkey)
-
-    def insert(
-        self, market_pubkey: str, market_entry: DepositAssetBalanceIndex
-    ) -> None:
-        self._inner[market_pubkey] = market_entry
-
-    def extend(self, other: "UserMarketBalanceIndex") -> None:
-        for market_pubkey, market_entry in other._inner.items():
-            self._inner.setdefault(market_pubkey, {}).update(market_entry)
-
-    def remove(self, market_pubkey: str) -> None:
-        self._inner.pop(market_pubkey, None)
-
-    def inner(self) -> dict[str, DepositAssetBalanceIndex]:
-        return self._inner
-
-    def market_pubkeys(self) -> list[str]:
-        return sorted(self._inner)
-
-    def is_empty(self) -> bool:
-        return not self._inner
-
-    @classmethod
-    def from_user_market_balance(
-        cls, market_balance: UserMarketBalance
-    ) -> Optional["UserMarketBalanceIndex"]:
-        market_entry: DepositAssetBalanceIndex = {}
-
-        for deposit_asset_balance in market_balance.deposit_assets:
-            outcomes: ConditionalTokenBalanceIndex = {}
-            for outcome in deposit_asset_balance.outcomes:
-                if not outcome.is_zero():
-                    outcomes[outcome.conditional_token] = outcome
-            if outcomes:
-                market_entry[deposit_asset_balance.deposit_asset] = outcomes
-
-        if not market_entry:
-            return None
-
-        index = cls()
-        index.insert(market_balance.market_pubkey, market_entry)
-        return index
-
-    @classmethod
-    def from_user_market_balances(
-        cls, market_balances: list[UserMarketBalance]
-    ) -> "UserMarketBalanceIndex":
-        index = cls()
-        for market_balance in market_balances:
-            market_index = cls.from_user_market_balance(market_balance)
-            if market_index is not None:
-                index.extend(market_index)
-        return index
 
 
 from .builders import (  # noqa: E402
@@ -451,9 +380,13 @@ from .state import (  # noqa: E402
     WalletDepositBalancesApplyResult,
     WalletDepositBalancesState,
 )
-from .wire import GlobalDeposit  # noqa: E402
-from .wire import MarketPositionsResponseWire as MarketPositionsResponse  # noqa: E402
-from .wire import PositionsResponseWire as PositionsResponse  # noqa: E402
+from .wire import (  # noqa: E402
+    FundingAccount,
+    FundingUpdate,
+    MarketPositionsResponse,
+    ObservationState,
+    PositionsResponse,
+)
 
 __all__ = [
     "DepositBuilder",
@@ -497,10 +430,9 @@ __all__ = [
     "Portfolio",
     "TokenBalanceComputedBase",
     "ConditionalBalanceDelta",
-    "ConditionalTokenBalanceIndex",
-    "DepositAssetBalanceIndex",
-    "UserMarketBalanceIndex",
-    "GlobalDeposit",
+    "FundingAccount",
+    "FundingUpdate",
+    "ObservationState",
     "PositionsResponse",
     "MarketPositionsResponse",
 ]

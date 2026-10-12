@@ -1,6 +1,5 @@
 """WebSocket module for the Lightcone SDK."""
 
-import json
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 from typing import Any, Callable, Optional, TYPE_CHECKING, Union
@@ -322,10 +321,16 @@ class MessageIn:
 def parse_message_in(text: str) -> MessageIn:
     """Parse and normalize one raw frame.
 
-    Wallet-balance frames fail closed on malformed nested discriminators,
-    fields, exact values, or slots instead of escaping as untyped dictionaries.
+    The frame must be strict JSON (``NaN`` and ``Infinity`` are rejected).
+    ``user``, ``trades``, and ``book_update`` payloads are decoded strictly
+    and raise :class:`~lightcone_sdk.error.DeserializationError` naming the
+    offending field; wallet-balance frames fail closed on malformed nested
+    discriminators, fields, exact values, or slots. Malformed frames never
+    escape as untyped dictionaries.
     """
-    data = json.loads(text)
+    from ..shared.wire_decode import parse_json, wire_object
+
+    data = wire_object(parse_json(text, "WebSocket frame"), "frame")
     return MessageIn.from_dict(data)
 
 
@@ -338,18 +343,24 @@ def _parse_message_data(message_type: str, data: Any) -> Optional[MessageData]:
 
         return wallet_deposit_balances_event_from_dict(data)
 
-    if not isinstance(data, dict):
-        return data
-
     if message_type == MessageInType.BOOK_UPDATE.value:
         from ..domain.orderbook.wire import WsOrderBook
+        from ..shared.wire_decode import wire_object
 
-        return WsOrderBook.from_dict(data)
+        return WsOrderBook.from_dict(wire_object(data, "book_update"))
 
     if message_type == MessageInType.USER.value:
         from ..domain.order.wire import UserUpdate
 
         return UserUpdate.from_dict(data)
+
+    if message_type == MessageInType.TRADES.value:
+        from ..domain.trade.wire import WsTrade
+
+        return WsTrade.from_dict(data, "trades")
+
+    if not isinstance(data, dict):
+        return data
 
     if message_type == MessageInType.ERROR.value:
         return WsErrorData.from_dict(data)
@@ -369,11 +380,6 @@ def _parse_message_data(message_type: str, data: Any) -> Optional[MessageData]:
         ):
             return PriceHistoryHeartbeat.from_dict(data)
         return PriceHistorySnapshot.from_dict(data)
-
-    if message_type == MessageInType.TRADES.value:
-        from ..domain.trade.wire import WsTrade
-
-        return WsTrade.from_dict(data)
 
     if message_type == MessageInType.AUTH.value:
         from ..domain.order.wire import AuthUpdate
