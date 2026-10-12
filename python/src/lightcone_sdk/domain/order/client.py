@@ -11,7 +11,7 @@ from solders.pubkey import Pubkey
 from ...error import SigningError, ValidationError
 from ...program.accounts import deserialize_order_status
 from ...program.envelope import LimitOrderEnvelope
-from ...program.errors import InvalidSideError
+from ...program.errors import InvalidSideError, InvalidSignatureError
 from ...program.instructions import (
     build_cancel_order_instruction,
     build_close_order_status_instruction,
@@ -35,6 +35,7 @@ from ...program.types import (
     OrderStatus,
     SignedOrder,
 )
+from ...program.utils import encode_i64, encode_u64
 from ...rpc import require_connection
 from ...shared.query import query_u32
 from ...shared.scaling import (
@@ -155,14 +156,22 @@ class Orders:
         return CancelAllSuccess.from_dict(data)
 
     async def _preflight_submit(self, request: SubmitOrderRequest) -> None:
-        """Check exact signed amounts against current orderbook rules before submission."""
+        """Check the signed fields against current orderbook rules before submission.
+
+        The side must be BID or ASK, the amounts must form an exact admitted
+        ratio, and the salt and expiration must fit the order's ``u64`` and
+        ``i64`` fields, which the Rust SDK's types guarantee.
+        """
         rules = await self._client.orderbooks().decimals(request.orderbook_id)
-        if isinstance(request.side, bool) or request.side not in (
-            OrderSide.BID,
-            OrderSide.ASK,
+        if (
+            isinstance(request.side, bool)
+            or not isinstance(request.side, int)
+            or request.side not in (OrderSide.BID, OrderSide.ASK)
         ):
             raise InvalidSideError(request.side)
         validate_raw_amounts(request.amount_in, request.amount_out, request.side, rules)
+        encode_u64(request.salt)
+        encode_i64(request.expiration)
 
     async def get_user_orders(
         self,
@@ -357,7 +366,7 @@ class Orders:
             except Exception as exc:
                 raise classify_signer_error(str(exc)) from exc
 
-            sig_hex = sig_bytes.hex()
+            sig_hex = _signature_hex(sig_bytes)
             body = CancelBody(order_hash=order_hash, maker=maker, signature=sig_hex)
             return await self.cancel(body)
 
@@ -398,7 +407,7 @@ class Orders:
                 sig_bytes = await strategy.signer.sign_message(message.encode())
             except Exception as exc:
                 raise classify_signer_error(str(exc)) from exc
-            sig_hex = sig_bytes.hex()
+            sig_hex = _signature_hex(sig_bytes)
             body = CancelAllBody(
                 user_pubkey=user_pubkey,
                 orderbook_id=resolved_ob_id,
@@ -460,6 +469,14 @@ class Orders:
         if response.value is None:
             return None
         return deserialize_order_status(response.value.data)
+
+
+def _signature_hex(signature: bytes) -> str:
+    """Hex of an Ed25519 signature returned by an external signer; anything
+    but 64 bytes raises ``InvalidSignatureError``, as the Rust SDK does."""
+    if not isinstance(signature, (bytes, bytearray)) or len(signature) != 64:
+        raise InvalidSignatureError("Signature must be exactly 64 bytes")
+    return bytes(signature).hex()
 
 
 def _user_orders_params(limit: int | None, cursor: str | None) -> dict[str, str] | None:

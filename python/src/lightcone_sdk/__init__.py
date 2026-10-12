@@ -1,11 +1,11 @@
 """Lightcone SDK - Python SDK for the Lightcone protocol on Solana."""
 
-from importlib.metadata import PackageNotFoundError
+from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
 from importlib.metadata import version as _package_version
 
 try:
     __version__ = _package_version("lightcone-sdk")
-except PackageNotFoundError:  # imported from a source tree that is not installed
+except _PackageNotFoundError:  # imported from a source tree that is not installed
     __version__ = "0+unknown"
 
 # ============================================================================
@@ -101,6 +101,9 @@ from .domain.order import (
     UserSnapshotOrder,
     UserUpdate,
     convert_snapshot_orders,
+    limit_order_from_snapshot,
+    limit_order_from_update,
+    limit_order_from_user_order,
 )
 
 # External-wallet balance wire models, reducer state, and lifecycle results.
@@ -522,6 +525,9 @@ __all__ = [
     "UserSnapshotOrder",
     "UserUpdate",
     "convert_snapshot_orders",
+    "limit_order_from_snapshot",
+    "limit_order_from_update",
+    "limit_order_from_user_order",
     # Funding accounts
     "FundingAccount",
     "FundingUpdate",

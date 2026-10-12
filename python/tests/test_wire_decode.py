@@ -340,3 +340,34 @@ class TestDepositSource:
         assert DepositSource.GLOBAL.as_str() == "global"
         assert DepositSource.from_wire("conditional") is DepositSource.MARKET
         assert DepositSource.from_wire("market") is DepositSource.MARKET
+
+
+class TestReviewRegressions:
+    def test_integer_text_with_many_leading_zeros_decodes(self) -> None:
+        assert wire_u64("0" * 5000 + "1", "revision") == 1
+        assert wire_i128("-" + "0" * 5000 + "5", "fee") == -5
+        assert wire_u64("0", "revision") == 0
+
+    def test_json_numbers_wider_than_u64_or_i64_must_be_text(self) -> None:
+        assert wire_i128(-(1 << 63), "fee") == -(1 << 63)
+        assert wire_i128(U64_MAX, "fee") == U64_MAX
+        assert wire_i128(str(I128_MIN), "fee") == I128_MIN
+        for value in (U64_MAX + 1, -(1 << 63) - 1):
+            with pytest.raises(DeserializationError, match="JSON number out of range"):
+                wire_i128(value, "fee")
+
+    @pytest.mark.parametrize(
+        "text", ["9999-12-31T23:59:59-01:00", "0001-01-01T00:00:00+01:00"]
+    )
+    def test_times_outside_pythons_range_raise_decode_errors(self, text) -> None:
+        with pytest.raises(DeserializationError, match="executed_at"):
+            wire_rfc3339(text, "executed_at")
+
+    def test_strict_json_rejects_duplicates_and_deep_nesting(self) -> None:
+        from lightcone_sdk.shared.wire_decode import parse_json
+
+        assert parse_json('{"a":{"b":1}}', "body") == {"a": {"b": 1}}
+        with pytest.raises(DeserializationError, match="duplicate field 'a'"):
+            parse_json('{"a":1,"a":2}', "body")
+        with pytest.raises(DeserializationError, match="nesting too deep"):
+            parse_json("[" * 100_000 + "]" * 100_000, "body")

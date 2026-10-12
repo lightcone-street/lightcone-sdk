@@ -554,8 +554,38 @@ class UserSnapshotOrder:
         )
 
 
+# Notification kinds whose ``data`` names a market (the Rust SDK requires it).
+_MARKET_NOTIFICATIONS = frozenset(
+    {"market_resolved", "order_filled", "new_market", "rules_clarified"}
+)
+
+
 def _notification(value: Any, name: str) -> Notification:
-    return Notification.from_dict(wire_object(value, name))
+    """Decode a pushed notification, requiring the fields the Rust SDK requires
+    (``id``, ``notification_type``, ``title``, ``message``, ``created_at``, and
+    the market of a market notification). Any malformed payload raises
+    :class:`~lightcone_sdk.error.DeserializationError` naming the field."""
+    data = wire_object(value, name)
+    for key in ("id", "title", "message", "created_at"):
+        wire_str(take(data, key), f"{name}.{key}")
+    wire_opt_str(take(data, "expires_at"), f"{name}.expires_at")
+    kind = wire_str(take(data, "notification_type"), f"{name}.notification_type")
+    payload = take(data, "data")
+    if kind in _MARKET_NOTIFICATIONS:
+        payload = wire_object(payload, f"{name}.data")
+        wire_str(take(payload, "market_pubkey"), f"{name}.data.market_pubkey")
+        if kind == "order_filled":
+            for key in ("order_hash", "side"):
+                wire_str(take(payload, key), f"{name}.data.{key}")
+        resolution = take(payload, "resolution")
+        if resolution is not MISSING and resolution is not None:
+            wire_object(resolution, f"{name}.data.resolution")
+    try:
+        return Notification.from_dict(data)
+    except (KeyError, TypeError, ValueError, AttributeError, ArithmeticError) as error:
+        raise wire_error(
+            f"{name}.data", f"invalid notification payload: {error!r}"
+        ) from None
 
 
 @dataclass(frozen=True, kw_only=True)

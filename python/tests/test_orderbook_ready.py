@@ -415,3 +415,61 @@ def test_state_dict_path_reads_ready_and_defaults_a_missing_seq():
         OrderbookState(orderbook_id="ob").apply(
             {"orderbook_id": "ob", "seq": 1, "ready": "yes"}
         )
+
+
+LEVEL = {"side": "bid", "price": "0.45", "size": "10", "quote_notional": "4.5"}
+
+
+@pytest.mark.parametrize(
+    ("data", "field"),
+    [
+        (
+            {"orderbook_id": "ob", "bids": [{**LEVEL, "price": None}]},
+            r"bids\[0\]\.price",
+        ),
+        ({"orderbook_id": "ob", "bids": [{**LEVEL, "size": 10}]}, r"bids\[0\]\.size"),
+        ({"orderbook_id": "ob", "bids": [{**LEVEL, "side": "xx"}]}, r"bids\[0\]\.side"),
+        ({"orderbook_id": "ob", "bids": [{**LEVEL, "side": 0}]}, r"bids\[0\]\.side"),
+        (
+            {"orderbook_id": "ob", "asks": [{**LEVEL, "quote_notional": "abc"}]},
+            r"asks\[0\]\.quote_notional",
+        ),
+        ({"orderbook_id": "ob", "n_sig_figs": [5]}, "n_sig_figs"),
+        ({"orderbook_id": "ob", "n_sig_figs": "5"}, "n_sig_figs"),
+        ({"orderbook_id": "ob", "mantissa": -1}, "mantissa"),
+        ({"orderbook_id": "ob", "resync": "false"}, "resync"),
+        ({"orderbook_id": "ob", "is_snapshot": 1}, "is_snapshot"),
+        ({"orderbook_id": 7}, "orderbook_id"),
+        ({"orderbook_id": "ob", "timestamp": 5}, "timestamp"),
+    ],
+)
+def test_book_frames_reject_malformed_levels_and_tags(data, field):
+    with pytest.raises(DeserializationError, match=rf"book_update\.{field}"):
+        parse_message_in(json.dumps({"type": "book_update", "data": data}))
+
+
+def test_book_levels_decode_text_sides_and_keep_decimal_text():
+    frame = parse_message_in(
+        json.dumps(
+            {
+                "type": "book_update",
+                "data": {
+                    "orderbook_id": "ob",
+                    "seq": 3,
+                    "bids": [LEVEL],
+                    "asks": [{**LEVEL, "side": "sell", "price": "0.55"}],
+                    "n_sig_figs": 5,
+                    "mantissa": 2,
+                },
+            }
+        )
+    ).data
+    assert frame.bids[0].side == 0 and frame.asks[0].side == 1
+    assert frame.bids[0].price == "0.45"
+    assert (frame.n_sig_figs, frame.mantissa) == (5, 2)
+
+
+def test_ws_order_book_keeps_its_positional_fields():
+    book = WsOrderBook("ob", 5, True)
+    assert book.is_snapshot is True
+    assert book.ready is False

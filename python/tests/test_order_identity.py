@@ -679,3 +679,178 @@ def test_apply_signature_mutates_only_on_success() -> None:
     assert order.signature == bytes(64)
     apply_signature(order, base58.b58encode(bytes([2]) * 64).decode(), unit_rules())
     assert order.signature == bytes([2]) * 64
+
+
+class TestReviewRegressions:
+    """Inputs Rust's types make unrepresentable are rejected before encoding."""
+
+    def match_params(self, taker: SignedOrder, makers: list[SignedOrder]):
+        from lightcone_sdk.program.instructions import (
+            build_match_orders_multi_instruction,
+        )
+
+        def build(maker_fills, taker_fills):
+            return build_match_orders_multi_instruction(
+                Pubkey.from_bytes(bytes([20]) * 32),
+                taker.market,
+                taker.base_mint,
+                taker.quote_mint,
+                Pubkey.from_bytes(bytes([21]) * 32),
+                taker,
+                makers,
+                maker_fills,
+                taker_fills,
+                base_deposit_mint=Pubkey.from_bytes(bytes([22]) * 32),
+                quote_deposit_mint=Pubkey.from_bytes(bytes([23]) * 32),
+            )
+
+        return build
+
+    def signed(self, **overrides) -> SignedOrder:
+        order = unsigned_order(**overrides)
+        order.signature = bytes([1]) * 64
+        return order
+
+    def test_fill_amounts_reject_bools_and_floats(self) -> None:
+        taker = self.signed(side=OrderSide.ASK)
+        build = self.match_params(taker, [self.signed(side=OrderSide.BID)])
+        build([50], [100])
+        for maker_fills, taker_fills in (
+            ([True], [100]),
+            ([50], [False]),
+            ([1.0], [1]),
+        ):
+            with pytest.raises(SerializationError, match="u64 value out of range"):
+                build(maker_fills, taker_fills)
+
+    def test_maker_context_and_side_are_checked_in_rusts_order(self) -> None:
+        taker = self.signed(side=OrderSide.ASK)
+        same_side = self.signed(side=OrderSide.ASK)
+        wrong_market = self.signed(
+            side=OrderSide.BID, market=Pubkey.from_bytes(bytes([30]) * 32)
+        )
+        with pytest.raises(InvalidSideError):
+            self.match_params(taker, [same_side, wrong_market])([1, 1], [1, 1])
+        short = self.signed(side=OrderSide.BID)
+        short.signature = bytes([1]) * 63
+        with pytest.raises(InvalidDataLengthError):
+            self.match_params(taker, [short])([1], [1])
+
+    @pytest.mark.parametrize(
+        "maker",
+        [
+            {"amount_in": True, "amount_out": 7},
+            {"amount_in": -1, "amount_out": 7},
+            {"amount_in": 7, "amount_out": -7},
+            {"amount_in": 7, "amount_out": U64_MAX + 1},
+        ],
+    )
+    def test_taker_fill_rejects_unencodable_maker_amounts(self, maker) -> None:
+        with pytest.raises(ArithmeticOverflowError):
+            calculate_taker_fill(self.signed(**maker), 3)
+
+    def test_submit_request_requires_a_64_byte_signature(self) -> None:
+        order = self.signed()
+        order.signature = bytes([1]) * 63
+        with pytest.raises(InvalidDataLengthError):
+            to_submit_request(order, "unit")
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"salt": True},
+            {"salt": -1},
+            {"salt": U64_MAX + 1},
+            {"expiration": True},
+            {"expiration": I64_MAX + 1},
+            {"side": 1.0},
+        ],
+    )
+    def test_submit_preflight_rejects_unencodable_fields_before_http(
+        self, overrides
+    ) -> None:
+        from lightcone_sdk.domain.order.client import Orders
+
+        class Http:
+            posts = 0
+
+            async def post(self, *_args, **_kwargs):
+                Http.posts += 1
+                return {}
+
+        fields = {
+            "maker": "maker",
+            "salt": 0,
+            "market_pubkey": "market",
+            "base_token": "base",
+            "quote_token": "quote",
+            "side": int(OrderSide.BID),
+            "amount_in": 1_000_000,
+            "amount_out": 500_000,
+            "expiration": 0,
+            "signature": "00" * 64,
+            "orderbook_id": "unit",
+        }
+        fields.update(overrides)
+        client = SimpleNamespace(
+            _http=Http(),
+            orderbooks=lambda: SimpleNamespace(decimals=_unit_decimals),
+        )
+        with pytest.raises((SerializationError, InvalidSideError)):
+            asyncio.run(Orders(client).submit(SubmitOrderRequest(**fields)))
+        assert Http.posts == 0
+
+    def test_payload_reports_missing_amounts_first_as_the_rust_sdk_does(self) -> None:
+        with pytest.raises(MissingFieldError, match="field: amount_in$"):
+            LimitOrderEnvelope().payload()
+        with pytest.raises(MissingFieldError, match="field: maker$"):
+            LimitOrderEnvelope().amount_in(5).amount_out(5).payload()
+
+    def test_submit_validates_the_envelope_before_the_signing_strategy(self) -> None:
+        class NoStrategy(_Client):
+            def _require_signing_strategy(self):
+                raise ValidationError("signing strategy is not set on the client")
+
+        order = LimitOrderEnvelope().maker(Keypair().pubkey()).price("0.5").size("1")
+        client = NoStrategy(SigningStrategy.native(Keypair()))
+        with pytest.raises(MissingFieldError, match="side"):
+            asyncio.run(order.submit(client, test_orderbook()))
+
+    @pytest.mark.parametrize("length", [63, 65])
+    def test_wallet_adapter_cancels_reject_a_wrong_length_signature(
+        self, length
+    ) -> None:
+        from lightcone_sdk.domain.order.client import Orders
+
+        class BadSigner(ExternalSigner):
+            async def sign_message(self, message: bytes) -> bytes:
+                return bytes(length)
+
+            async def sign_transaction(
+                self, tx_bytes: bytes
+            ) -> bytes:  # pragma: no cover
+                raise NotImplementedError
+
+        class Http:
+            posts = 0
+
+            async def post(self, *_args, **_kwargs):
+                Http.posts += 1
+                return {}
+
+        client = SimpleNamespace(
+            _http=Http(),
+            _require_signing_strategy=lambda: SigningStrategy.wallet_adapter(
+                BadSigner()
+            ),
+        )
+        orders = Orders(client)
+        with pytest.raises(InvalidSignatureError):
+            asyncio.run(orders.cancel_order_signed("ab" * 32, "maker"))
+        with pytest.raises(InvalidSignatureError):
+            asyncio.run(orders.cancel_all_signed("maker", 1, "salt"))
+        assert Http.posts == 0
+
+
+async def _unit_decimals(_orderbook_id: str) -> OrderbookRules:
+    return unit_rules()

@@ -78,14 +78,32 @@ def _reject_json_constant(token: str) -> Any:
     raise ValueError(f"non-standard JSON constant {token}")
 
 
-def parse_json(text: str, what: str) -> Any:
-    """Parse strict JSON text (``NaN`` and ``Infinity`` are rejected).
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    data: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in data:
+            raise ValueError(f"duplicate field {key!r}")
+        data[key] = value
+    return data
 
-    Raises :class:`~lightcone_sdk.error.DeserializationError` naming ``what``
+
+def parse_json(text: str, what: str) -> Any:
+    """Parse strict JSON text, as the Rust SDK's serde decoding does.
+
+    ``NaN`` and ``Infinity`` are rejected, and so are duplicate object keys
+    (which Rust's derived decoders reject rather than let the last one win)
+    and nesting too deep to decode. Raises
+    :class:`~lightcone_sdk.error.DeserializationError` naming ``what``
     (``"response body"``, ``"WebSocket frame"``) when ``text`` is not JSON.
     """
     try:
-        return json.loads(text, parse_constant=_reject_json_constant)
+        return json.loads(
+            text,
+            parse_constant=_reject_json_constant,
+            object_pairs_hook=_reject_duplicate_keys,
+        )
+    except RecursionError:
+        raise DeserializationError(f"invalid JSON {what}: nesting too deep") from None
     except ValueError as error:
         raise DeserializationError(f"invalid JSON {what}: {error}") from None
 
@@ -209,14 +227,21 @@ def _integer_text(value: Any, field: str, signed: bool) -> int:
         pattern = _SIGNED_DIGITS if signed else _DIGITS
         if pattern.fullmatch(value) is None:
             raise wire_error(field, f"invalid integer text {value!r}")
-        if len(value.lstrip("-").lstrip("0")) > _MAX_INTEGER_DIGITS:
+        negative = value.startswith("-")
+        digits = value.lstrip("-").lstrip("0") or "0"
+        if len(digits) > _MAX_INTEGER_DIGITS:
             # Beyond every wire integer range (and Python's int(str) digit cap).
             raise wire_error(field, f"integer out of range: {value[:48]}…")
-        return int(value)
+        # Parse the significant digits only: leading zeros are valid text.
+        parsed = int(digits)
+        return -parsed if negative else parsed
     if isinstance(value, bool) or not isinstance(value, int):
         raise wire_error(
             field, f"expected integer text or number, got {_describe(value)}"
         )
+    if value < I64_MIN or value > U64_MAX:
+        # Rust reads a JSON number as u64 or i64; wider values must be text.
+        raise wire_error(field, f"JSON number out of range: {value}")
     return int(value)
 
 
@@ -394,10 +419,12 @@ def wire_rfc3339(value: Any, field: str) -> datetime:
     fraction = (fraction or "")[:7]
     offset = "+00:00" if offset in ("Z", "z") else offset
     try:
-        parsed = datetime.fromisoformat(f"{date}T{time}{fraction}{offset}")
-    except ValueError:
+        return datetime.fromisoformat(f"{date}T{time}{fraction}{offset}").astimezone(
+            UTC
+        )
+    except (ValueError, OverflowError):
+        # Invalid fields, or outside Python's datetime range (years 1-9999).
         raise wire_error(field, f"invalid RFC 3339 timestamp {text!r}") from None
-    return parsed.astimezone(UTC)
 
 
 # ── Commit metadata ──────────────────────────────────────────────────────────

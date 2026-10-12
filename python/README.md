@@ -369,7 +369,8 @@ def on_user(update):
 ```
 
 Seed `UserOpenLimitOrders` with `convert_snapshot_orders(snapshot.orders)` (merge
-later REST pages with `limit_order_from_user_order` and `apply_order`), then call
+later REST pages with `limit_order_from_user_order`, which returns `None` for an
+order without recorded quantities, and `apply_order`), then call
 `apply(update)` for every `order` fact and `apply_closure(closure)` for every
 `closure`. Application is revision-guarded, so older state cannot reopen a closed
 order, and the container replaces stored orders instead of changing them.
@@ -501,9 +502,10 @@ positions = await client.positions().positions_with_cookies(
     cookie_header=cookie_header,
 )
 print(f"revision {positions.committed_revision}: {len(positions.funding_accounts)} accounts")
-next_page = await client.positions().positions_page_with_cookies(
-    None, positions.next_cursor, None, cookie_header
-)
+if positions.has_more and positions.next_cursor is not None:
+    next_page = await client.positions().positions_page_with_cookies(
+        None, positions.next_cursor, None, cookie_header
+    )
 ```
 
 Positions are committed funding accounts (`FundingAccount`): global deposit
@@ -862,6 +864,6 @@ The SDK stays credential-agnostic: what "restore" means belongs to the host. For
 
 ## Supported order responses
 
-Refer to the [shared order-response contract](../README.md#supported-order-responses). REST user orders (`UserOrder`, with its recorded quantities in `state`), WebSocket snapshot orders (`UserSnapshotOrder`), and live `order` facts (`OrderUpdate`) all carry an order's committed state and convert to `LimitOrder` with `limit_order_from_user_order`, `limit_order_from_snapshot`, and `limit_order_from_update`. Their pages also carry funding accounts (`FundingAccount`) and the committed revision; there is no account nonce. `convert_snapshot_orders` returns `UserOpenLimitOrders`.
+Refer to the [shared order-response contract](../README.md#supported-order-responses). REST user orders (`UserOrder`, with its recorded quantities in `state`), WebSocket snapshot orders (`UserSnapshotOrder`), and live `order` facts (`OrderUpdate`) all carry an order's committed state and convert to `LimitOrder` with `limit_order_from_user_order` (`None` when the recorded quantities are absent), `limit_order_from_snapshot`, and `limit_order_from_update`. Their pages also carry funding accounts (`FundingAccount`) and the committed revision; there is no account nonce. `convert_snapshot_orders` returns `UserOpenLimitOrders`.
 
-Unit conventions: quantities named `*_base` and order sizes are `Decimal` in base-token units; `amount_in`/`amount_out` and `maker_amount`/`taker_amount` are in the units of the token each side gives or receives; prices are quote units per base unit; fields ending in `_atoms` are raw integer atoms (`int`); order and trade revisions, sequences, generations, and slots are `int`. Funding reservations are `DecimalText` because they can exceed the 96-bit decimal range; `to_decimal()` returns `None` beyond it.
+Unit conventions: quantities named `*_base` and order sizes are `Decimal` in base-token units, except `CancelQuantities`, whose `*_base` fields are raw base-token atoms (`int`); `amount_in`/`amount_out` and `maker_amount`/`taker_amount` are in the units of the token each side gives or receives; prices are quote units per base unit; fields ending in `_atoms` are raw integer atoms (`int`); order and trade revisions, sequences, generations, and slots are `int`. Funding reservations are `DecimalText` because they can exceed the 96-bit decimal range; `to_decimal()` returns `None` beyond it.

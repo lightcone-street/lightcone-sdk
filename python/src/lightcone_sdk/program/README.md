@@ -128,7 +128,8 @@ from lightcone_sdk.program import FullOrder, CompactOrder, MakerFill
 `FullOrder` is an alias of `SignedOrder`. There is no per-user nonce: the salt is
 the order's only identity, and bytes 0..161 are the signing preimage. Integers
 are little-endian. `serialize_full_order` writes and `deserialize_full_order`
-requires exactly 225 bytes. The order types are keyword-only dataclasses.
+requires exactly 225 bytes. `SignedOrder`, `Order`, `BidOrderParams`, and
+`AskOrderParams` are keyword-only dataclasses.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -159,7 +160,11 @@ signature. `deserialize_order` requires exactly 33 bytes.
 | Field | Type | Description |
 |-------|------|-------------|
 | `order` | FullOrder | The maker order |
-| `fill_amount` | int | Amount to fill |
+| `maker_fill_amount` | int | Atoms the maker gives |
+| `taker_fill_amount` | int | Atoms the taker gives the maker (see `calculate_taker_fill`) |
+| `deposit_mint` | Pubkey | Collateral mint funding the maker |
+| `is_full_fill` | bool | Whether the fill completes the maker order |
+| `is_deposit` | bool | Whether the maker is funded from its global deposit |
 
 ### Parameter Types
 

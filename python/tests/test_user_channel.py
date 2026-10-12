@@ -338,6 +338,7 @@ def test_decodes_notifications():
                 "notification_type": "global",
                 "title": "Maintenance",
                 "message": "Soon",
+                "created_at": "2026-09-29T12:00:00Z",
             },
         }
     )
@@ -345,6 +346,96 @@ def test_decodes_notifications():
     assert update.data.notification.id == "n1"
     with pytest.raises(DeserializationError, match=r"user\.notification\.notification"):
         user({"event_type": "notification", "notification": None})
+
+
+NOTIFICATION = {"id": "n", "title": "t", "message": "m", "created_at": "x"}
+
+
+@pytest.mark.parametrize(
+    ("notification", "field"),
+    [
+        ({"id": 5}, r"notification\.id"),
+        (
+            {**NOTIFICATION, "created_at": None, "notification_type": "global"},
+            "created_at",
+        ),
+        ({**NOTIFICATION}, "notification_type"),
+        (
+            {
+                **NOTIFICATION,
+                "notification_type": "order_filled",
+                "data": {"market_pubkey": "M"},
+            },
+            r"data\.order_hash",
+        ),
+        ({**NOTIFICATION, "notification_type": "new_market"}, r"notification\.data"),
+        (
+            {
+                **NOTIFICATION,
+                "notification_type": "market_resolved",
+                "data": {"market_pubkey": "M", "resolution": {}},
+            },
+            r"notification\.data: invalid notification payload",
+        ),
+        (
+            {
+                **NOTIFICATION,
+                "notification_type": "market_resolved",
+                "data": {
+                    "market_pubkey": "M",
+                    "resolution": {"kind": 5, "payout_denominator": 1},
+                },
+            },
+            r"notification\.data",
+        ),
+    ],
+)
+def test_malformed_notifications_raise_field_named_decode_errors(notification, field):
+    with pytest.raises(DeserializationError, match=field):
+        user({"event_type": "notification", "notification": notification})
+    snapshot = {
+        "event_type": "snapshot",
+        "orders": [],
+        "funding_accounts": [],
+        "committed_revision": "1",
+        "projection_generation": "1",
+        "notifications": [notification],
+    }
+    with pytest.raises(DeserializationError, match=r"snapshot\.notifications\[0\]"):
+        user(snapshot)
+
+
+def test_frames_with_duplicate_keys_or_deep_nesting_are_rejected():
+    # The last duplicate must not silently win over the first.
+    with pytest.raises(DeserializationError, match="duplicate field 'accepted_seq'"):
+        parse_message_in(
+            '{"type":"user","data":{"event_type":"closure","effect_id":"9:0",'
+            '"committed_revision":9,"projection_generation":1,"scope_kind":4,'
+            '"scope_key":"w","accepted_seq":50,"accepted_seq":999999,"reason":"r"}}'
+        )
+    with pytest.raises(DeserializationError, match="nesting too deep"):
+        parse_message_in("[" * 100_000 + "]" * 100_000)
+
+
+def test_container_dicts_and_shallow_copies_keep_their_state():
+    import copy
+
+    container = UserOpenLimitOrders()
+    container.apply(live_order(10, "8.00000000", "0.00000000"))
+    held_market = container.get_by_market(MARKET)
+    held_orders = container.orders
+    snapshot = copy.copy(container)
+    assert container.apply_closure(closure(4, "wallet", 50)) == 1
+    assert len(held_market[BOOK]) == 1
+    assert len(held_orders[MARKET][BOOK]) == 1
+    assert len(snapshot.get(MARKET, BOOK)) == 1
+    assert container.get(MARKET, BOOK) == []
+    # The copy did not see the closure or the retirement.
+    assert (
+        snapshot.apply(live_order(11, "8.00000000", "0.00000000"))
+        is ApplyOutcome.UPDATED
+    )
+    assert UserOpenLimitOrders() == UserOpenLimitOrders()
 
 
 @pytest.mark.parametrize(

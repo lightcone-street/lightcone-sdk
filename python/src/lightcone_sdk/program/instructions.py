@@ -70,6 +70,7 @@ from .errors import (
     ArithmeticOverflowError,
     DepositMintMismatchError,
     InvalidConditionalMintError,
+    InvalidDataLengthError,
     InvalidDepositMintOrderError,
     InvalidFeeReceiverError,
     InvalidMintOrderError,
@@ -80,7 +81,6 @@ from .errors import (
     InvalidPayoutNumeratorsError,
     InvalidPubkeyError,
     InvalidSideError,
-    InvalidSignatureError,
     MissingFieldError,
     PayoutVectorExceedsU32Error,
     SerializationError,
@@ -192,13 +192,16 @@ def _validate_trading_orders(
 ) -> None:
     """Validate the signed context and exact signature widths before encoding.
 
-    As in Rust: an order for another market or mint pair raises
-    ``InvalidOrderbookError``; a maker on the taker's side, or a side other
-    than BID or ASK, raises ``InvalidSideError``.
+    As in Rust, the taker and then each maker in turn is checked: an order for
+    another market or mint pair raises ``InvalidOrderbookError``; a maker on
+    the taker's side, or a side other than BID or ASK, raises
+    ``InvalidSideError``; a signature that is not 64 bytes raises
+    ``InvalidDataLengthError``.
     """
-    for order in [taker, *makers]:
+
+    def validate(order: SignedOrder) -> None:
         if len(order.signature) != 64:
-            raise InvalidSignatureError("Signature must be exactly 64 bytes")
+            raise InvalidDataLengthError(64, len(order.signature))
         if (
             not isinstance(order.side, int)
             or isinstance(order.side, bool)
@@ -211,7 +214,10 @@ def _validate_trading_orders(
             quote_mint,
         ):
             raise InvalidOrderbookError()
+
+    validate(taker)
     for order in makers:
+        validate(order)
         if order.side == taker.side:
             raise InvalidSideError(int(order.side))
 

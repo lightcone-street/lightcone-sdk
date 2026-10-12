@@ -217,16 +217,8 @@ class LimitOrderEnvelope:
 
         Draws the salt on first use and reuses it afterwards.
         """
-        if self._maker is None:
-            raise MissingFieldError("maker")
-        if self._market is None:
-            raise MissingFieldError("market")
-        if self._base_mint is None:
-            raise MissingFieldError("base_mint")
-        if self._quote_mint is None:
-            raise MissingFieldError("quote_mint")
-        if self._side is None:
-            raise MissingFieldError("side (call .bid() or .ask())")
+        # The amounts are checked first, then the salt is fixed, then the
+        # identities, in the Rust SDK's order.
         if self._amount_in is None:
             raise MissingFieldError("amount_in")
         if self._amount_out is None:
@@ -238,6 +230,16 @@ class LimitOrderEnvelope:
         validate_signed_fields(self._amount_in, self._amount_out)
         if self._salt is None:
             self._salt = generate_salt()
+        if self._maker is None:
+            raise MissingFieldError("maker")
+        if self._market is None:
+            raise MissingFieldError("market")
+        if self._base_mint is None:
+            raise MissingFieldError("base_mint")
+        if self._quote_mint is None:
+            raise MissingFieldError("quote_mint")
+        if self._side is None:
+            raise MissingFieldError("side (call .bid() or .ask())")
 
         return SignedOrder(
             salt=self._salt,
@@ -366,10 +368,11 @@ class LimitOrderEnvelope:
         from ..shared.signing import SigningStrategyKind, classify_signer_error
 
         rules = await client.orderbooks().decimals(orderbook.orderbook_id)  # type: ignore[attr-defined]
-        strategy = client._require_signing_strategy()  # type: ignore[attr-defined]
-        # Pre-fill orderbook-derived fields and validate before signing
+        # Pre-fill orderbook-derived fields and validate before the signing
+        # strategy is resolved, as the Rust SDK does.
         self._auto_fill_from_orderbook(orderbook)
         self._apply_rules(rules, orderbook.orderbook_id)
+        strategy = client._require_signing_strategy()  # type: ignore[attr-defined]
 
         if strategy.kind == SigningStrategyKind.NATIVE:
             request = self.sign(strategy.keypair, orderbook, rules)

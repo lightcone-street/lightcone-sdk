@@ -745,12 +745,13 @@ class LightconeHttp:
         body: str, request_id: str, http_status: int
     ) -> ApiRejected | None:
         try:
-            payload = json.loads(body)
-        except (ValueError, json.JSONDecodeError):
+            payload = parse_json(body, "error body")
+            if not isinstance(payload, dict) or payload.get("status") != "error":
+                return None
+            parsed = ApiResponse.from_dict(payload)
+        except DeserializationError:
+            # Not a structured rejection: fall back to the status-mapped error.
             return None
-        if not isinstance(payload, dict) or payload.get("status") != "error":
-            return None
-        parsed = ApiResponse.from_dict(payload)
         details = parsed.details or ApiRejectedDetails(reason="Unknown API rejection")
         return ApiRejected(
             details.with_request_id(request_id).with_http_status(http_status)

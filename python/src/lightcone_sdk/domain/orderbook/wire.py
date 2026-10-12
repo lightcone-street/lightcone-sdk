@@ -18,6 +18,7 @@ from ...shared.wire_decode import (
     wire_opt_int,
     wire_opt_str,
     wire_orderbook_id,
+    wire_side_text,
     wire_str,
     wire_u64_number,
 )
@@ -203,19 +204,17 @@ class WsBookLevel:
     quote_notional: str
 
     @staticmethod
-    def from_dict(d: dict) -> "WsBookLevel":
-        quote_notional = _require(d, "quote_notional", "WsBookLevel")
-        if not isinstance(quote_notional, str):
-            from ...error import DeserializationError
-
-            raise DeserializationError(
-                "WsBookLevel quote_notional must be a decimal string"
-            )
+    def from_dict(value: Any, name: str = "level") -> "WsBookLevel":
+        """Decode one level: a text side and plain decimal-text ``price``,
+        ``size``, and ``quote_notional``, all required as in the Rust SDK."""
+        data = wire_object(value, name)
         return WsBookLevel(
-            side=d.get("side", 0),
-            price=str(d.get("price", "0")),
-            size=str(d.get("size", "0")),
-            quote_notional=quote_notional,
+            side=wire_side_text(take(data, "side"), f"{name}.side"),
+            price=_decimal_text(take(data, "price"), f"{name}.price"),
+            size=_decimal_text(take(data, "size"), f"{name}.size"),
+            quote_notional=_decimal_text(
+                take(data, "quote_notional"), f"{name}.quote_notional"
+            ),
         )
 
 
@@ -231,9 +230,6 @@ class WsOrderBook:
     """
     orderbook_id: str
     seq: int = 0
-    #: Whether the engine's committed book is ready (matching live). Absent
-    #: (``False``) on resync frames.
-    ready: bool = False
     is_snapshot: bool = False
     resync: bool = False
     timestamp: Optional[str] = None
@@ -245,6 +241,9 @@ class WsOrderBook:
     #: Always normalized server-side ((5, none) arrives as (5, 1)).
     n_sig_figs: Optional[int] = None
     mantissa: Optional[int] = None
+    #: Whether the engine's committed book is ready (matching live). Absent
+    #: (``False``) on resync frames.
+    ready: bool = False
 
     def aggregation(self) -> "BookAggregation":
         """The aggregation view this frame belongs to (untagged = full
@@ -264,12 +263,14 @@ class WsOrderBook:
             raise DeserializationError("Missing required field 'orderbook_id' in WsOrderBook")
         seq = take(d, "seq")
         return WsOrderBook(
-            orderbook_id=ob_id,
-            is_snapshot=d.get("is_snapshot", False),
+            orderbook_id=wire_str(ob_id, f"{name}.orderbook_id"),
+            is_snapshot=wire_bool(
+                take(d, "is_snapshot"), f"{name}.is_snapshot", default=False
+            ),
             seq=0 if seq is MISSING else wire_u64_number(seq, f"{name}.seq"),
             ready=wire_bool(take(d, "ready"), f"{name}.ready", default=False),
-            resync=d.get("resync", False),
-            timestamp=d.get("timestamp"),
+            resync=wire_bool(take(d, "resync"), f"{name}.resync", default=False),
+            timestamp=wire_opt_str(take(d, "timestamp"), f"{name}.timestamp"),
             bids=wire_array(
                 take(d, "bids"), f"{name}.bids", _ws_book_level, default_empty=True
             ),
@@ -282,13 +283,19 @@ class WsOrderBook:
             asks_truncated=wire_bool(
                 take(d, "asks_truncated"), f"{name}.asks_truncated", default=False
             ),
-            n_sig_figs=d.get("n_sig_figs"),
-            mantissa=d.get("mantissa"),
+            n_sig_figs=wire_opt_int(take(d, "n_sig_figs"), f"{name}.n_sig_figs", *U32),
+            mantissa=wire_opt_int(take(d, "mantissa"), f"{name}.mantissa", *U32),
         )
 
 
 def _ws_book_level(value: Any, name: str) -> WsBookLevel:
-    return WsBookLevel.from_dict(wire_object(value, name))
+    return WsBookLevel.from_dict(value, name)
+
+
+def _decimal_text(value: Any, name: str) -> str:
+    """Required plain decimal text, validated and kept as text."""
+    wire_decimal(value, name)
+    return value
 
 
 @dataclass

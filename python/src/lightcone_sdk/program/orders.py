@@ -479,11 +479,13 @@ def calculate_taker_fill(maker_order: SignedOrder, maker_fill_amount: int) -> in
 
     Raises:
         ArithmeticOverflowError: For a zero ``maker_order.amount_in``, a maker
-            fill outside the u64 range, or a result above u64 (as in Rust).
+            amount or fill that is not a u64 ``int``, or a result above u64
+            (as in Rust).
     """
+    for amount in (maker_order.amount_in, maker_order.amount_out, maker_fill_amount):
+        if not _is_int(amount) or not 0 <= amount <= MAX_U64:
+            raise ArithmeticOverflowError()
     if maker_order.amount_in == 0:
-        raise ArithmeticOverflowError()
-    if not _is_int(maker_fill_amount) or not 0 <= maker_fill_amount <= MAX_U64:
         raise ArithmeticOverflowError()
 
     numerator = maker_fill_amount * maker_order.amount_out
@@ -517,6 +519,8 @@ def to_submit_request(
     Raises:
         UnsignedOrderError: If the order is not signed
     """
+    if len(order.signature) != SIGNATURE_SIZE:
+        raise InvalidDataLengthError(SIGNATURE_SIZE, len(order.signature))
     if not is_signed(order):
         raise UnsignedOrderError()
     validate_signed_fields(order.amount_in, order.amount_out)

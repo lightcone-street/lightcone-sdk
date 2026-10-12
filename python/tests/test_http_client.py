@@ -990,3 +990,45 @@ def test_api_key_rejects_non_loopback_cleartext_origin() -> None:
         LightconeHttp("http://api.example.com", api_key="test-key")
     assert LightconeHttp("http://127.0.0.1:3001", api_key="test-key").has_api_key
     assert LightconeHttp("https://api.example.com", api_key="test-key").has_api_key
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "body",
+    [
+        '{"status":"error"}',
+        '{"status":"error","error_details":null}',
+        '{"status":"error","error_details":{"rejection_code":"STALE_STATE"}}',
+        '{"status":"error","error_details":{"reason":5}}',
+        '{"status":"error","error_details":{"reason":"x","rejection_code":5}}',
+        '{"status":"error","error_details":{"reason":"x","error_code":true}}',
+    ],
+)
+async def test_malformed_error_envelopes_are_decode_errors_on_2xx_and_status_errors_otherwise(
+    body: str,
+) -> None:
+    base_url, attempts, cleanup = await _server([(200, body), (400, body)])
+    client = LightconeHttp(base_url)
+    try:
+        with pytest.raises(DeserializationError, match="error_details"):
+            await client.get("/ok", RetryPolicy.NONE)
+        with pytest.raises(HttpError) as raised:
+            await client.get("/bad", RetryPolicy.NONE)
+        assert raised.value.kind is HttpErrorKind.BAD_REQUEST
+        assert attempts() == 2
+    finally:
+        await client.close()
+        await cleanup()
+
+
+@pytest.mark.asyncio
+async def test_deeply_nested_2xx_body_is_a_decode_error() -> None:
+    base_url, attempts, cleanup = await _server([(200, "[" * 100_000 + "]" * 100_000)])
+    client = LightconeHttp(base_url)
+    try:
+        with pytest.raises(DeserializationError, match="nesting too deep"):
+            await client.get("/deep", RetryPolicy.IDEMPOTENT)
+        assert attempts() == 1
+    finally:
+        await client.close()
+        await cleanup()

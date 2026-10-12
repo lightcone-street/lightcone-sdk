@@ -46,19 +46,22 @@ class UserOpenLimitOrders:
     live, and every applied closure, so older state (a REST page or snapshot
     racing live facts) cannot reopen a closed order.
 
-    Stored orders and per-orderbook lists are never changed in place: every
-    change replaces them, so a reference returned earlier keeps the state it
-    was read at.
+    Stored orders, per-orderbook lists, per-market dicts, and the ``orders``
+    dict itself are never changed in place: every change replaces them, so a
+    reference returned earlier (or a shallow copy of the container) keeps the
+    state it was read at.
     """
 
     orders: dict[PubkeyStr, dict[OrderBookId, list[LimitOrder]]] = field(
         default_factory=dict
     )
     #: Committed revision at which each untracked order stopped being live.
-    _retired: dict[str, int] = field(default_factory=dict, repr=False)
+    _retired: dict[str, int] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
     #: Applied closures, re-applied to older state inserted later.
     _closures: list[tuple[ClosureScope, ClosureUpdate]] = field(
-        default_factory=list, repr=False
+        default_factory=list, init=False, repr=False, compare=False
     )
 
     def get(
@@ -120,12 +123,20 @@ class UserOpenLimitOrders:
         if not order.is_live():
             self._retire(order)
             return ApplyOutcome.REMOVED if was_tracked else ApplyOutcome.IGNORED
-        self._retired.pop(order.order_hash, None)
-        by_orderbook = self.orders.setdefault(order.market_pubkey, {})
-        by_orderbook[order.orderbook_id] = [
-            *by_orderbook.get(order.orderbook_id, []),
-            order,
-        ]
+        if order.order_hash in self._retired:
+            self._retired = {
+                key: revision
+                for key, revision in self._retired.items()
+                if key != order.order_hash
+            }
+        by_orderbook = self.orders.get(order.market_pubkey, {})
+        self.orders = {
+            **self.orders,
+            order.market_pubkey: {
+                **by_orderbook,
+                order.orderbook_id: [*by_orderbook.get(order.orderbook_id, []), order],
+            },
+        }
         return ApplyOutcome.UPDATED if was_tracked else ApplyOutcome.INSERTED
 
     def apply_closure(self, closure: ClosureUpdate) -> int | None:
@@ -145,8 +156,10 @@ class UserOpenLimitOrders:
         if scope is None or scope in _UNEVALUATED_SCOPES:
             return None
         closed = 0
-        for by_orderbook in self.orders.values():
-            for orderbook_id, orders in list(by_orderbook.items()):
+        orders_by_market: dict[PubkeyStr, dict[OrderBookId, list[LimitOrder]]] = {}
+        for market, by_orderbook in self.orders.items():
+            next_by_orderbook: dict[OrderBookId, list[LimitOrder]] = {}
+            for orderbook_id, orders in by_orderbook.items():
                 kept: list[LimitOrder] = []
                 for order in orders:
                     closed_order = _close_covered(order, closure, scope)
@@ -158,8 +171,10 @@ class UserOpenLimitOrders:
                         kept.append(closed_order)
                     else:
                         self._retire(closed_order)
-                by_orderbook[orderbook_id] = kept
-        self._closures.append((scope, closure))
+                next_by_orderbook[orderbook_id] = kept
+            orders_by_market[market] = next_by_orderbook
+        self.orders = orders_by_market
+        self._closures = [*self._closures, (scope, closure)]
         return closed
 
     def remove(self, order_hash: str) -> LimitOrder | None:
@@ -170,9 +185,9 @@ class UserOpenLimitOrders:
     def clear(self) -> None:
         """Forget every order, retired revision, and closure (e.g. before
         reseeding from a new snapshot)."""
-        self.orders.clear()
-        self._retired.clear()
-        self._closures.clear()
+        self.orders = {}
+        self._retired = {}
+        self._closures = []
 
     def is_empty(self) -> bool:
         return all(
@@ -187,14 +202,17 @@ class UserOpenLimitOrders:
                 yield from orders
 
     def _take(self, order_hash: str) -> LimitOrder | None:
-        for by_orderbook in self.orders.values():
+        for market, by_orderbook in self.orders.items():
             for orderbook_id, orders in by_orderbook.items():
                 for index, order in enumerate(orders):
                     if order.order_hash == order_hash:
-                        by_orderbook[orderbook_id] = [
-                            *orders[:index],
-                            *orders[index + 1 :],
-                        ]
+                        self.orders = {
+                            **self.orders,
+                            market: {
+                                **by_orderbook,
+                                orderbook_id: [*orders[:index], *orders[index + 1 :]],
+                            },
+                        }
                         return order
         return None
 
@@ -202,7 +220,10 @@ class UserOpenLimitOrders:
         """Record the revision at which ``order`` stopped being live."""
         previous = self._retired.get(order.order_hash)
         if previous is None or order.committed_revision > previous:
-            self._retired[order.order_hash] = order.committed_revision
+            self._retired = {
+                **self._retired,
+                order.order_hash: order.committed_revision,
+            }
 
 
 def _close_covered(
