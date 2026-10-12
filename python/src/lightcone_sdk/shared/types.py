@@ -157,14 +157,61 @@ class TimeInForce(IntEnum):
 class DepositSource(IntEnum):
     """Where collateral should be sourced when matching an order.
 
-    Use None for the default behavior (auto: global if available, then market).
+    Use None for the default behavior (auto: global if available, then the
+    market's conditional tokens). ``MARKET`` is sent as ``"conditional"``, the
+    backend's name for market (conditional-token) collateral.
     """
 
     GLOBAL = 0
     MARKET = 1
 
     def as_str(self) -> str:
-        return "global" if self == DepositSource.GLOBAL else "market"
+        return "global" if self == DepositSource.GLOBAL else "conditional"
+
+    @classmethod
+    def from_wire(cls, value: str) -> "DepositSource":
+        """Parse ``"global"``, ``"conditional"``, or the legacy ``"market"``."""
+        if value == "global":
+            return cls.GLOBAL
+        if value in ("conditional", "market"):
+            return cls.MARKET
+        raise ValueError(f"unknown deposit source: {value!r}")
+
+
+class FundingSource(str, Enum):
+    """Collateral that funds a committed order or account.
+
+    ``UNKNOWN`` covers a value this SDK version does not know, so a new
+    backend value does not fail the surrounding payload.
+    """
+
+    GLOBAL = "global"
+    CONDITIONAL = "conditional"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def from_wire(cls, value: str) -> "FundingSource":
+        if value == cls.GLOBAL.value:
+            return cls.GLOBAL
+        if value == cls.CONDITIONAL.value:
+            return cls.CONDITIONAL
+        return cls.UNKNOWN
+
+
+@dataclass(frozen=True)
+class CommitInfo:
+    """Commit metadata carried by every live committed fact.
+
+    ``committed_revision`` orders facts for one account; a fact at or below a
+    revision the client already applied is stale. ``projection_generation``
+    identifies the projection that published it. ``actionable`` is false while
+    the engine is still recovering.
+    """
+
+    effect_id: str
+    committed_revision: int
+    projection_generation: int
+    actionable: bool = False
 
 
 class OrderUpdateType(str, Enum):
@@ -296,6 +343,8 @@ __all__ = [
     "TimeInForce",
     "OrderUpdateType",
     "DepositSource",
+    "FundingSource",
+    "CommitInfo",
     "Resolution",
     "SubmitOrderRequest",
 ]

@@ -1,6 +1,7 @@
 """Shared utilities used across the Lightcone SDK."""
 
 from .api_response import ApiRejectedDetails, ApiResponse
+from .decimal_text import DecimalText
 from .fmt import (
     abbr_number,
     display,
@@ -33,8 +34,10 @@ from .signing import (
     classify_signer_error,
 )
 from .types import (
+    CommitInfo,
     Denominator,
     DepositSource,
+    FundingSource,
     OrderBookId,
     OrderUpdateType,
     PubkeyStr,
@@ -65,6 +68,9 @@ __all__ = [
     "TimeInForce",
     "OrderUpdateType",
     "DepositSource",
+    "FundingSource",
+    "CommitInfo",
+    "DecimalText",
     "Resolution",
     "SubmitOrderRequest",
     # Formatting

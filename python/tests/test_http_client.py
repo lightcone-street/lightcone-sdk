@@ -9,7 +9,13 @@ from aiohttp import web
 
 from lightcone_sdk.auth.client import Auth
 from lightcone_sdk.client import LightconeClientBuilder
-from lightcone_sdk.error import ApiRejected, HttpError, is_unauthorized
+from lightcone_sdk.error import (
+    ApiRejected,
+    DeserializationError,
+    HttpError,
+    HttpErrorKind,
+    is_unauthorized,
+)
 from lightcone_sdk.http.client import LightconeHttp
 from lightcone_sdk.http.retry import RetryConfig, RetryPolicy
 
@@ -98,6 +104,56 @@ async def test_http_200_error_envelope_is_rejected() -> None:
     finally:
         await client.close()
         await cleanup()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", ["<html>not json</html>", '{"value": NaN}'])
+async def test_non_json_2xx_body_is_a_deserialization_error_never_retried(
+    body: str,
+) -> None:
+    base_url, attempts, cleanup = await _server(
+        [(200, body), (200, '{"status":"success","body":{}}')]
+    )
+    client = LightconeHttp(base_url)
+    try:
+        with pytest.raises(DeserializationError, match="invalid JSON response body"):
+            await client.get(f"{base_url}/test", RetryPolicy.IDEMPOTENT)
+        assert attempts() == 1
+    finally:
+        await client.close()
+        await cleanup()
+
+
+@pytest.mark.asyncio
+async def test_cut_off_2xx_body_is_a_request_error() -> None:
+    attempts = 0
+
+    async def handle(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        nonlocal attempts
+        attempts += 1
+        await reader.readuntil(b"\r\n\r\n")
+        # Headers and part of the body arrive before the connection closes.
+        writer.write(
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+            b'Content-Length: 100\r\n\r\n{"status":"succ'
+        )
+        await writer.drain()
+        writer.close()
+
+    server = await asyncio.start_server(handle, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    client = LightconeHttp(f"http://127.0.0.1:{port}")
+    try:
+        with pytest.raises(HttpError) as raised:
+            await client.get(f"http://127.0.0.1:{port}/test", _fast_retry(set()))
+        assert raised.value.kind is HttpErrorKind.REQUEST
+        assert attempts == 1
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()
 
 
 @pytest.mark.asyncio

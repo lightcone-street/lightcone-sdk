@@ -92,8 +92,17 @@ class ApiResponse(Generic[T]):
         if status == "success":
             return cls(status=status, body=data.get("body"))
         if status == "error":
+            details = data.get("error_details")
+            if details is None:
+                details = {}
+            if not isinstance(details, dict):
+                from ..error import DeserializationError
+
+                raise DeserializationError(
+                    "error_details: expected object, " f"got {type(details).__name__}"
+                )
             return cls(
                 status=status,
-                details=ApiRejectedDetails.from_dict(data.get("error_details") or {}),
+                details=ApiRejectedDetails.from_dict(details),
             )
         raise ValueError(f"Unsupported ApiResponse status: {status}")
