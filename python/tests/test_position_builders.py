@@ -11,6 +11,7 @@ from lightcone_sdk.client import LightconeClient
 from lightcone_sdk.error import SdkError
 from lightcone_sdk.http import LightconeHttp
 from lightcone_sdk.program.errors import InvalidOutcomeIndexError
+from lightcone_sdk.program.types import CloseOrderStatusParams
 from lightcone_sdk.shared.signing import SigningStrategy
 
 
@@ -106,7 +107,10 @@ def test_v1_builders_preserve_encoded_accounts_amount_and_context() -> None:
             key in (payer, custody, expected_accounts[4])
         )
     assert built.required_signers == (payer,)
-    assert client.orders().increment_nonce_tx(payer, context).context == context
+    close_status = CloseOrderStatusParams(operator=payer, order_hash=bytes(32))
+    assert (
+        client.orders().close_order_status_tx(close_status, context).context == context
+    )
 
 
 @pytest.mark.parametrize("missing", ["user", "mint", "amount"])

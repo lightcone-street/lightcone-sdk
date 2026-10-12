@@ -1,42 +1,46 @@
 """OrderBuilder - fluent API for constructing orders."""
 
-from typing import Optional
-
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from .types import SignedOrder, OrderSide
-from .orders import sign_order, signature_hex, is_signed
-from ..shared.types import Side, SubmitOrderRequest
 from ..shared.scaling import (
     OrderbookRules,
     scale_price_size,
     validate_raw_amounts,
     validate_signed_fields,
 )
+from ..shared.types import DepositSource, Side, SubmitOrderRequest
+from .errors import MissingFieldError
+from .orders import _decode_side, generate_salt, sign_order
+from .orders import to_submit_request as order_to_submit_request
+from .types import OrderSide, SignedOrder
 
 
 class OrderBuilder:
-    """Fluent builder for constructing SignedOrder instances."""
+    """Fluent builder for constructing SignedOrder instances.
+
+    The salt is the order's only identity. When it is not set, the first
+    ``build()`` draws one and every later build reuses it, so ``build()`` and
+    ``build_and_sign()`` describe the same order.
+    """
 
     def __init__(self):
-        self._nonce: int = 0
-        self._salt: int = 0
-        self._maker: Optional[Pubkey] = None
-        self._market: Optional[Pubkey] = None
-        self._base_mint: Optional[Pubkey] = None
-        self._quote_mint: Optional[Pubkey] = None
+        self._salt: int | None = None
+        self._maker: Pubkey | None = None
+        self._market: Pubkey | None = None
+        self._base_mint: Pubkey | None = None
+        self._quote_mint: Pubkey | None = None
         self._side: OrderSide = OrderSide.BID
         self._amount_in: int = 0
         self._amount_out: int = 0
         self._expiration: int = 0
-        self._rules: Optional[OrderbookRules] = None
-
-    def nonce(self, nonce: int) -> "OrderBuilder":
-        self._nonce = nonce
-        return self
+        self._deposit_source: DepositSource | None = None
+        self._rules: OrderbookRules | None = None
+        # Price and size to scale at build time with the final side and rules.
+        self._price_size: tuple[str, str] | None = None
 
     def salt(self, salt: int) -> "OrderBuilder":
+        """Set the order's identity salt (any u64). Drawn once when omitted."""
         self._salt = salt
         return self
 
@@ -65,19 +69,29 @@ class OrderBuilder:
         return self
 
     def side(self, side: Side) -> "OrderBuilder":
-        self._side = OrderSide(int(side))
+        self._side = _decode_side(side)
         return self
 
     def amount_in(self, amount: int) -> "OrderBuilder":
+        """Set amount in (raw atoms the maker gives). Replaces any price and size."""
+        self._price_size = None
         self._amount_in = amount
         return self
 
     def amount_out(self, amount: int) -> "OrderBuilder":
+        """Set amount out (raw atoms the maker receives). Replaces any price and size."""
+        self._price_size = None
         self._amount_out = amount
         return self
 
     def expiration(self, expiration: int) -> "OrderBuilder":
+        """Set the expiration in Unix seconds (0 for no expiration)."""
         self._expiration = expiration
+        return self
+
+    def deposit_source(self, source: DepositSource) -> "OrderBuilder":
+        """Set the collateral source sent with the submit request."""
+        self._deposit_source = source
         return self
 
     def rules(self, rules: OrderbookRules) -> "OrderBuilder":
@@ -85,30 +99,44 @@ class OrderBuilder:
         return self
 
     def price(self, price: str, size: str, rules: OrderbookRules) -> "OrderBuilder":
-        """Construct exact amounts under fetched immutable trading rules."""
+        """Set price and size under fetched immutable trading rules.
+
+        Every build constructs amount_in and amount_out exactly from them under
+        the trading rules and the side set at build time, so
+        ``.price(...).ask()`` and ``.ask().price(...)`` describe the same order.
+        Invalid values are rejected here and at build, never rounded.
+        """
+        scale_price_size(price, size, int(self._side), rules)
         self._rules = rules
-        scaled = scale_price_size(price, size, int(self._side), rules)
-        self._amount_in = scaled.amount_in
-        self._amount_out = scaled.amount_out
+        self._price_size = (price, size)
         return self
 
-    def build(self, rules: Optional[OrderbookRules] = None) -> SignedOrder:
+    def build(self, rules: OrderbookRules | None = None) -> SignedOrder:
         """Build an unsigned SignedOrder."""
-        assert self._maker is not None, "maker is required"
-        assert self._market is not None, "market is required"
-        assert self._base_mint is not None, "base_mint is required"
-        assert self._quote_mint is not None, "quote_mint is required"
+        if self._maker is None:
+            raise MissingFieldError("maker")
+        if self._market is None:
+            raise MissingFieldError("market")
+        if self._base_mint is None:
+            raise MissingFieldError("base_mint")
+        if self._quote_mint is None:
+            raise MissingFieldError("quote_mint")
         resolved_rules = rules or self._rules
-        assert resolved_rules is not None, "trading_rules are required"
+        if resolved_rules is None:
+            raise MissingFieldError("trading_rules")
+        if self._price_size is not None:
+            price, size = self._price_size
+            scaled = scale_price_size(price, size, int(self._side), resolved_rules)
+            self._amount_in = scaled.amount_in
+            self._amount_out = scaled.amount_out
+        validate_signed_fields(self._amount_in, self._amount_out)
         validate_raw_amounts(
             self._amount_in, self._amount_out, int(self._side), resolved_rules
         )
-        validate_signed_fields(
-            self._amount_in, self._amount_out, self._salt, self._nonce
-        )
+        if self._salt is None:
+            self._salt = generate_salt()
 
         return SignedOrder(
-            nonce=self._nonce,
             salt=self._salt,
             maker=self._maker,
             market=self._market,
@@ -121,11 +149,12 @@ class OrderBuilder:
         )
 
     def build_and_sign(
-        self, keypair: Keypair, rules: Optional[OrderbookRules] = None
+        self, keypair: Keypair, rules: OrderbookRules | None = None
     ) -> SignedOrder:
         """Build and sign an order."""
         resolved_rules = rules or self._rules
-        assert resolved_rules is not None, "trading_rules are required"
+        if resolved_rules is None:
+            raise MissingFieldError("trading_rules")
         order = self.build(resolved_rules)
         sign_order(order, keypair, resolved_rules)
         return order
@@ -134,21 +163,10 @@ class OrderBuilder:
         self,
         keypair: Keypair,
         orderbook_id: str,
-        rules: Optional[OrderbookRules] = None,
+        rules: OrderbookRules | None = None,
     ) -> SubmitOrderRequest:
         """Build, sign, and convert to an API submit request."""
         order = self.build_and_sign(keypair, rules)
-        return SubmitOrderRequest(
-            maker=str(order.maker),
-            nonce=order.nonce,
-            salt=order.salt,
-            market_pubkey=str(order.market),
-            base_token=str(order.base_mint),
-            quote_token=str(order.quote_mint),
-            side=int(order.side),
-            amount_in=order.amount_in,
-            amount_out=order.amount_out,
-            expiration=order.expiration,
-            signature=signature_hex(order),
-            orderbook_id=orderbook_id,
+        return order_to_submit_request(
+            order, orderbook_id, deposit_source=self._deposit_source
         )

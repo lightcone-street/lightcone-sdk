@@ -8,14 +8,13 @@ from solders.instruction import Instruction
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from ...error import DeserializationError, SigningError, _require
-from ...program.accounts import deserialize_order_status, deserialize_user_nonce
+from ...error import DeserializationError, SigningError, ValidationError, _require
+from ...program.accounts import deserialize_order_status
 from ...program.envelope import LimitOrderEnvelope
-from ...program.errors import ArithmeticOverflowError
+from ...program.errors import InvalidSideError
 from ...program.instructions import (
     build_cancel_order_instruction,
     build_close_order_status_instruction,
-    build_increment_nonce_instruction,
 )
 from ...program.orders import (
     create_ask_order,
@@ -26,7 +25,7 @@ from ...program.orders import (
     hash_order,
     sign_order,
 )
-from ...program.pda import get_order_status_pda, get_user_nonce_pda
+from ...program.pda import get_order_status_pda
 from ...program.transaction import V1Transaction, V1TransactionContext
 from ...program.types import (
     AskOrderParams,
@@ -40,7 +39,6 @@ from ...rpc import require_connection
 from ...shared.scaling import (
     OrderbookRules,
     validate_raw_amounts,
-    validate_signed_fields,
 )
 from ...shared.types import (
     SubmitOrderRequest,
@@ -61,6 +59,11 @@ from .convert import submit_response_from_dict
 if TYPE_CHECKING:
     from ...client import LightconeClient
 
+_PRIVY_ORDERS_UNSUPPORTED = (
+    "Privy order signing is not supported; configure a native signer or an "
+    "ExternalSigner"
+)
+
 
 class Orders:
     """Order operations sub-client."""
@@ -73,11 +76,6 @@ class Orders:
     def status_pda(self, order_hash: bytes) -> Pubkey:
         """Get the Order Status PDA."""
         addr, _ = get_order_status_pda(order_hash, self._client.program_id)
-        return addr
-
-    def nonce_pda(self, user: Pubkey) -> Pubkey:
-        """Get the User Nonce PDA."""
-        addr, _ = get_user_nonce_pda(user, self._client.program_id)
         return addr
 
     # ── Order helpers ────────────────────────────────────────────────────
@@ -156,14 +154,12 @@ class Orders:
     async def _preflight_submit(self, request: SubmitOrderRequest) -> None:
         """Check exact signed amounts against current orderbook rules before submission."""
         rules = await self._client.orderbooks().decimals(request.orderbook_id)
-        try:
-            side = OrderSide(request.side)
-        except ValueError as exc:
-            raise ValueError("side must be BID or ASK") from exc
-        validate_raw_amounts(request.amount_in, request.amount_out, int(side), rules)
-        validate_signed_fields(
-            request.amount_in, request.amount_out, request.salt, request.nonce
-        )
+        if isinstance(request.side, bool) or request.side not in (
+            OrderSide.BID,
+            OrderSide.ASK,
+        ):
+            raise InvalidSideError(request.side)
+        validate_raw_amounts(request.amount_in, request.amount_out, request.side, rules)
 
     async def get_user_orders(
         self,
@@ -314,15 +310,7 @@ class Orders:
             return await self.cancel(body)
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
-            result = await self._client.privy().sign_and_cancel_order(
-                strategy.wallet_id,
-                order_hash,
-                maker,
-            )
-            return CancelSuccess(
-                order_hash=result.get("order_hash", order_hash),
-                remaining=result.get("remaining", "0"),
-            )
+            raise ValidationError(_PRIVY_ORDERS_UNSUPPORTED)
 
         raise SigningError(f"Unsupported signing strategy: {strategy.kind}")
 
@@ -369,20 +357,7 @@ class Orders:
             return await self.cancel_all(body)
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
-            result = await self._client.privy().sign_and_cancel_all_orders(
-                strategy.wallet_id,
-                user_pubkey,
-                resolved_ob_id,
-                timestamp,
-                salt,
-            )
-            return CancelAllSuccess(
-                cancelled_order_hashes=result.get("cancelled_order_hashes", []),
-                count=result.get("count", 0),
-                user_pubkey=result.get("user_pubkey", user_pubkey),
-                orderbook_id=result.get("orderbook_id", resolved_ob_id),
-                message=result.get("message", ""),
-            )
+            raise ValidationError(_PRIVY_ORDERS_UNSUPPORTED)
 
         raise SigningError(f"Unsupported signing strategy: {strategy.kind}")
 
@@ -395,10 +370,6 @@ class Orders:
         return build_cancel_order_instruction(
             operator, market, order, self._client.program_id
         )
-
-    def increment_nonce_ix(self, user: Pubkey) -> Instruction:
-        """Build IncrementNonce instruction."""
-        return build_increment_nonce_instruction(user, self._client.program_id)
 
     def close_order_status_ix(
         self,
@@ -420,13 +391,6 @@ class Orders:
         ix = self.cancel_order_ix(operator, market, order)
         return V1Transaction.compile([ix], operator, context)
 
-    def increment_nonce_tx(
-        self, user: Pubkey, context: V1TransactionContext
-    ) -> V1Transaction:
-        """Build IncrementNonce transaction."""
-        ix = self.increment_nonce_ix(user)
-        return V1Transaction.compile([ix], user, context)
-
     def close_order_status_tx(
         self, params: CloseOrderStatusParams, context: V1TransactionContext
     ) -> V1Transaction:
@@ -444,23 +408,6 @@ class Orders:
         if response.value is None:
             return None
         return deserialize_order_status(response.value.data)
-
-    async def get_nonce(self, user: Pubkey) -> int:
-        """Fetch a user's current nonce (returns 0 if not initialized)."""
-        conn = require_connection(self._client)
-        addr = self.nonce_pda(user)
-        response = await conn.get_account_info(addr)
-        if response.value is None:
-            return 0
-        user_nonce = deserialize_user_nonce(response.value.data)
-        return user_nonce.nonce
-
-    async def current_nonce(self, user: Pubkey) -> int:
-        """Get the current on-chain nonce for a user as u32."""
-        nonce = await self.get_nonce(user)
-        if nonce > 0xFFFFFFFF:
-            raise ArithmeticOverflowError()
-        return nonce
 
 
 def _user_orders_response_from_wire(data: dict, wallet: str) -> UserOrdersResponse:

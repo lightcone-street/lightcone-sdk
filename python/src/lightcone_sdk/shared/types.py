@@ -133,12 +133,15 @@ class Denominator(str, Enum):
 
 
 class TimeInForce(IntEnum):
-    """Time-in-force policy for orders."""
+    """Time-in-force policy for orders.
+
+    The committed backend accepts ``GTC``, ``IOC``, and ``FOK``; add-liquidity-only
+    is not an engine policy (``INVALID_TIF``).
+    """
 
     GTC = 0  # Good til cancelled
     IOC = 1  # Immediate or cancel
     FOK = 2  # Fill or kill
-    ALO = 3  # Add liquidity only
 
     def as_wire(self) -> str:
         return _TIME_IN_FORCE_TO_STR[self.value]
@@ -282,7 +285,6 @@ _TIME_IN_FORCE_TO_STR: dict[int, str] = {
     TimeInForce.GTC.value: "GTC",
     TimeInForce.IOC.value: "IOC",
     TimeInForce.FOK.value: "FOK",
-    TimeInForce.ALO.value: "ALO",
 }
 _STR_TO_TIME_IN_FORCE: dict[str, int] = {
     value: key for key, value in _TIME_IN_FORCE_TO_STR.items()
@@ -294,12 +296,19 @@ _STR_TO_TIME_IN_FORCE: dict[str, int] = {
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SubmitOrderRequest:
-    """Ordinary signed order request with exact integer amounts and execution policy."""
+    """Ordinary signed order request with exact integer amounts and execution policy.
+
+    There is no nonce: ``salt`` (u64) is the order's only identity.
+    ``amount_in``/``amount_out`` are raw atoms (u64) of the given and received
+    mints, ``expiration`` is Unix seconds (i64, 0 for none), ``side`` is 0 (bid)
+    or 1 (ask), and ``signature`` is the 128-character hex Ed25519 signature.
+    The JSON body carries exactly these fields; the backend rejects unknown keys.
+    """
 
     maker: str
-    nonce: int
+    salt: int
     market_pubkey: str
     base_token: str
     quote_token: str
@@ -309,14 +318,12 @@ class SubmitOrderRequest:
     expiration: int
     signature: str
     orderbook_id: str
-    salt: int = 0
     time_in_force: TimeInForce | None = None
     deposit_source: DepositSource | None = None
 
     def to_dict(self) -> dict:
         d = {
             "maker": self.maker,
-            "nonce": self.nonce,
             "salt": self.salt,
             "market_pubkey": self.market_pubkey,
             "base_token": self.base_token,

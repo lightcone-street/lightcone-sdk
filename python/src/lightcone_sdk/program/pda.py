@@ -16,7 +16,6 @@ from .constants import (
     SEED_MPL_METADATA,
     SEED_ORDER_STATUS,
     SEED_POSITION,
-    SEED_USER_NONCE,
     SEED_VAULT,
 )
 from .utils import encode_u8, encode_u64
@@ -130,20 +129,6 @@ def get_order_status_pda(
     """
     return Pubkey.find_program_address(
         [SEED_ORDER_STATUS, order_hash],
-        program_id,
-    )
-
-
-def get_user_nonce_pda(
-    user: Pubkey,
-    program_id: Pubkey = PROGRAM_ID,
-) -> tuple[Pubkey, int]:
-    """Derive the user nonce PDA.
-
-    Seeds: ["user_nonce", user]
-    """
-    return Pubkey.find_program_address(
-        [SEED_USER_NONCE, bytes(user)],
         program_id,
     )
 

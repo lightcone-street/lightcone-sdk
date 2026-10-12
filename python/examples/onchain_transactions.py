@@ -1,4 +1,4 @@
-"""Build, sign, and submit deposit, merge, and increment nonce on-chain."""
+"""Build, sign, and submit deposit and merge transactions on-chain."""
 
 import asyncio
 
@@ -44,10 +44,6 @@ async def main():
             .mint(d_mint)
             .amount(amount)
             .build_tx(context),
-        ),
-        (
-            "increment_nonce",
-            client.orders().increment_nonce_tx(keypair.pubkey(), context),
         ),
     ]
 

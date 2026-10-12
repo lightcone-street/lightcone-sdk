@@ -1,4 +1,4 @@
-"""Read exchange state, market state, user nonce, and PDA derivations via RPC."""
+"""Read exchange state, market state, position, and PDA derivations via RPC."""
 
 import asyncio
 
@@ -49,15 +49,11 @@ async def main():
     except AccountNotFoundError:
         print("orderbook: not found on-chain")
 
-    # 4. User nonce
-    nonce = await client.orders().current_nonce(keypair.pubkey())
-    print(f"user nonce: {nonce}")
-
-    # 5. Position
+    # 4. Position
     position = await client.positions().get_onchain(keypair.pubkey(), market_pubkey)
     print(f"position exists: {position is not None}")
 
-    # 6. PDA derivations (via sub-client accessors)
+    # 5. PDA derivations (via sub-client accessors)
     d_mint = quote_deposit_mint(orderbook)
     exchange_pda = client.rpc().get_exchange_pda()
     market_pda = client.markets().pda(onchain_market.market_id)

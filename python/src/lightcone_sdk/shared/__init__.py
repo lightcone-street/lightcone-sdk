@@ -17,7 +17,7 @@ from .rejection import RejectionCode
 from .scaling import (
     I64_MAX,
     PRICE_SCALE,
-    U32_MAX,
+    U64_MAX,
     OrderbookRules,
     ScaledAmounts,
     ScalingError,
@@ -97,7 +97,7 @@ __all__ = [
     "validate_signed_fields",
     "PRICE_SCALE",
     "I64_MAX",
-    "U32_MAX",
+    "U64_MAX",
     # Signing
     "ExternalSigner",
     "SigningStrategy",

@@ -8,7 +8,6 @@ from ..error import SdkError
 from ..http.retry import RetryPolicy
 from . import (
     ExportWalletResponse,
-    PrivyOrderEnvelope,
     SignAndSendTxResponse,
 )
 
@@ -35,61 +34,6 @@ class Privy:
         """Reject backend sends that cannot expose their signed v1 message."""
         raise SdkError(
             "Privy transaction signing cannot return verifiable v1 signed bytes; use a v1-capable external signer"
-        )
-
-    async def sign_and_send_order(
-        self,
-        wallet_id: str,
-        order: PrivyOrderEnvelope,
-    ) -> dict:
-        """Sign an order hash via Privy and submit it to the exchange engine.
-
-        The backend computes the order hash, signs via Privy, and submits
-        the signed order internally — no round-trip back to the client.
-        """
-        return await self._client._http.post(
-            "/api/privy/sign_and_send_order",
-            {"wallet_id": wallet_id, "order": order.to_dict()},
-            retry_policy=RetryPolicy.NONE,
-        )
-
-    async def sign_and_cancel_order(
-        self,
-        wallet_id: str,
-        order_hash: str,
-        maker: str,
-    ) -> dict:
-        """Cancel a limit order via Privy signing."""
-        return await self._client._http.post(
-            "/api/privy/sign_and_cancel_order",
-            {
-                "wallet_id": wallet_id,
-                "maker": maker,
-                "cancel_type": "limit",
-                "order_hash": order_hash,
-            },
-            retry_policy=RetryPolicy.NONE,
-        )
-
-    async def sign_and_cancel_all_orders(
-        self,
-        wallet_id: str,
-        user_pubkey: str,
-        orderbook_id: str,
-        timestamp: int,
-        salt: str,
-    ) -> dict:
-        """Cancel all orders for a user via Privy signing."""
-        return await self._client._http.post(
-            "/api/privy/sign_and_cancel_all_orders",
-            {
-                "wallet_id": wallet_id,
-                "user_pubkey": user_pubkey,
-                "orderbook_id": orderbook_id,
-                "timestamp": timestamp,
-                "salt": salt,
-            },
-            retry_policy=RetryPolicy.NONE,
         )
 
     async def export_wallet(

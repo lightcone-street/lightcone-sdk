@@ -96,13 +96,6 @@ class OrderStatus:
 
 
 @dataclass
-class UserNonce:
-    """User nonce account data."""
-
-    nonce: int
-
-
-@dataclass
 class Orderbook:
     """One market outcome traded between two distinct collateral assets."""
 
@@ -126,14 +119,17 @@ class Orderbook:
         return self.deposit_mint_b if self.base_index == 0 else self.deposit_mint_a
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SignedOrder:
-    """Signed order structure with all fields including signature (233 bytes).
+    """Signed order with every field, including the signature (225 bytes).
 
-    Note: nonce is u32 range (0 to 2^32-1) but serialized as u64 LE on wire for compatibility.
+    There is no per-user nonce: ``salt`` (any u64, including 0) is the order's
+    only identity, and the first 161 bytes are the signing preimage.
+    ``amount_in``/``amount_out`` are raw atoms of the given and received mints
+    (u64); ``expiration`` is Unix seconds (i64, 0 for none).
     """
 
-    nonce: int  # u32 range
+    salt: int
     maker: Pubkey
     market: Pubkey
     base_mint: Pubkey
@@ -142,7 +138,6 @@ class SignedOrder:
     amount_in: int
     amount_out: int
     expiration: int
-    salt: int = 0  # u64
     signature: bytes = field(default_factory=lambda: bytes(64))
 
 
@@ -150,20 +145,19 @@ class SignedOrder:
 FullOrder = SignedOrder
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Order:
-    """Compact order structure for instruction data (37 bytes, no maker field).
+    """Compact order for instruction data (33 bytes, without maker, market, or mints).
 
-    Layout: [0..4] nonce(u32) | [4..12] salt(u64) | [12] side(u8) |
-            [13..21] amount_in(u64) | [21..29] amount_out(u64) | [29..37] expiration(i64)
+    Layout (little-endian): [0..8] salt(u64) | [8] side(u8) |
+    [9..17] amount_in(u64) | [17..25] amount_out(u64) | [25..33] expiration(i64)
     """
 
-    nonce: int
+    salt: int
     side: OrderSide
     amount_in: int
     amount_out: int
     expiration: int
-    salt: int = 0  # u64
 
 
 # Backward compatibility alias
@@ -424,34 +418,32 @@ class ConditionalMetadataParams:
     uri: str
 
 
-@dataclass
+@dataclass(kw_only=True)
 class BidOrderParams:
-    """Parameters for creating a bid order."""
+    """Parameters for creating a bid order (amounts in raw atoms)."""
 
-    nonce: int  # u32 range
+    salt: int  # Order identity: any u64; use a distinct salt per order
     maker: Pubkey
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
     amount_in: int  # Quote tokens given
     amount_out: int  # Base tokens received
-    expiration: int
-    salt: int = 0  # u64
+    expiration: int  # Unix seconds; 0 for no expiration
 
 
-@dataclass
+@dataclass(kw_only=True)
 class AskOrderParams:
-    """Parameters for creating an ask order."""
+    """Parameters for creating an ask order (amounts in raw atoms)."""
 
-    nonce: int  # u32 range
+    salt: int  # Order identity: any u64; use a distinct salt per order
     maker: Pubkey
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
     amount_in: int  # Base tokens given
     amount_out: int  # Quote tokens received
-    expiration: int
-    salt: int = 0  # u64
+    expiration: int  # Unix seconds; 0 for no expiration
 
 
 @dataclass

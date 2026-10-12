@@ -43,7 +43,7 @@ def test_program_constants():
 
 def test_root_orderbook_id_accepts_signed_order():
     order = sdk.SignedOrder(
-        nonce=0,
+        salt=0,
         maker=wallet(1),
         market=wallet(2),
         base_mint=Pubkey.from_bytes(bytes([3]) * 32),
@@ -70,7 +70,6 @@ def test_eleven_maker_records_masks_and_exact_fills(deposit, full_fill_mask):
     maker_amount, taker_amount = 2**53 + 7, 2**63 + 11
     orders = [
         SignedOrder(
-            nonce=index,
             salt=2**53 + index,
             maker=wallet(index + 10),
             market=market,
@@ -125,26 +124,27 @@ def test_eleven_maker_records_masks_and_exact_fills(deposit, full_fill_mask):
 
     ix = build(11)
     data = ix.data
-    header_size = 107 if deposit else 105
-    assert len(data) == header_size + 11 * 117
+    # Header: instruction, 33-byte taker order, 64-byte signature, maker
+    # count, u16 full-fill mask (and the u16 deposit mask); 113-byte makers.
+    header_size = 103 if deposit else 101
+    assert len(data) == header_size + 11 * 113
     assert data[0] == (20 if deposit else 13)
-    assert data[102] == 11
-    assert data[103:105] == full_fill_mask.to_bytes(2, "little")
+    assert data[98] == 11
+    assert data[99:101] == full_fill_mask.to_bytes(2, "little")
     if deposit:
-        assert data[105:107] == bytes([0x00, 0x85])  # taker and makers 8, 10
+        assert data[101:103] == bytes([0x00, 0x85])  # taker and makers 8, 10
     for index, order in enumerate(orders[:12]):
-        offset = 1 if index == 0 else header_size + (index - 1) * 117
-        assert struct.unpack_from("<IQBQQq", data, offset) == (
-            order.nonce,
+        offset = 1 if index == 0 else header_size + (index - 1) * 113
+        assert struct.unpack_from("<QBQQq", data, offset) == (
             order.salt,
             int(order.side),
             taker_amount,
             maker_amount,
             -1,
         )
-        assert data[offset + 37 : offset + 101] == order.signature
+        assert data[offset + 33 : offset + 97] == order.signature
         if index:
-            assert struct.unpack_from("<QQ", data, offset + 101) == (
+            assert struct.unpack_from("<QQ", data, offset + 97) == (
                 maker_amount,
                 taker_amount,
             )

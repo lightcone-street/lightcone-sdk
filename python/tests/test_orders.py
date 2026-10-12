@@ -31,7 +31,6 @@ from lightcone_sdk.program import (
 )
 from lightcone_sdk.shared.scaling import OrderbookRules, TradingRules
 
-
 RULES = OrderbookRules(
     orderbook_id="test",
     base_decimals=0,
@@ -53,7 +52,7 @@ RULES = OrderbookRules(
 @pytest.fixture
 def sample_bid_params():
     return BidOrderParams(
-        nonce=1,
+        salt=1,
         maker=Pubkey.new_unique(),
         market=Pubkey.new_unique(),
         base_mint=Pubkey.new_unique(),
@@ -67,7 +66,7 @@ def sample_bid_params():
 @pytest.fixture
 def sample_ask_params():
     return AskOrderParams(
-        nonce=2,
+        salt=2,
         maker=Pubkey.new_unique(),
         market=Pubkey.new_unique(),
         base_mint=Pubkey.new_unique(),
@@ -82,7 +81,7 @@ class TestCreateBidOrder:
     def test_creates_bid_order(self, sample_bid_params):
         order = create_bid_order(sample_bid_params)
 
-        assert order.nonce == sample_bid_params.nonce
+        assert order.salt == sample_bid_params.salt
         assert order.maker == sample_bid_params.maker
         assert order.market == sample_bid_params.market
         assert order.base_mint == sample_bid_params.base_mint
@@ -123,7 +122,7 @@ class TestHashOrder:
 
     def test_different_orders_produce_different_hashes(self):
         params1 = BidOrderParams(
-            nonce=1,
+            salt=1,
             maker=Pubkey.new_unique(),
             market=Pubkey.new_unique(),
             base_mint=Pubkey.new_unique(),
@@ -133,7 +132,7 @@ class TestHashOrder:
             expiration=1700000000,
         )
         params2 = BidOrderParams(
-            nonce=2,  # Different nonce
+            salt=2,  # Different salt
             maker=params1.maker,
             market=params1.market,
             base_mint=params1.base_mint,
@@ -162,7 +161,7 @@ class TestSignOrder:
     def test_signs_order(self):
         keypair = Keypair()
         params = BidOrderParams(
-            nonce=1,
+            salt=1,
             maker=keypair.pubkey(),
             market=Pubkey.new_unique(),
             base_mint=Pubkey.new_unique(),
@@ -182,7 +181,7 @@ class TestSignOrder:
     def test_signed_order_verifies(self):
         keypair = Keypair()
         params = BidOrderParams(
-            nonce=1,
+            salt=1,
             maker=keypair.pubkey(),
             market=Pubkey.new_unique(),
             base_mint=Pubkey.new_unique(),
@@ -201,7 +200,7 @@ class TestVerifyOrderSignature:
     def test_valid_signature_verifies(self):
         keypair = Keypair()
         params = BidOrderParams(
-            nonce=1,
+            salt=1,
             maker=keypair.pubkey(),
             market=Pubkey.new_unique(),
             base_mint=Pubkey.new_unique(),
@@ -223,7 +222,7 @@ class TestVerifyOrderSignature:
     def test_tampered_order_fails(self):
         keypair = Keypair()
         params = BidOrderParams(
-            nonce=1,
+            salt=1,
             maker=keypair.pubkey(),
             market=Pubkey.new_unique(),
             base_mint=Pubkey.new_unique(),
@@ -245,14 +244,14 @@ class TestSerializeFullOrder:
         order = create_bid_order(sample_bid_params)
         data = serialize_full_order(order)
 
-        assert len(data) == FULL_ORDER_SIZE
+        assert len(data) == FULL_ORDER_SIZE == 225
 
     def test_round_trip(self, sample_bid_params):
         order = create_bid_order(sample_bid_params)
         data = serialize_full_order(order)
         restored = deserialize_full_order(data)
 
-        assert restored.nonce == order.nonce
+        assert restored.salt == order.salt
         assert restored.maker == order.maker
         assert restored.market == order.market
         assert restored.base_mint == order.base_mint
@@ -270,7 +269,7 @@ class TestSerializeCompactOrder:
         compact = to_compact_order(order)
         data = serialize_compact_order(compact)
 
-        assert len(data) == COMPACT_ORDER_SIZE
+        assert len(data) == COMPACT_ORDER_SIZE == 33
 
     def test_round_trip(self, sample_bid_params):
         order = create_bid_order(sample_bid_params)
@@ -278,7 +277,7 @@ class TestSerializeCompactOrder:
         data = serialize_compact_order(compact)
         restored = deserialize_compact_order(data)
 
-        assert restored.nonce == compact.nonce
+        assert restored.salt == compact.salt
         assert restored.side == compact.side
         assert restored.amount_in == compact.amount_in
         assert restored.amount_out == compact.amount_out
@@ -290,7 +289,7 @@ class TestToCompactOrder:
         order = create_bid_order(sample_bid_params)
         compact = to_compact_order(order)
 
-        assert compact.nonce == order.nonce
+        assert compact.salt == order.salt
         assert compact.side == order.side
         assert compact.amount_in == order.amount_in
         assert compact.amount_out == order.amount_out
@@ -322,7 +321,7 @@ class TestValidateSignedOrder:
     def test_valid_signed_order_passes(self):
         keypair = Keypair()
         params = BidOrderParams(
-            nonce=1,
+            salt=1,
             maker=keypair.pubkey(),
             market=Pubkey.new_unique(),
             base_mint=Pubkey.new_unique(),
@@ -348,7 +347,7 @@ class TestCreateSignedBidOrder:
     def test_creates_and_signs(self):
         keypair = Keypair()
         params = BidOrderParams(
-            nonce=1,
+            salt=1,
             maker=keypair.pubkey(),
             market=Pubkey.new_unique(),
             base_mint=Pubkey.new_unique(),
@@ -369,7 +368,7 @@ class TestCreateSignedAskOrder:
     def test_creates_and_signs(self):
         keypair = Keypair()
         params = AskOrderParams(
-            nonce=1,
+            salt=1,
             maker=keypair.pubkey(),
             market=Pubkey.new_unique(),
             base_mint=Pubkey.new_unique(),

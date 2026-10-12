@@ -12,7 +12,6 @@ from lightcone_sdk import (
     Position,
     ScalarResolutionParams,
     SettleMarketParams,
-    UserNonce,
     scalar_to_payout_numerators,
     winner_takes_all_payout_numerators,
 )
@@ -193,12 +192,6 @@ class TestOrderStatus:
         assert status.is_cancelled is False
 
 
-class TestUserNonce:
-    def test_create_user_nonce(self):
-        nonce = UserNonce(nonce=42)
-        assert nonce.nonce == 42
-
-
 class TestFullOrder:
     def test_create_full_order(self):
         maker = Pubkey.new_unique()
@@ -207,7 +200,7 @@ class TestFullOrder:
         quote_mint = Pubkey.new_unique()
 
         order = FullOrder(
-            nonce=1,
+            salt=1,
             maker=maker,
             market=market,
             base_mint=base_mint,
@@ -218,7 +211,7 @@ class TestFullOrder:
             expiration=1700000000,
         )
 
-        assert order.nonce == 1
+        assert order.salt == 1
         assert order.maker == maker
         assert order.market == market
         assert order.base_mint == base_mint

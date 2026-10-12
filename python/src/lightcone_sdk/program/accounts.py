@@ -14,8 +14,6 @@ from .constants import (
     ORDERBOOK_SIZE,
     POSITION_DISCRIMINATOR,
     POSITION_SIZE,
-    USER_NONCE_DISCRIMINATOR,
-    USER_NONCE_SIZE,
 )
 from .errors import (
     InvalidAccountDataError,
@@ -33,7 +31,6 @@ from .types import (
     OrderStatus,
     PendingRoleKind,
     Position,
-    UserNonce,
 )
 from .utils import (
     decode_bool,
@@ -199,25 +196,6 @@ def deserialize_order_status(data: bytes) -> OrderStatus:
     )
 
 
-def deserialize_user_nonce(data: bytes) -> UserNonce:
-    """Deserialize a UserNonce account.
-
-    Layout (16 bytes):
-    - [0..8]: discriminator
-    - [8..16]: nonce (u64 LE)
-    """
-    _validate_discriminator(data, USER_NONCE_DISCRIMINATOR, "UserNonce")
-
-    if len(data) < USER_NONCE_SIZE:
-        raise InvalidAccountDataError(
-            f"UserNonce data too short: {len(data)} bytes (expected {USER_NONCE_SIZE})"
-        )
-
-    return UserNonce(
-        nonce=decode_u64(data, 8),
-    )
-
-
 def deserialize_orderbook(data: bytes) -> Orderbook:
     """Decode the exact 176-byte orderbook provenance layout.
 
@@ -263,11 +241,6 @@ def is_position_account(data: bytes) -> bool:
 def is_order_status_account(data: bytes) -> bool:
     """Check if data has the OrderStatus discriminator."""
     return len(data) >= 8 and data[:8] == ORDER_STATUS_DISCRIMINATOR
-
-
-def is_user_nonce_account(data: bytes) -> bool:
-    """Check if data has the UserNonce discriminator."""
-    return len(data) >= 8 and data[:8] == USER_NONCE_DISCRIMINATOR
 
 
 def is_orderbook_account(data: bytes) -> bool:
