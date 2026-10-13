@@ -2,6 +2,7 @@
 
 - Status: Accepted across Rust, TypeScript, Python, and the Rust admin SDK
 - Date: 2026-09-11
+- Amended by: [ADR 0005](0005-sponsored-external-submission.md) for sponsored submission in the Rust SDK
 
 ## Decision
 
@@ -12,7 +13,7 @@ defaults are silently selected by the SDK. Import rejects legacy/v0, malformed o
 oversized wire bytes, ComputeBudget instructions, and mismatched contexts.
 
 Signing and wallet-response validation preserve the complete prepared message
-and verify every required signature. Every send checks v1 activation, simulates
+and verify every required signature. Every unsponsored send checks v1 activation, simulates
 the signed message without blockhash replacement, and sends once with preflight.
 Definite request/preflight rejections are distinct from uncertain send outcomes.
 `AlreadyProcessed` still requires reconciliation. Ambiguous submissions retain
@@ -39,7 +40,7 @@ versions; legacy transport libraries are retained only for compatible instructio
 address, and RPC helpers.
 
 The SOL reserve, integer units, instruction ordering, canonical WSOL lifecycle,
-and temporary seed preimage remain governed by ADR 0001. Every SOL plan retains
+and temporary seed preimage remain governed by ADR 0001. Every unsponsored SOL plan retains
 its final blockhash expiry. Changing budgets requires a fresh plan, fee estimate,
 and signatures. Generic fee-funding preflight remains best-effort under ADR 0002;
 SOL planners keep their stricter live fee, rent, and reserve requirements.
