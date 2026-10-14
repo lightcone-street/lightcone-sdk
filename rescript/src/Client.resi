@@ -42,6 +42,10 @@ type t = {
   rpcFailover: RpcFailover.t,
   mutable depositSource: Shared.DepositSource.t,
   mutable orderNonce: option<bigint>,
+  mutable credentials: option<Auth__Model.Credentials.t>,
+  orderbookRules: Dict.t<promise<result<Scaling.OrderbookRules.t, SdkError.t>>>,
+  mutable transactionResources: option<V1Transaction.Resources.t>,
+  mutable sponsorshipEnabled: bool,
   mutable signingStrategy: option<SigningStrategy.t>,
 }
 
@@ -55,6 +59,8 @@ let make: (
   ~backupRpcUrl: string=?,
   ~programId: string=?,
   ~depositSource: Shared.DepositSource.t=?,
+  ~transactionResources: V1Transaction.Resources.t=?,
+  ~sponsorshipEnabled: bool=?,
   unit,
 ) => t
 

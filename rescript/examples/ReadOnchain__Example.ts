@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   console.log(`exchange: authority=${exchange.authority} operator=${exchange.operator} paused=${exchange.paused}`);
   console.log(`market: id=${onchainMkt.marketId} outcomes=${onchainMkt.numOutcomes} status=${onchainMkt.status}`);
   console.log(
-    `orderbook: lookup_table=${onchainOb.lookupTable} base_index=${onchainOb.baseIndex} bump=${onchainOb.bump}`,
+    `orderbook: deposit_mint_a=${onchainOb.depositMintA} base_index=${onchainOb.baseIndex} bump=${onchainOb.bump}`,
   );
   console.log(`user nonce: ${nonce}`);
   console.log(`position exists: ${position !== undefined}`);

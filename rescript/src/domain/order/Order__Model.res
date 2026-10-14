@@ -1,8 +1,3 @@
-// Order domain types — the order-kind enum and the user's open limit / resting
-// trigger orders (the domain shapes the `Order__State` containers hold, built
-// from the `Order__Raw` wire payloads). Decimal fields stay wire strings; the
-// only Decimal math is `limitPrice`, with malformed strings treated as zero.
-
 // ── Order type ────────────────────────────────────────────────────────────────
 // Kind of order for display / classification; snake_case on the wire.
 module Type = {
@@ -10,22 +5,16 @@ module Type = {
   type t =
     | @as("limit") @spice.as("limit") Limit
     | @as("market") @spice.as("market") Market
-    | @as("deposit") @spice.as("deposit") Deposit
+    | @as("split") @spice.as("split") Split
     | @as("merge") @spice.as("merge") Merge
-    | @as("withdraw") @spice.as("withdraw") Withdraw
-    | @as("stop_limit") @spice.as("stop_limit") StopLimit
-    | @as("take_profit_limit") @spice.as("take_profit_limit") TakeProfitLimit
 
   // Human-readable label ("Stop Limit", …).
   let label = (orderType: t): string =>
     switch orderType {
     | Limit => "Limit"
     | Market => "Market"
-    | Deposit => "Deposit"
+    | Split => "Split"
     | Merge => "Merge"
-    | Withdraw => "Withdraw"
-    | StopLimit => "Stop Limit"
-    | TakeProfitLimit => "Take Profit Limit"
     }
 }
 
@@ -48,44 +37,5 @@ module Limit = {
     createdAt: float,
     status: Shared.OrderStatus.t,
     outcomeIndex: float,
-  }
-}
-
-// ── Trigger orders ────────────────────────────────────────────────────────────
-// A resting trigger (TP/SL) order.
-module Trigger = {
-  type t = {
-    triggerOrderId: string,
-    orderHash: string,
-    marketPubkey: Shared.pubkeyStr,
-    orderbookId: Shared.orderBookId,
-    triggerPrice: string,
-    triggerType: Shared.TriggerType.t,
-    side: Shared.Side.t,
-    amountIn: string,
-    amountOut: string,
-    timeInForce: Shared.TimeInForce.t,
-    // Unix milliseconds.
-    createdAt: float,
-  }
-
-  // Tolerant Decimal-string parse: malformed → zero.
-  let decimalOrZero = (value: string): Decimal.t =>
-    switch Decimal.fromString(value) {
-    | decimal => decimal
-    | exception JsExn(_) => Decimal.fromInt(0)
-    }
-
-  // The implied limit price of a trigger order: out/in for asks, in/out for bids
-  // (`None` when the divisor is not positive).
-  let limitPrice = (order: t): option<string> => {
-    let amountIn = decimalOrZero(order.amountIn)
-    let amountOut = decimalOrZero(order.amountOut)
-    let zero = Decimal.fromInt(0)
-    switch order.side {
-    | Ask if Decimal.gt(amountIn, zero) => Some(Decimal.div(amountOut, amountIn)->Decimal.toString)
-    | Bid if Decimal.gt(amountOut, zero) => Some(Decimal.div(amountIn, amountOut)->Decimal.toString)
-    | _ => None
-    }
   }
 }

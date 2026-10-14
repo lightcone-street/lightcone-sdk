@@ -7,7 +7,13 @@
 
 let client = (): Client.t => {
   let env = Env.getEnv("LIGHTCONE_ENV")->Option.flatMap(Env.fromString)->Option.getOr(Env.Prod)
-  TypeScriptApi.make(~env, ())
+  // Explicit example policy; real applications choose limits for their workload.
+  let transactionResources: V1Transaction.Resources.t = {
+    computeUnitLimit: 1400000,
+    loadedAccountsDataSizeLimit: 67108864,
+    priorityFeeLamports: 0n,
+  }
+  Client.make(~env, ~transactionResources, ())
 }
 
 let secretKeyFromJson: string => Uint8Array.t = %raw(`(raw) => Uint8Array.from(JSON.parse(raw))`)

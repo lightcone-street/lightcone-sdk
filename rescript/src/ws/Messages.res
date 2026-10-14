@@ -92,7 +92,7 @@ module Ticker = {
           orderbookId,
           bestBid: ?optString(dict, "best_bid"),
           bestAsk: ?optString(dict, "best_ask"),
-          mid: ?mid,
+          ?mid,
         })
       | _ => Spice.error("ticker payload missing orderbook_id", json)
       }
@@ -208,7 +208,10 @@ module WsPriceHistory = {
     | JSON.Object(dict) =>
       switch (field(dict, "orderbook_id"), field(dict, "resolution")) {
       | (Some(JSON.String(orderbookId)), Some(resolutionJson)) =>
-        switch (Shared.Resolution.t_decode(resolutionJson), PriceHistory.Raw.OrderbookCandle.t_decode(json)) {
+        switch (
+          Shared.Resolution.t_decode(resolutionJson),
+          PriceHistory.Raw.OrderbookCandle.t_decode(json),
+        ) {
         | (Ok(resolution), Ok(candle)) => Ok({orderbookId, resolution, candle})
         | (Error(error), _) | (_, Error(error)) => Error(error)
         }
@@ -233,7 +236,8 @@ module WsPriceHistory = {
       switch field(dict, "event_type") {
       | Some(JSON.String("snapshot")) => decodeSnapshot(json)->Result.map(value => Snapshot(value))
       | Some(JSON.String("update")) => decodeUpdate(json)->Result.map(value => Update(value))
-      | Some(JSON.String("heartbeat")) => decodeHeartbeat(json)->Result.map(value => Heartbeat(value))
+      | Some(JSON.String("heartbeat")) =>
+        decodeHeartbeat(json)->Result.map(value => Heartbeat(value))
       | _ => Spice.error("unknown price_history event_type", json)
       }
     | _ => Spice.error("price_history payload is not an object", json)
@@ -308,7 +312,11 @@ module WsDepositPrice = {
         }
       | Some(JSON.String("price")) =>
         switch (field(dict, "deposit_asset"), field(dict, "price"), field(dict, "event_time")) {
-        | (Some(JSON.String(depositAsset)), Some(JSON.String(price)), Some(JSON.Number(eventTime))) =>
+        | (
+            Some(JSON.String(depositAsset)),
+            Some(JSON.String(price)),
+            Some(JSON.Number(eventTime)),
+          ) =>
           Ok(Price({depositAsset, price, eventTime}))
         | _ => Spice.error("deposit_price tick missing fields", json)
         }
@@ -347,7 +355,11 @@ module WsDepositAssetPrice = {
         }
       | Some(JSON.String("price")) =>
         switch (field(dict, "deposit_asset"), field(dict, "price"), field(dict, "event_time")) {
-        | (Some(JSON.String(depositAsset)), Some(JSON.String(price)), Some(JSON.Number(eventTime))) =>
+        | (
+            Some(JSON.String(depositAsset)),
+            Some(JSON.String(price)),
+            Some(JSON.Number(eventTime)),
+          ) =>
           Ok(Price({depositAsset, price, eventTime}))
         | _ => Spice.error("deposit_asset_price tick missing fields", json)
         }
@@ -371,7 +383,11 @@ module UserBalanceUpdate = {
   let decode = (json: JSON.t): result<t, Spice.decodeError> =>
     switch json {
     | JSON.Object(dict) =>
-      switch (field(dict, "market_pubkey"), field(dict, "market_balance"), field(dict, "timestamp")) {
+      switch (
+        field(dict, "market_pubkey"),
+        field(dict, "market_balance"),
+        field(dict, "timestamp"),
+      ) {
       | (Some(JSON.String(marketPubkey)), Some(balanceJson), Some(JSON.String(timestamp))) =>
         switch Order.Raw.UserMarketBalance.t_decode(balanceJson) {
         | Ok(marketBalance) => Ok({marketPubkey, marketBalance, timestamp})
@@ -413,7 +429,11 @@ module NonceUpdate = {
     switch json {
     | JSON.Object(dict) =>
       switch (field(dict, "user_pubkey"), field(dict, "new_nonce"), field(dict, "timestamp")) {
-      | (Some(JSON.String(userPubkey)), Some(JSON.Number(newNonce)), Some(JSON.String(timestamp))) =>
+      | (
+          Some(JSON.String(userPubkey)),
+          Some(JSON.Number(newNonce)),
+          Some(JSON.String(timestamp)),
+        ) =>
         Ok({userPubkey, newNonce, timestamp})
       | _ => Spice.error("nonce update missing fields", json)
       }
@@ -421,10 +441,6 @@ module NonceUpdate = {
     }
 }
 
-// ── User update (internally tagged on `event_type`) ───────────────────────────
-// The `snapshot` and `order` events carry the largest nested wire trees (orders,
-// trigger orders, balances); their payload types + decoders live in `Order__Raw`
-// and feed the stateful `Order.State` containers.
 module UserUpdate = {
   type t =
     | Snapshot(Order__Raw.UserSnapshot.t)
@@ -446,7 +462,8 @@ module UserUpdate = {
         UserBalanceUpdate.decode(json)->Result.map(value => BalanceUpdate(value))
       | Some(JSON.String("global_deposit_update")) =>
         GlobalDepositUpdate.decode(json)->Result.map(value => GlobalDepositUpdate(value))
-      | Some(JSON.String("nonce")) => NonceUpdate.decode(json)->Result.map(value => NonceUpdate(value))
+      | Some(JSON.String("nonce")) =>
+        NonceUpdate.decode(json)->Result.map(value => NonceUpdate(value))
       | Some(JSON.String("notification")) =>
         switch field(dict, "notification") {
         | Some(notificationJson) =>
@@ -467,6 +484,7 @@ module Kind = {
     | BookUpdate(Orderbook__Raw.Book.t)
     | Trades(Trade.t)
     | User(UserUpdate.t)
+    | WalletDepositBalances(Position__Raw.WalletDepositBalancesEvent.t)
     | Ticker(Ticker.t)
     | PriceHistory(WsPriceHistory.t)
     | Market(MarketEvent.t)
@@ -481,16 +499,24 @@ module Kind = {
     | JSON.Object(dict) =>
       let data = field(dict, "data")->Option.getOr(JSON.Null)
       switch field(dict, "type") {
-      | Some(JSON.String("book_update")) => Orderbook.Raw.Book.t_decode(data)->Result.map(value => BookUpdate(value))
+      | Some(JSON.String("book_update")) =>
+        Orderbook.Raw.Book.t_decode(data)->Result.map(value => BookUpdate(value))
       | Some(JSON.String("trades")) => Trade.t_decode(data)->Result.map(value => Trades(value))
       | Some(JSON.String("ticker")) => Ticker.decode(data)->Result.map(value => Ticker(value))
       | Some(JSON.String("pong")) => Ok(Pong)
-      | Some(JSON.String("error")) => ErrorFrame.t_decode(data)->Result.map(value => ErrorFrame(value))
+      | Some(JSON.String("error")) =>
+        ErrorFrame.t_decode(data)->Result.map(value => ErrorFrame(value))
+      | Some(JSON.String("wallet_deposit_balances")) =>
+        Position__Raw.WalletDepositBalancesEvent.t_decode(
+          data,
+        )->Result.map(value => WalletDepositBalances(value))
       | Some(JSON.String("user")) => UserUpdate.decode(data)->Result.map(value => User(value))
-      | Some(JSON.String("price_history")) => WsPriceHistory.decode(data)->Result.map(value => PriceHistory(value))
+      | Some(JSON.String("price_history")) =>
+        WsPriceHistory.decode(data)->Result.map(value => PriceHistory(value))
       | Some(JSON.String("auth")) => AuthUpdate.decode(data)->Result.map(value => Auth(value))
       | Some(JSON.String("market")) => MarketEvent.decode(data)->Result.map(value => Market(value))
-      | Some(JSON.String("deposit_price")) => WsDepositPrice.decode(data)->Result.map(value => DepositPrice(value))
+      | Some(JSON.String("deposit_price")) =>
+        WsDepositPrice.decode(data)->Result.map(value => DepositPrice(value))
       | Some(JSON.String("deposit_asset_price")) =>
         WsDepositAssetPrice.decode(data)->Result.map(value => DepositAssetPrice(value))
       | Some(JSON.String(other)) => Spice.error(`unknown ws message type: ${other}`, json)

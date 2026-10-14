@@ -63,24 +63,28 @@ module Market: {
     conditionId: string,
     payoutNumerators: array<float>,
     payoutDenominator: float,
+    depositMintCount: int,
   }
 
   let decode: Uint8Array.t => result<t, SdkError.t>
 }
 
-// Orderbook — on-chain book with its ALT. `baseIndex` 0 ⇒ mintA is the base.
 module Orderbook: {
   @genType
   type t = {
     market: Shared.pubkeyStr,
     mintA: Shared.pubkeyStr,
     mintB: Shared.pubkeyStr,
-    lookupTable: Shared.pubkeyStr,
+    depositMintA: Shared.pubkeyStr,
+    depositMintB: Shared.pubkeyStr,
+    outcomeIndex: int,
     baseIndex: float,
     bump: float,
   }
 
   let decode: Uint8Array.t => result<t, SdkError.t>
+  let baseDepositMint: t => Shared.pubkeyStr
+  let quoteDepositMint: t => Shared.pubkeyStr
 }
 
 // Position — a user's per-market custody account.

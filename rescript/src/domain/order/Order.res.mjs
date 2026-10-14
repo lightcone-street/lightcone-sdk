@@ -5,8 +5,6 @@ let Type;
 
 let Limit;
 
-let Trigger;
-
 let Raw;
 
 let State;
@@ -16,7 +14,6 @@ let Client;
 export {
   Type,
   Limit,
-  Trigger,
   Raw,
   State,
   Client,

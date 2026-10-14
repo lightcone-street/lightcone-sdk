@@ -53,10 +53,10 @@ pub mod client;
 // ── Prelude ──────────────────────────────────────────────────────────────────
 
 pub mod prelude {
+    pub use crate::program::transaction::{V1ResourceConfig, V1Transaction, V1TransactionContext};
     // Shared newtypes
     pub use crate::shared::{
         Denominator, DepositSource, OrderBookId, PubkeyStr, Resolution, Side, TimeInForce,
-        TriggerType,
     };
 
     // Domain types — market (includes outcome + tokens)
@@ -71,28 +71,26 @@ pub mod prelude {
 
     // Domain types — orderbook
     pub use crate::domain::orderbook::{
-        BookAggregation, OrderBookPair, OrderBookValidationError, OutcomeImpact,
+        BookAggregation, ImpactDirection, OrderBookPair, OrderBookValidationError, OutcomeImpact,
     };
 
     // Domain types — order
     pub use crate::domain::order::{
         AnyOrder, CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, ConditionalBalance,
         FillInfo, GlobalDepositBalance, GlobalDepositUpdate, LimitOrder, Order, OrderEvent,
-        OrderStatus, OrderType, SubmitOrderResponse, SubmitOrderStatus, TriggerOrderUpdate,
-        UserBalanceUpdate, UserDepositAssetBalance, UserMarketBalance, UserOpenLimitOrders,
-        UserOrdersResponse, UserOutcomeBalance, UserSnapshotOrder, UserSnapshotOrderCommon,
-        UserUpdate,
-    };
-    #[cfg(feature = "trigger_orders")]
-    pub use crate::domain::order::{
-        CancelTriggerBody, CancelTriggerSuccess, TriggerOrder, TriggerOrderResponse,
-        UserTriggerOrders,
+        OrderStatus, OrderType, SubmitOrderResponse, SubmitOrderStatus, UserBalanceUpdate,
+        UserDepositAssetBalance, UserMarketBalance, UserOpenLimitOrders, UserOrdersResponse,
+        UserOutcomeBalance, UserSnapshotOrder, UserSnapshotOrderCommon, UserUpdate,
     };
 
     // Domain types — position (includes portfolio + token balances)
     pub use crate::domain::position::{
-        DepositAssetMetadata, DepositTokenBalance, Portfolio, Position, PositionOutcome,
-        TokenBalance, TokenBalanceComputedBase, TokenBalanceTokenType, WalletHolding,
+        CanonicalWsolAccountInfo, DepositAssetMetadata, DepositTokenBalance,
+        DepositTokenBalancesSnapshot, Portfolio, Position, PositionOutcome, SolActionCosts,
+        SolActionKind, SolActionPlan, SolBalanceAvailability, SolBalanceBreakdown, SolBalanceDelta,
+        TokenBalance, TokenBalanceComputedBase, TokenBalanceTokenType, WalletDepositBalanceStatus,
+        WalletDepositBalancesApplyResult, WalletDepositBalancesEvent, WalletDepositBalancesState,
+        WalletHolding, WRAPPED_SOL_MINT_ADDRESS,
     };
 
     // Domain types — trade, price history
@@ -137,30 +135,31 @@ pub mod prelude {
 
     // Auth + User types
     pub use crate::auth::{
-        AuthCredentials, AuthMethod, ChainType, GoogleAccountData, PrivyEmbeddedWallet,
-        SessionResponse, User, UserIdentity, UserPrivyData, XAccountData,
+        classify_register_privy_conflict, AuthCredentials, AuthMethod, ChainType, EmailAccountData,
+        GoogleAccountData, LinkedIdentity, LinkedIdentitySelector, LinkedIdentityType,
+        MaxSlippagePreferenceBody, PrivyEmbeddedWallet, RegisterPrivyConflict,
+        RegisterPrivyRequest, SessionResponse, User, UserIdentity, UserPrivyData, XAccountData,
     };
 
     // Program — order envelopes, trait, payload
-    #[cfg(feature = "trigger_orders")]
-    pub use crate::program::TriggerOrderEnvelope;
     pub use crate::program::{
         generate_cancel_all_salt, LimitOrderEnvelope, OrderEnvelope, OrderPayload,
     };
 
     // Position builders
     pub use crate::domain::position::{
-        DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
-        GlobalToMarketDepositBuilder, InitPositionTokensBuilder, MergeBuilder,
-        RedeemWinningsBuilder, WithdrawBuilder, WithdrawFromGlobalBuilder,
-        WithdrawFromPositionBuilder,
+        DepositBuilder, DepositToGlobalBuilder, GlobalToMarketDepositBuilder,
+        InitPositionTokensBuilder, MergeBuilder, RedeemWinningsBuilder, WithdrawBuilder,
+        WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
     };
 
     // Signing strategy
     pub use crate::shared::signing::{ExternalSigner, SigningStrategy};
 
     // Domain types — referral
-    pub use crate::domain::referral::{RedeemResult, ReferralCodeInfo, ReferralStatus};
+    pub use crate::domain::referral::{
+        RedeemResult, ReferralCodeInfo, ReferralRedeemErrorCode, ReferralStatus,
+    };
 
     // Domain types — notification
     pub use crate::domain::notification::{
@@ -170,10 +169,11 @@ pub mod prelude {
     // HTTP client + sub-clients
     #[cfg(feature = "http")]
     pub use crate::client::{
-        AuthClient, GlobalDepositAssetsResult, LightconeClient, LightconeClientBuilder,
-        MarketsClient, MarketsResult, MetricsClient, NotificationsClient, OrderbooksClient,
-        OrdersClient, PositionsClient, PriceHistorySubClient, ReferralsClient, RpcClient,
-        TradesClient,
+        AuthClient, ConfirmedTransaction, FavoriteMarketUpdate, FavoriteMarkets,
+        GlobalDepositAssetsResult, LightconeClient, LightconeClientBuilder, MarketsClient,
+        MarketsResult, MetricsClient, NotificationsClient, OrderbooksClient, OrdersClient,
+        PositionsClient, PriceHistorySubClient, ReferralsClient, RpcClient, TradesClient,
+        TransactionSimulation, TransactionStatus,
     };
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};

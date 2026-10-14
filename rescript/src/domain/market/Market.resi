@@ -45,3 +45,9 @@ let resolveIconUrls: (
   option<string>,
   option<string>,
 ) => option<(string, string, string)>
+
+module FavoriteMarkets = Market__Model.FavoriteMarkets
+
+module FavoriteMarketUpdate = Market__Model.FavoriteMarketUpdate
+
+let depositSymbol: (~mint: string, ~symbol: string) => string

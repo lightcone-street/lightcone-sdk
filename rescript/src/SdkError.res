@@ -31,6 +31,13 @@ module RejectionCode = {
     | TokenPairMismatch
     | InsufficientMarketFeeBuffer
     | SignatureExpired
+    | TradingRulesUnavailable
+    | OrderFieldOutOfRange
+    | PriceNotExactlyRepresentable
+    | PriceOutOfRange
+    | InvalidPriceDecimals
+    | InvalidPriceSignificantFigures
+    | InvalidSizeDecimals
     | Unknown(string)
 
   let toWire = (code: t): string =>
@@ -58,6 +65,13 @@ module RejectionCode = {
     | TokenPairMismatch => "TOKEN_PAIR_MISMATCH"
     | InsufficientMarketFeeBuffer => "INSUFFICIENT_MARKET_FEE_BUFFER"
     | SignatureExpired => "SIGNATURE_EXPIRED"
+    | TradingRulesUnavailable => "TRADING_RULES_UNAVAILABLE"
+    | OrderFieldOutOfRange => "ORDER_FIELD_OUT_OF_RANGE"
+    | PriceNotExactlyRepresentable => "PRICE_NOT_EXACTLY_REPRESENTABLE"
+    | PriceOutOfRange => "PRICE_OUT_OF_RANGE"
+    | InvalidPriceDecimals => "INVALID_PRICE_DECIMALS"
+    | InvalidPriceSignificantFigures => "INVALID_PRICE_SIGNIFICANT_FIGURES"
+    | InvalidSizeDecimals => "INVALID_SIZE_DECIMALS"
     | Unknown(code) => code
     }
 
@@ -87,6 +101,13 @@ module RejectionCode = {
     | "TOKEN_PAIR_MISMATCH" => TokenPairMismatch
     | "INSUFFICIENT_MARKET_FEE_BUFFER" => InsufficientMarketFeeBuffer
     | "SIGNATURE_EXPIRED" => SignatureExpired
+    | "TRADING_RULES_UNAVAILABLE" => TradingRulesUnavailable
+    | "ORDER_FIELD_OUT_OF_RANGE" => OrderFieldOutOfRange
+    | "PRICE_NOT_EXACTLY_REPRESENTABLE" => PriceNotExactlyRepresentable
+    | "PRICE_OUT_OF_RANGE" => PriceOutOfRange
+    | "INVALID_PRICE_DECIMALS" => InvalidPriceDecimals
+    | "INVALID_PRICE_SIGNIFICANT_FIGURES" => InvalidPriceSignificantFigures
+    | "INVALID_SIZE_DECIMALS" => InvalidSizeDecimals
     | _ => Unknown(raw)
     }
 
@@ -103,7 +124,7 @@ module RejectionCode = {
         | 0 => ""
         | length =>
           String.toUpperCase(String.slice(lower, ~start=0, ~end=1)) ++
-            String.slice(lower, ~start=1, ~end=length)
+          String.slice(lower, ~start=1, ~end=length)
         }
       })
       ->Array.join(" ")
@@ -122,6 +143,15 @@ module RejectionCode = {
 // ── Structured rejection details (hand-decoded; the wrapper is internally-tagged) ──
 // The module's `t` is the details payload carried by the `ApiRejected(…)` variant of
 // `SdkError.t` below (module and constructor deliberately share the name).
+module LinkedIdentityType = {
+  @genType @spice
+  type t =
+    | @spice.as("email") Email
+    | @spice.as("google") Google
+    | @spice.as("x") X
+    | @spice.as("wallet") Wallet
+}
+
 module ApiRejected = {
   type t = {
     reason: string,
@@ -130,6 +160,9 @@ module ApiRejected = {
     errorLogId?: string,
     // Correlation id set client-side from x-request-id; never in the wire body.
     requestId?: string,
+    httpStatus?: int,
+    retryAfterMs?: float,
+    existingMethod?: LinkedIdentityType.t,
   }
 
   let decode = (json: JSON.t): t => {
@@ -144,15 +177,22 @@ module ApiRejected = {
       }
     {
       reason: str("reason")->Option.getOr(""),
-      rejectionCode: ?str("rejection_code")->Option.map(RejectionCode.fromWire),
+      rejectionCode: ?(str("rejection_code")->Option.map(RejectionCode.fromWire)),
       errorCode: ?str("error_code"),
       errorLogId: ?str("error_log_id"),
+      existingMethod: ?(
+        str("existing_method")->Option.flatMap(value =>
+          LinkedIdentityType.t_decode(JSON.String(value))->Result.mapOr(None, value => Some(value))
+        )
+      ),
     }
   }
 
   let toMessage = (details: t): string => {
     let parts = [`Reason: ${details.reason}`]
-    details.rejectionCode->Option.forEach(code => parts->Array.push(`Rejection Code: ${RejectionCode.label(code)}`))
+    details.rejectionCode->Option.forEach(code =>
+      parts->Array.push(`Rejection Code: ${RejectionCode.label(code)}`)
+    )
     details.errorCode->Option.forEach(code => parts->Array.push(`Error Code: ${code}`))
     details.errorLogId->Option.forEach(id => parts->Array.push(`Error Log ID: ${id}`))
     details.requestId->Option.forEach(id => parts->Array.push(`Request ID: ${id}`))
@@ -164,7 +204,7 @@ module ApiRejected = {
 module HttpError = {
   type t =
     | ServerError({status: int, body: string})
-    | RateLimited({retryAfterMs: option<int>})
+    | RateLimited({retryAfterMs: option<float>})
     | Unauthorized
     | NotFound(string)
     | BadRequest(string)
@@ -177,7 +217,7 @@ module HttpError = {
     | ServerError({status, body}) => `Server error ${Int.toString(status)}: ${body}`
     | RateLimited({retryAfterMs}) =>
       switch retryAfterMs {
-      | Some(ms) => `Rate limited (retry after ${Int.toString(ms)}ms)`
+      | Some(ms) => `Rate limited (retry after ${Float.toString(ms)}ms)`
       | None => "Rate limited"
       }
     | Unauthorized => "Unauthorized"
@@ -186,7 +226,9 @@ module HttpError = {
     | Timeout => "Timeout"
     | Network(message) => `Request failed: ${message}`
     | MaxRetriesExceeded({attempts, lastError}) =>
-      `Max retries exceeded after ${Int.toString(attempts)} attempts: ${lastError->Option.getOr("")}`
+      `Max retries exceeded after ${Int.toString(attempts)} attempts: ${lastError->Option.getOr(
+          "",
+        )}`
     }
 }
 
@@ -207,7 +249,9 @@ module WsError = {
     | DeserializationError(message) => `Deserialization error: ${message}`
     | ProtocolError(message) => `Protocol error: ${message}`
     | Closed({code, reason}) =>
-      `Connection closed: code=${code->Option.map(c => Int.toString(c))->Option.getOr("?")} reason=${reason}`
+      `Connection closed: code=${code
+        ->Option.map(c => Int.toString(c))
+        ->Option.getOr("?")} reason=${reason}`
     }
 }
 
@@ -233,11 +277,19 @@ type t =
   | Auth(AuthError.t)
   | Validation(string)
   | Decode(string)
-  | Program(string)
+  | Program(ProgramError.t)
+  | InvalidTransaction(string)
+  | Scaling(Scaling.Error.t)
   | MissingMarketContext(string)
   | Signing(string)
   | UserCancelled
   | ApiRejected(ApiRejected.t)
+  | TransactionFailed({signature: string, error: string})
+  | TransactionExpired({signature: string})
+  | ConfirmationTimeout({signature: string})
+  | SubmissionUnknown({signature: string, lastValidBlockHeight: bigint, reason: string})
+  | SubmissionRejected({signature: string, code: int, reason: string})
+  | InsufficientSolForTransactionFees({availableLamports: bigint, requiredLamports: bigint})
   | Other(string)
 
 // ── Human-readable messages ────────────────────────────────────────────────────
@@ -248,11 +300,24 @@ let toMessage = (error: t): string =>
   | Auth(inner) => `Auth error: ${AuthError.toMessage(inner)}`
   | Validation(message) => `Validation error: ${message}`
   | Decode(message) => `Serialization error: ${message}`
-  | Program(message) => `Program error: ${message}`
-  | MissingMarketContext(message) => `Missing required market context for Market deposit source: ${message}`
+  | InvalidTransaction(message) => `Invalid v1 transaction: ${message}`
+  | Scaling(error) => Scaling.toMessage(error)
+  | Program(message) => `Program error: ${ProgramError.toMessage(message)}`
+  | MissingMarketContext(message) =>
+    `Missing required market context for Market deposit source: ${message}`
   | Signing(message) => `Signing error: ${message}`
   | UserCancelled => "User cancelled signing"
   | ApiRejected(details) => ApiRejected.toMessage(details)
+  | TransactionFailed({signature, error}) => `Transaction ${signature} failed: ${error}`
+  | TransactionExpired({signature}) =>
+    `Transaction ${signature} expired; reconcile before rebuilding`
+  | ConfirmationTimeout({signature}) => `Confirmation unknown for ${signature}`
+  | SubmissionUnknown({signature, reason}) => `Submission unknown for ${signature}: ${reason}`
+  | SubmissionRejected({signature, reason}) => `Submission rejected for ${signature}: ${reason}`
+  | InsufficientSolForTransactionFees({availableLamports, requiredLamports}) =>
+    `Insufficient SOL for fees: ${BigInt.toString(availableLamports)} available, ${BigInt.toString(
+        requiredLamports,
+      )} required`
   | Other(message) => message
   }
 
@@ -269,8 +334,17 @@ let rec stripNulls = (json: JSON.t): JSON.t =>
       ->Dict.toArray
       ->Array.filterMap(((key, value)) =>
         switch value {
+        | JSON.Null if key == "linked_identities" => Some((key, value))
         | JSON.Null => None
-        | _ => Some((key, stripNulls(value)))
+        | _ =>
+          Some((
+            key,
+            if key == "balances" || key == "decimals" {
+              value
+            } else {
+              stripNulls(value)
+            },
+          ))
         }
       )
       ->Dict.fromArray,
@@ -282,10 +356,10 @@ let rec stripNulls = (json: JSON.t): JSON.t =>
 // Parse the internally-tagged `ApiResponse` envelope: {"status":"success","body":…}
 // or {"status":"error","error_details":…}. `bodyDecode` is the spice `_decode` of
 // the success body type.
-let parseApiResponse = (
-  bodyDecode: JSON.t => result<'a, Spice.decodeError>,
-  json: JSON.t,
-): result<'a, t> =>
+let parseApiResponse = (bodyDecode: JSON.t => result<'a, Spice.decodeError>, json: JSON.t): result<
+  'a,
+  t,
+> =>
   switch json {
   | JSON.Object(dict) =>
     switch Dict.get(dict, "status") {
@@ -317,4 +391,19 @@ let unwrap = async (promised: promise<result<'a, t>>): 'a =>
   switch await promised {
   | Ok(value) => value
   | Error(error) => throwAsJsError(toMessage(error), error)
+  }
+
+let isUnauthorized = error =>
+  switch error {
+  | Http(Unauthorized) => true
+  | ApiRejected({httpStatus: ?Some(401)}) => true
+  | _ => false
+  }
+let isPrivyVerificationUnavailable = error =>
+  switch error {
+  | ApiRejected({
+      httpStatus: ?Some(503),
+      errorCode: ?Some("PRIVY_VERIFICATION_UNAVAILABLE"),
+    }) => true
+  | _ => false
   }

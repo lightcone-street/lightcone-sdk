@@ -11,19 +11,7 @@ async fn main() -> ExampleResult {
 
     let snapshot = client.orders().get_user_orders(Some(50), None).await?;
 
-    let (limit_orders, trigger_orders) =
-        snapshot
-            .orders
-            .iter()
-            .fold((0usize, 0usize), |(limits, triggers), order| match order {
-                UserSnapshotOrder::Limit { .. } => (limits + 1, triggers),
-                UserSnapshotOrder::Trigger { .. } => (limits, triggers + 1),
-            });
-
-    println!(
-        "orders: {} limit / {} trigger",
-        limit_orders, trigger_orders
-    );
+    println!("orders: {} limit", snapshot.orders.len());
     println!("market balances: {}", snapshot.market_balances.len());
     println!("has more: {}", snapshot.has_more);
 
@@ -33,17 +21,6 @@ async fn main() -> ExampleResult {
                 println!(
                     "first limit: {} {} @ {}",
                     common.order_hash, common.side, common.price
-                );
-            }
-            UserSnapshotOrder::Trigger {
-                common,
-                trigger_order_id,
-                trigger_price,
-                ..
-            } => {
-                println!(
-                    "first trigger: {} {} @ {} (trigger {})",
-                    trigger_order_id, common.side, common.price, trigger_price
                 );
             }
         }

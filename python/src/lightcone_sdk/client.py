@@ -5,8 +5,12 @@ Mirrors rust/src/client.rs — unified entry point with sub-client accessors.
 
 from __future__ import annotations
 
-from typing import Optional
+import asyncio
+from collections.abc import Sequence
+from copy import copy
+from dataclasses import dataclass
 
+from solders.instruction import Instruction
 from solders.pubkey import Pubkey
 
 from .auth import AuthCredentials
@@ -21,16 +25,38 @@ from .domain.position.client import Positions
 from .domain.price_history.client import PriceHistoryClient
 from .domain.referral.client import Referrals
 from .domain.trade.client import Trades
-from .http.client import DEFAULT_TIMEOUT_SECS, LightconeHttp
 from .env import LightconeEnv
+from .error import InsufficientSolForTransactionFees, SdkError
+from .http.client import DEFAULT_TIMEOUT_SECS, LightconeHttp
+from .http.credential_restorer import CredentialRestorer
 from .privy.client import Privy
+from .program.transaction import V1ResourceConfig, V1Transaction, V1TransactionContext
 from .rpc import Rpc
-from .error import SdkError
-from .rpc_failover import ActiveRpc, RpcFailoverState, is_infrastructure_error, FAST_RETRY_DELAY_SECS
-from .shared.signing import ExternalSigner, SigningStrategy, SigningStrategyKind, classify_signer_error
+from .rpc_failover import (
+    FAST_RETRY_DELAY_SECS,
+    ActiveRpc,
+    RpcFailoverState,
+    is_infrastructure_error,
+)
+from .shared.signing import (
+    ExternalSigner,
+    SigningStrategy,
+    SigningStrategyKind,
+    classify_signer_error,
+)
 from .shared.types import DepositSource
-from .ws import WsConfig, WS_DEFAULT_CONFIG
+from .ws import WS_DEFAULT_CONFIG, WsConfig
 from .ws.client import WsClient
+
+
+@dataclass(frozen=True)
+class ConfirmedTransaction:
+    """A confirmed transaction signature and its processing slot."""
+
+    #: Base58 transaction signature accepted by the cluster.
+    signature: str
+    #: Slot whose confirmed status authorizes a freshness-bounded state refresh.
+    slot: int
 
 
 class LightconeClient:
@@ -45,16 +71,23 @@ class LightconeClient:
     def __init__(
         self,
         http: LightconeHttp,
-        ws_config: Optional[WsConfig] = None,
-        auth_credentials: Optional[AuthCredentials] = None,
-        program_id: Optional[Pubkey] = None,
-        connection: Optional[object] = None,
-        backup_connection: Optional[object] = None,
+        ws_config: WsConfig | None = None,
+        auth_credentials: AuthCredentials | None = None,
+        program_id: Pubkey | None = None,
+        connection: object | None = None,
+        backup_connection: object | None = None,
         deposit_source: DepositSource = DepositSource.GLOBAL,
-        signing_strategy: Optional[SigningStrategy] = None,
-        primary_rpc_url: Optional[str] = None,
-        backup_rpc_url: Optional[str] = None,
+        signing_strategy: SigningStrategy | None = None,
+        primary_rpc_url: str | None = None,
+        backup_rpc_url: str | None = None,
+        transaction_sponsorship_enabled: bool = False,
+        transaction_resources: V1ResourceConfig | None = None,
     ):
+        if transaction_resources is not None and not isinstance(
+            transaction_resources, V1ResourceConfig
+        ):
+            raise SdkError("explicit V1ResourceConfig is required")
+        self._transaction_resources = transaction_resources
         self._http = http
         self._ws_config = ws_config or WS_DEFAULT_CONFIG
         self._program_id: Pubkey = program_id or LightconeEnv.PROD.program_id
@@ -62,10 +95,11 @@ class LightconeClient:
         self._backup_connection = backup_connection  # Optional[AsyncClient]
         self._rpc_failover_state = RpcFailoverState()
         self._deposit_source: DepositSource = deposit_source
-        self._signing_strategy: Optional[SigningStrategy] = signing_strategy
-        self._primary_rpc_url: Optional[str] = primary_rpc_url
-        self._backup_rpc_url: Optional[str] = backup_rpc_url
-        self._order_nonce: Optional[int] = None
+        self._signing_strategy: SigningStrategy | None = signing_strategy
+        self._transaction_sponsorship_enabled = transaction_sponsorship_enabled
+        self._primary_rpc_url: str | None = primary_rpc_url
+        self._backup_rpc_url: str | None = backup_rpc_url
+        self._order_nonce: int | None = None
 
         # Sub-clients (all take self reference)
         self._markets = Markets(self)
@@ -84,12 +118,17 @@ class LightconeClient:
     # ── Properties ───────────────────────────────────────────────────────
 
     @property
+    def has_api_key(self) -> bool:
+        """Whether this client has a server-side API key configured."""
+        return self._http.has_api_key
+
+    @property
     def program_id(self) -> Pubkey:
         """On-chain program ID."""
         return self._program_id
 
     @property
-    def connection(self) -> Optional[object]:
+    def connection(self) -> object | None:
         """Currently-active Solana RPC connection (AsyncClient), resolved
         through failover state."""
         self._rpc_failover_state.maybe_recover_to_primary()
@@ -114,7 +153,7 @@ class LightconeClient:
         self._deposit_source = source
 
     def resolve_deposit_source(
-        self, override_source: Optional[DepositSource] = None
+        self, override_source: DepositSource | None = None
     ) -> DepositSource:
         """Resolve deposit source: per-call override > client setting."""
         return override_source if override_source is not None else self._deposit_source
@@ -122,12 +161,12 @@ class LightconeClient:
     # ── Signing strategy ───────────────────────────────────────────────
 
     @property
-    def signing_strategy(self) -> Optional[SigningStrategy]:
+    def signing_strategy(self) -> SigningStrategy | None:
         """Get the current signing strategy, if set."""
         return self._signing_strategy
 
     @signing_strategy.setter
-    def signing_strategy(self, strategy: Optional[SigningStrategy]) -> None:
+    def signing_strategy(self, strategy: SigningStrategy | None) -> None:
         """Set the signing strategy at runtime."""
         self._signing_strategy = strategy
 
@@ -139,10 +178,24 @@ class LightconeClient:
         """Clear the signing strategy (e.g. on logout)."""
         self._signing_strategy = None
 
+    @property
+    def transaction_sponsorship_enabled(self) -> bool:
+        """Return the trusted assertion that an external sponsor pays fees."""
+        return self._transaction_sponsorship_enabled
+
+    @transaction_sponsorship_enabled.setter
+    def transaction_sponsorship_enabled(self, enabled: bool) -> None:
+        """Replace the client-wide Transaction Sponsorship Capability."""
+        self._transaction_sponsorship_enabled = enabled
+
+    def set_transaction_sponsorship_enabled(self, enabled: bool) -> None:
+        """Replace the capability used by subsequent shared submissions."""
+        self._transaction_sponsorship_enabled = enabled
+
     # ── Nonce cache ───────────────────────────────────────────────────
 
     @property
-    def order_nonce(self) -> Optional[int]:
+    def order_nonce(self) -> int | None:
         """Get the cached order nonce, if one has been set."""
         return self._order_nonce
 
@@ -224,55 +277,184 @@ class LightconeClient:
             raise SdkError("signing strategy is not set on the client")
         return self._signing_strategy
 
-    async def sign_and_submit_tx(self, tx: object) -> str:
-        """Sign and submit a transaction using the client's signing strategy.
+    def _require_transaction_signing_context(self) -> tuple[SigningStrategy, bool]:
+        """Capture one signer and sponsorship assertion before async transaction work."""
+        return (
+            copy(self._require_signing_strategy()),
+            self._transaction_sponsorship_enabled,
+        )
 
-        - **Native**: signs locally with keypair, submits via RPC
-        - **WalletAdapter**: signs via external signer, submits via RPC
-        - **Privy**: serializes unsigned tx to base64, sends to backend
+    def _validate_transaction_fee_funding_context(
+        self,
+        fee_payer: Pubkey,
+        strategy: SigningStrategy,
+        sponsorship_enabled: bool,
+    ) -> None:
+        """Reject invalid payer and sponsorship combinations before async work.
 
-        Args:
-            tx: A ``solders.transaction.Transaction`` instance.
-
-        Returns:
-            Transaction signature string.
+        Unsponsored known signers must control the payer being classified. Sponsored
+        external flows may use a different payer, while native sponsorship is rejected
+        before blockhash RPC or caller-transaction mutation.
         """
-        strategy = self._require_signing_strategy()
+        if sponsorship_enabled:
+            if strategy.kind == SigningStrategyKind.NATIVE:
+                raise SdkError(
+                    "transaction sponsorship is not supported with local-keypair signing"
+                )
+            return
+        signing_address = strategy.controlled_wallet_address()
+        if signing_address is not None and signing_address != str(fee_payer):
+            raise SdkError("signing strategy does not control transaction fee payer")
 
-        if strategy.kind == SigningStrategyKind.NATIVE:
-            from solders.keypair import Keypair as _Keypair
-            keypair: _Keypair = strategy.keypair  # type: ignore[assignment]
-            blockhash = await self.rpc().get_latest_blockhash()
-            tx.sign([keypair], blockhash)  # type: ignore[attr-defined]
-            response = await self._connection.send_raw_transaction(bytes(tx))  # type: ignore[union-attr]
-            return str(response.value)
-
-        elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
-            signer: ExternalSigner = strategy.signer  # type: ignore[assignment]
-            import base64 as _b64
-            tx_bytes = bytes(tx)  # type: ignore[arg-type]
-            signed_bytes = await signer.sign_transaction(tx_bytes)
-            base64_tx = _b64.b64encode(signed_bytes).decode("ascii")
-            # Submit via RPC with failover
-            data = await self._rpc_call_with_failover({
-                "jsonrpc": "2.0", "id": 1,
-                "method": "sendTransaction",
-                "params": [base64_tx, {"encoding": "base64", "preflightCommitment": "confirmed"}],
-            })
-            if "error" in data:
-                raise SdkError(f"RPC error: {data['error']}")
-            return data["result"]
-
-        elif strategy.kind == SigningStrategyKind.PRIVY:
-            import base64 as _b64
-            tx_bytes = bytes(tx)  # type: ignore[arg-type]
-            base64_tx = _b64.b64encode(tx_bytes).decode("ascii")
-            result = await self.privy().sign_and_send_tx(
-                strategy.wallet_id, base64_tx,  # type: ignore[arg-type]
+    def _validate_transaction_signing_context(
+        self,
+        fee_payer: Pubkey,
+        strategy: SigningStrategy,
+        sponsorship_enabled: bool,
+    ) -> None:
+        """Validate local signer authority before acquiring transaction context."""
+        if strategy.kind == SigningStrategyKind.PRIVY:
+            raise SdkError(
+                "Privy transaction signing cannot return verifiable v1 signed bytes; use a v1-capable external signer"
             )
-            return result.hash
+        if not sponsorship_enabled and strategy.controlled_wallet_address() is None:
+            raise SdkError("signing strategy wallet identity is required")
+        self._validate_transaction_fee_funding_context(
+            fee_payer, strategy, sponsorship_enabled
+        )
 
-        raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
+    async def _sign_and_submit_instructions(
+        self, instructions: Sequence[Instruction], payer: Pubkey
+    ) -> str:
+        """Capture validated builder inputs and signing authority before RPC work."""
+        instructions = tuple(instructions)
+        strategy, sponsorship_enabled = self._require_transaction_signing_context()
+        self._validate_transaction_signing_context(payer, strategy, sponsorship_enabled)
+        context = await self.transaction_context()
+        transaction = V1Transaction.compile(instructions, payer, context)
+        signature, _height = await self._sign_and_submit_tx_inner(
+            transaction, strategy, sponsorship_enabled
+        )
+        return signature
+
+    async def _preflight_transaction_fee_funding(
+        self,
+        tx: V1Transaction,
+        strategy: SigningStrategy,
+        sponsorship_enabled: bool,
+    ) -> None:
+        """Reject proven fee shortfalls before signing and continue on unknown evidence.
+
+        The transaction's prepared message supplies the exact fee and declared fee
+        payer. Fee or balance lookup failure is deliberately best-effort; planner-owned
+        SOL admission remains fail-closed before reaching this shared boundary. The
+        signer and sponsorship value were captured together before RPC work.
+        """
+        self._validate_transaction_fee_funding_context(
+            tx.message.account_keys[0], strategy, sponsorship_enabled
+        )
+        if sponsorship_enabled:
+            return
+        fee_payer = tx.message.account_keys[0]
+
+        try:
+            required_lamports = await self.rpc().estimate_prepared_transaction_fee(tx)
+        except Exception:
+            return
+        try:
+            available_lamports = await self.rpc().balance_lamports(fee_payer)
+        except Exception:
+            return
+        if available_lamports < required_lamports:
+            raise InsufficientSolForTransactionFees(
+                available_lamports, required_lamports
+            )
+
+    async def transaction_context_with_resources(
+        self, resources: V1ResourceConfig
+    ) -> V1TransactionContext:
+        """Fetch one blockhash/expiry pair for explicit validated resources."""
+        if not isinstance(resources, V1ResourceConfig):
+            raise SdkError("explicit V1ResourceConfig is required")
+        blockhash, height = await self.rpc().get_latest_blockhash_with_height()
+        return V1TransactionContext(blockhash, height, resources)
+
+    async def transaction_context(self) -> V1TransactionContext:
+        """Fetch context using caller-configured resources; no implicit budgets."""
+        if self._transaction_resources is None:
+            raise SdkError(
+                "transaction resources are required; configure them on the client builder"
+            )
+        return await self.transaction_context_with_resources(
+            self._transaction_resources
+        )
+
+    async def sign_and_submit_tx(self, tx: V1Transaction) -> str:
+        """Sign the exact v1 message, simulate, and send once with preflight."""
+        signature, _height = await self._sign_and_submit_tx_inner(tx)
+        return signature
+
+    async def sign_and_submit_tx_confirmed(self, tx: V1Transaction) -> str:
+        """Submit v1 and confirm using its original blockhash expiry."""
+        return (await self.sign_and_submit_tx_confirmed_with_slot(tx)).signature
+
+    async def sign_and_submit_tx_confirmed_with_slot(
+        self, tx: V1Transaction
+    ) -> ConfirmedTransaction:
+        """Submit the exact message and return its confirmed processing slot."""
+        signature, height = await self._sign_and_submit_tx_inner(tx)
+        status = await self.rpc().confirm_signature_status(signature, height)
+        return ConfirmedTransaction(signature, status.slot)
+
+    async def sign_and_submit_prepared_tx_confirmed_with_slot(
+        self, tx: V1Transaction
+    ) -> ConfirmedTransaction:
+        """Confirm a fee-prepared v1 message without changing any message bytes."""
+        return await self.sign_and_submit_tx_confirmed_with_slot(tx)
+
+    async def _sign_and_submit_tx_confirmed_with_strategy(
+        self, tx: V1Transaction, strategy: SigningStrategy
+    ) -> str:
+        """Confirm with a strategy already validated by the calling operation."""
+        signature, height = await self._sign_and_submit_tx_inner(tx, strategy)
+        await self.rpc().confirm_signature_status(signature, height)
+        return signature
+
+    async def _sign_and_submit_tx_inner(
+        self,
+        tx: V1Transaction,
+        strategy: SigningStrategy | None = None,
+        sponsorship_enabled: bool | None = None,
+    ) -> tuple[str, int]:
+        """Preserve message authority through funding, signing, and one send."""
+        if not isinstance(tx, V1Transaction):
+            raise SdkError("only validated Solana v1 transactions are supported")
+        if strategy is None:
+            strategy, sponsorship_enabled = self._require_transaction_signing_context()
+        elif sponsorship_enabled is None:
+            sponsorship_enabled = self._transaction_sponsorship_enabled
+        strategy = copy(strategy)
+        self._validate_transaction_signing_context(
+            tx.message.account_keys[0], strategy, bool(sponsorship_enabled)
+        )
+        await self._preflight_transaction_fee_funding(
+            tx, strategy, bool(sponsorship_enabled)
+        )
+        await self.rpc().ensure_v1_supported()
+        if strategy.kind == SigningStrategyKind.NATIVE:
+            signed = tx.sign([strategy.keypair])
+        elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
+            if strategy.signer is None:
+                raise SdkError("external signer is required")
+            try:
+                wire = await strategy.signer.sign_transaction(tx.to_wire_bytes())
+            except Exception as error:
+                raise classify_signer_error(str(error)) from error
+            signed = tx.accept_signed_bytes(wire)
+        else:
+            raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
+        signature = await self.rpc().submit_signed_transaction(signed)
+        return signature, tx.context.last_valid_block_height
 
     # ── Sub-client accessors ─────────────────────────────────────────────
 
@@ -340,7 +522,7 @@ class LightconeClient:
     # ── Auth token (cookie) ─────────────────────────────────────────────
 
     @property
-    def auth_token(self) -> Optional[str]:
+    def auth_token(self) -> str | None:
         """Current ``auth_token`` cookie value, if any.
 
         Populated by the SDK after a successful login, then attached on
@@ -358,11 +540,28 @@ class LightconeClient:
         """
         self._http.clear_auth_token()
 
+    def set_credential_restorer(self, restorer: CredentialRestorer) -> None:
+        """Register the credential restorer consulted when a request 401s.
+
+        The restorer attempts to restore credentials (e.g. re-run a login so
+        the auth cookie is valid again); on success the transport replays the
+        request once IF it declared itself retry-safe (``RetryPolicy.NONE``
+        mutations are never auto-replayed). See :mod:`lightcone_sdk.http.credential_restorer`.
+        Without a restorer, 401s propagate to callers unchanged.
+
+        Common use: set once at app startup, alongside the signing strategy.
+        """
+        self._http.set_credential_restorer(restorer)
+
+    def clear_credential_restorer(self) -> None:
+        """Remove the credential restorer (e.g. in tests); 401s propagate again."""
+        self._http.clear_credential_restorer()
+
     async def close(self) -> None:
         """Close the HTTP session."""
         await self._http.close()
 
-    async def __aenter__(self) -> "LightconeClient":
+    async def __aenter__(self) -> LightconeClient:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -376,17 +575,20 @@ class LightconeClientBuilder:
         environment = LightconeEnv.PROD
         self._base_url: str = environment.api_url
         self._ws_url: str = environment.ws_url
-        self._auth_credentials: Optional[AuthCredentials] = None
-        self._ws_config: Optional[WsConfig] = None
+        self._auth_credentials: AuthCredentials | None = None
+        self._ws_config: WsConfig | None = None
         self._timeout: int = DEFAULT_TIMEOUT_SECS
-        self._program_id: Optional[Pubkey] = environment.program_id
+        self._program_id: Pubkey | None = environment.program_id
         self._deposit_source: DepositSource = DepositSource.GLOBAL
-        self._signing_strategy: Optional[SigningStrategy] = None
-        self._primary_rpc_url: Optional[str] = environment.rpc_url
-        self._backup_rpc_url: Optional[str] = None
-        self._connection: Optional[object] = None
+        self._signing_strategy: SigningStrategy | None = None
+        self._transaction_sponsorship_enabled = False
+        self._transaction_resources: V1ResourceConfig | None = None
+        self._primary_rpc_url: str | None = environment.rpc_url
+        self._backup_rpc_url: str | None = None
+        self._connection: object | None = None
+        self._api_key: str | None = None
 
-    def env(self, environment: LightconeEnv) -> "LightconeClientBuilder":
+    def env(self, environment: LightconeEnv) -> LightconeClientBuilder:
         """Set the deployment environment. Configures the API URL, WebSocket URL,
         RPC URL, and program ID for the given environment.
 
@@ -399,32 +601,40 @@ class LightconeClientBuilder:
         self._primary_rpc_url = environment.rpc_url
         return self
 
-    def base_url(self, url: str) -> "LightconeClientBuilder":
+    def api_key(self, key: str) -> LightconeClientBuilder:
+        """Set the API key sent as ``x-lightcone-api-key`` on submit, cancel, and cancel-all POST requests
+        to the API origin. Keep it server-side: it identifies an API Consumer,
+        never a user, and the SDK never logs it.
+        """
+        self._api_key = key
+        return self
+
+    def base_url(self, url: str) -> LightconeClientBuilder:
         self._base_url = url
         return self
 
-    def ws_url(self, url: str) -> "LightconeClientBuilder":
+    def ws_url(self, url: str) -> LightconeClientBuilder:
         self._ws_url = url
         return self
 
-    def auth(self, credentials: AuthCredentials) -> "LightconeClientBuilder":
+    def auth(self, credentials: AuthCredentials) -> LightconeClientBuilder:
         self._auth_credentials = credentials
         return self
 
-    def ws_config(self, config: WsConfig) -> "LightconeClientBuilder":
+    def ws_config(self, config: WsConfig) -> LightconeClientBuilder:
         self._ws_config = config
         return self
 
-    def timeout(self, timeout: int) -> "LightconeClientBuilder":
+    def timeout(self, timeout: int) -> LightconeClientBuilder:
         self._timeout = timeout
         return self
 
-    def program_id(self, pid: Pubkey) -> "LightconeClientBuilder":
+    def program_id(self, pid: Pubkey) -> LightconeClientBuilder:
         """Set a custom on-chain program ID (defaults to canonical Lightcone program)."""
         self._program_id = pid
         return self
 
-    def deposit_source(self, source: DepositSource) -> "LightconeClientBuilder":
+    def deposit_source(self, source: DepositSource) -> LightconeClientBuilder:
         """Set the default deposit source for orders, deposits, and withdrawals.
 
         Defaults to ``DepositSource.GLOBAL``. Can be overridden per-call.
@@ -432,32 +642,51 @@ class LightconeClientBuilder:
         self._deposit_source = source
         return self
 
-    def native_signer(self, keypair: object) -> "LightconeClientBuilder":
+    def native_signer(self, keypair: object) -> LightconeClientBuilder:
         """Set a native keypair for signing orders, cancels, and transactions."""
         self._signing_strategy = SigningStrategy.native(keypair)
         return self
 
-    def external_signer(self, signer: ExternalSigner) -> "LightconeClientBuilder":
+    def external_signer(self, signer: ExternalSigner) -> LightconeClientBuilder:
         """Set an external signer for browser wallet adapters."""
         self._signing_strategy = SigningStrategy.wallet_adapter(signer)
         return self
 
-    def privy_wallet_id(self, wallet_id: str) -> "LightconeClientBuilder":
+    def privy_wallet_id(
+        self, wallet_id: str, wallet_address: str | None = None
+    ) -> LightconeClientBuilder:
         """Set a Privy embedded wallet ID for signing."""
-        self._signing_strategy = SigningStrategy.privy(wallet_id)
+        self._signing_strategy = SigningStrategy.privy(wallet_id, wallet_address)
         return self
 
-    def rpc_url(self, url: str) -> "LightconeClientBuilder":
+    def transaction_resources(
+        self, resources: V1ResourceConfig
+    ) -> LightconeClientBuilder:
+        """Choose inline compute/account limits and total priority fee lamports."""
+        if not isinstance(resources, V1ResourceConfig):
+            raise SdkError("explicit V1ResourceConfig is required")
+        self._transaction_resources = resources
+        return self
+
+    def transaction_sponsorship(self, enabled: bool) -> LightconeClientBuilder:
+        """Set the initial trusted Transaction Sponsorship Capability.
+
+        The capability defaults to false.
+        """
+        self._transaction_sponsorship_enabled = enabled
+        return self
+
+    def rpc_url(self, url: str) -> LightconeClientBuilder:
         """Set the primary Solana RPC URL for blockhash fetching, transaction submission, and on-chain reads."""
         self._primary_rpc_url = url
         return self
 
-    def backup_rpc_url(self, url: str) -> "LightconeClientBuilder":
+    def backup_rpc_url(self, url: str) -> LightconeClientBuilder:
         """Set a backup Solana RPC URL for automatic failover."""
         self._backup_rpc_url = url
         return self
 
-    def rpc_connection(self, connection: object) -> "LightconeClientBuilder":
+    def rpc_connection(self, connection: object) -> LightconeClientBuilder:
         """Set a pre-built Solana AsyncClient for on-chain reads."""
         self._connection = connection
         return self
@@ -467,6 +696,7 @@ class LightconeClientBuilder:
         http = LightconeHttp(
             base_url=self._base_url,
             timeout=self._timeout,
+            api_key=self._api_key,
         )
 
         ws_config = self._ws_config or WsConfig(
@@ -483,13 +713,19 @@ class LightconeClientBuilder:
         if connection is None and self._primary_rpc_url is not None:
             from solana.rpc.async_api import AsyncClient
             from solana.rpc.commitment import Confirmed
-            connection = AsyncClient(self._primary_rpc_url, commitment=Confirmed)
+
+            connection = AsyncClient(
+                self._primary_rpc_url, commitment=Confirmed, max_transport_retries=0
+            )
 
         backup_connection = None
         if self._backup_rpc_url is not None:
             from solana.rpc.async_api import AsyncClient
             from solana.rpc.commitment import Confirmed
-            backup_connection = AsyncClient(self._backup_rpc_url, commitment=Confirmed)
+
+            backup_connection = AsyncClient(
+                self._backup_rpc_url, commitment=Confirmed, max_transport_retries=0
+            )
 
         return LightconeClient(
             http=http,
@@ -500,6 +736,8 @@ class LightconeClientBuilder:
             backup_connection=backup_connection,
             deposit_source=self._deposit_source,
             signing_strategy=self._signing_strategy,
+            transaction_sponsorship_enabled=self._transaction_sponsorship_enabled,
+            transaction_resources=self._transaction_resources,
             primary_rpc_url=self._primary_rpc_url,
             backup_rpc_url=self._backup_rpc_url,
         )

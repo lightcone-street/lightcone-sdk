@@ -6,7 +6,8 @@ from typing import Optional
 
 @dataclass
 class TickerData:
-    """Ticker data for an orderbook."""
+    """Ticker data; ``mid_price`` is engine-authoritative and may use
+    one-sided-book or last-trade fallback."""
     orderbook_id: str
     best_bid: Optional[str] = None
     best_ask: Optional[str] = None

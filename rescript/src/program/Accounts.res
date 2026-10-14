@@ -15,7 +15,7 @@ module Size = {
   let market = 216
   let position = 80
   let userNonce = 16
-  let orderbook = 144
+  let orderbook = 176
   let orderStatus = 32
   let globalDepositToken = 47
 }
@@ -80,7 +80,7 @@ module MarketStatus = {
     | 1 => Ok(Active)
     | 2 => Ok(Resolved)
     | 3 => Ok(Cancelled)
-    | other => Error(SdkError.Program(`Invalid market status: ${Int.toString(other)}`))
+    | other => Error(SdkError.Program(ProgramError.InvalidMarketStatus(other)))
     }
 
   let toString = (status: t): string =>
@@ -106,28 +106,25 @@ module PendingRoleKind = {
     | 1 => Ok(Authority)
     | 2 => Ok(Manager)
     | 3 => Ok(Operator)
-    | other => Error(SdkError.Program(`Invalid pending role kind: ${Int.toString(other)}`))
+    | other => Error(SdkError.Program(ProgramError.InvalidPendingRoleKind(other)))
     }
 }
 
 // ── Decode guards ──────────────────────────────────────────────────────────────
 // Length + discriminator guard run before every field read.
-let checkHeader = (
-  bytes: Uint8Array.t,
-  size: int,
-  discriminator: array<int>,
-  name: string,
-): result<unit, SdkError.t> =>
-  if byteLength(bytes) < size {
+let checkHeader = (bytes: Uint8Array.t, size: int, discriminator: array<int>, name: string): result<
+  unit,
+  SdkError.t,
+> =>
+  if (
+    byteLength(bytes) < size ||
+      ((name == "Orderbook" || name == "GlobalDepositToken") && byteLength(bytes) != size)
+  ) {
     Error(
-      SdkError.Program(
-        `${name}: invalid data length (expected ${Int.toString(size)}, got ${Int.toString(
-            byteLength(bytes),
-          )})`,
-      ),
+      SdkError.Program(ProgramError.InvalidDataLength({expected: size, actual: byteLength(bytes)})),
     )
   } else if !discriminatorMatches(bytes, discriminator) {
-    Error(SdkError.Program(`${name}: invalid account discriminator`))
+    Error(SdkError.Program(ProgramError.Other(`${name}: invalid account discriminator`)))
   } else {
     Ok()
   }
@@ -137,7 +134,13 @@ let guard = (name: string, body: unit => result<'a, SdkError.t>): result<'a, Sdk
   switch body() {
   | decoded => decoded
   | exception JsExn(error) =>
-    Error(SdkError.Program(`${name}: decode failed (${error->JsExn.message->Option.getOr("decode error")})`))
+    Error(
+      SdkError.Program(
+        ProgramError.Other(
+          `${name}: decode failed (${error->JsExn.message->Option.getOr("decode error")})`,
+        ),
+      ),
+    )
   }
 
 // ── Domain records (the clean, gentype-exported account shapes) ────────────────
@@ -200,6 +203,7 @@ module Market = {
     conditionId: string,
     payoutNumerators: array<float>,
     payoutDenominator: float,
+    depositMintCount: int,
   }
 
   let decode = (bytes: Uint8Array.t): result<t, SdkError.t> =>
@@ -230,20 +234,21 @@ module Market = {
               u32At(bytes, 140),
             ]->Array.map(Int.toFloat),
             payoutDenominator: Int.toFloat(u32At(bytes, 144)),
+            depositMintCount: u8At(bytes, 148),
           })
         }
       }
     )
 }
 
-// Orderbook — on-chain book with its ALT (144 bytes). `baseIndex` 0 ⇒ mintA is
-// the base asset, 1 ⇒ mintB.
 module Orderbook = {
   type t = {
     market: Shared.pubkeyStr,
     mintA: Shared.pubkeyStr,
     mintB: Shared.pubkeyStr,
-    lookupTable: Shared.pubkeyStr,
+    depositMintA: Shared.pubkeyStr,
+    depositMintB: Shared.pubkeyStr,
+    outcomeIndex: int,
     baseIndex: float,
     bump: float,
   }
@@ -252,17 +257,23 @@ module Orderbook = {
     guard("Orderbook", () =>
       switch checkHeader(bytes, Size.orderbook, Constants.Discriminator.orderbook, "Orderbook") {
       | Error(error) => Error(error)
+      | Ok() if u8At(bytes, 168) > 1 || u8At(bytes, 169) >= 6 =>
+        Error(SdkError.Program(ProgramError.Other("invalid orderbook orientation or outcome")))
       | Ok() =>
         Ok({
           market: addressAt(bytes, 8),
           mintA: addressAt(bytes, 40),
           mintB: addressAt(bytes, 72),
-          lookupTable: addressAt(bytes, 104),
-          baseIndex: Int.toFloat(u8At(bytes, 136)),
-          bump: Int.toFloat(u8At(bytes, 137)),
+          depositMintA: addressAt(bytes, 104),
+          depositMintB: addressAt(bytes, 136),
+          baseIndex: Int.toFloat(u8At(bytes, 168)),
+          outcomeIndex: u8At(bytes, 169),
+          bump: Int.toFloat(u8At(bytes, 170)),
         })
       }
     )
+  let baseDepositMint = book => book.baseIndex == 0.0 ? book.depositMintA : book.depositMintB
+  let quoteDepositMint = book => book.baseIndex == 0.0 ? book.depositMintB : book.depositMintA
 }
 
 // Position — a user's per-market custody account (80 bytes).
@@ -313,7 +324,12 @@ module OrderStatus = {
 
   let decode = (bytes: Uint8Array.t): result<t, SdkError.t> =>
     guard("OrderStatus", () =>
-      switch checkHeader(bytes, Size.orderStatus, Constants.Discriminator.orderStatus, "OrderStatus") {
+      switch checkHeader(
+        bytes,
+        Size.orderStatus,
+        Constants.Discriminator.orderStatus,
+        "OrderStatus",
+      ) {
       | Error(error) => Error(error)
       | Ok() =>
         Ok({
@@ -344,6 +360,8 @@ module GlobalDepositToken = {
         "GlobalDepositToken",
       ) {
       | Error(error) => Error(error)
+      | Ok() if u8At(bytes, 43) > 1 =>
+        Error(SdkError.Program(ProgramError.Other("invalid global deposit token activity byte")))
       | Ok() =>
         Ok({
           mint: addressAt(bytes, 8),

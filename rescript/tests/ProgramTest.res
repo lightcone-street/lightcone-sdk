@@ -5,13 +5,13 @@ let byteLength: Uint8Array.t => int = %raw(`(a) => a.length`)
 let byteAt: (Uint8Array.t, int) => int = %raw(`(a, i) => a[i]`)
 let bigStr = value => BigInt.toString(value)
 
-let decimals66: Scaling.OrderbookDecimals.t = {baseDecimals: 6, quoteDecimals: 6, priceDecimals: 2, tickSize: 0.0}
-let decimals69: Scaling.OrderbookDecimals.t = {baseDecimals: 6, quoteDecimals: 9, priceDecimals: 2, tickSize: 0.0}
+let rules66 = TradingRulesFixture.make()
+let rules69 = TradingRulesFixture.make(~quoteDecimals=9, ())
 
 // Vectors copied verbatim from rust/src/shared/scaling.rs tests.
 describe("Scaling", () => {
   test("BID basic: 0.65 * 100 @ 6/6", () => {
-    switch Scaling.scalePriceSize(~price="0.65", ~size="100", ~side=0, ~decimals=decimals66) {
+    switch Scaling.scalePriceSize(~price="0.65", ~size="100", ~side=0, ~rules=rules66) {
     | Ok({amountIn, amountOut}) =>
       expect(bigStr(amountIn))->toBe("65000000")
       expect(bigStr(amountOut))->toBe("100000000")
@@ -20,7 +20,7 @@ describe("Scaling", () => {
   })
 
   test("ASK basic swaps amount_in/out", () => {
-    switch Scaling.scalePriceSize(~price="0.65", ~size="100", ~side=1, ~decimals=decimals66) {
+    switch Scaling.scalePriceSize(~price="0.65", ~size="100", ~side=1, ~rules=rules66) {
     | Ok({amountIn, amountOut}) =>
       expect(bigStr(amountIn))->toBe("100000000")
       expect(bigStr(amountOut))->toBe("65000000")
@@ -29,7 +29,7 @@ describe("Scaling", () => {
   })
 
   test("different decimals 6/9", () => {
-    switch Scaling.scalePriceSize(~price="0.65", ~size="100", ~side=0, ~decimals=decimals69) {
+    switch Scaling.scalePriceSize(~price="0.65", ~size="100", ~side=0, ~rules=rules69) {
     | Ok({amountIn, amountOut}) =>
       expect(bigStr(amountIn))->toBe("65000000000")
       expect(bigStr(amountOut))->toBe("100000000")
@@ -37,24 +37,31 @@ describe("Scaling", () => {
     }
   })
 
-  test("f64 noise in size is truncated", () => {
-    switch Scaling.scalePriceSize(~price="1", ~size="15.763000000000002", ~side=0, ~decimals=decimals66) {
-    | Ok({amountIn, amountOut}) =>
-      expect(bigStr(amountIn))->toBe("15763000")
-      expect(bigStr(amountOut))->toBe("15763000")
-    | Error(_) => expect("error")->toBe("ok")
-    }
-  })
+  test("excess size precision is rejected without rounding", () =>
+    expect(
+      Scaling.scalePriceSize(
+        ~price="1",
+        ~size="15.763000000000002",
+        ~side=0,
+        ~rules=rules66,
+      )->Result.isError,
+    )->toBe(true)
+  )
 
   test("zero price rejected", () =>
     expect(
-      Scaling.scalePriceSize(~price="0", ~size="100", ~side=0, ~decimals=decimals66)->Result.isError,
+      Scaling.scalePriceSize(~price="0", ~size="100", ~side=0, ~rules=rules66)->Result.isError,
     )->toBe(true)
   )
 
   test("sub-lamport size → ZeroAmount", () =>
     expect(
-      Scaling.scalePriceSize(~price="1", ~size="0.0000001", ~side=0, ~decimals=decimals66)->Result.isError,
+      Scaling.scalePriceSize(
+        ~price="1",
+        ~size="0.0000001",
+        ~side=0,
+        ~rules=rules66,
+      )->Result.isError,
     )->toBe(true)
   )
 })
@@ -86,7 +93,10 @@ describe("OrderPayload", () => {
 
     let signature = await OrderPayload.sign(order, keypair)
     expect(byteLength(signature))->toBe(64)
-    let hexBytes = SolanaKitCodec.encode(SolanaKitCodec.getUtf8Encoder(), OrderPayload.hashHex(order))
+    let hexBytes = SolanaKitCodec.encode(
+      SolanaKitCodec.getUtf8Encoder(),
+      OrderPayload.hashHex(order),
+    )
     let verified = await SolanaKitKeys.verifySignature(keypair.publicKey, signature, hexBytes)
     expect(verified)->toBe(true)
   })
@@ -115,7 +125,6 @@ describe("Instructions (position ops)", () => {
   let user = SolanaKit.address("So11111111111111111111111111111111111111112")
   let market = SolanaKit.address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
   let mint = SolanaKit.address("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB")
-  let lookupTable = SolanaKit.address("Vote111111111111111111111111111111111111111")
 
   let role = (instruction: SolanaKit.instruction, index) =>
     (instruction.accounts->Array.getUnsafe(index)).role
@@ -123,13 +132,20 @@ describe("Instructions (position ops)", () => {
     SolanaKit.addressToString((instruction.accounts->Array.getUnsafe(index)).address)
 
   testAsync("deposit (mint complete set): opcode 3 + amount LE; 11 + 2n accounts", async () => {
-    let ix = await Instructions.deposit(~programId, ~user, ~market, ~mint, ~amount=1000000n, ~numOutcomes=2)
+    let ix = await Instructions.deposit(
+      ~programId,
+      ~user,
+      ~market,
+      ~mint,
+      ~amount=1000000n,
+      ~numOutcomes=2,
+    )
     expect(byteLength(ix.data))->toBe(9)
     expect(byteAt(ix.data, 0))->toBe(3)
     expect(byteAt(ix.data, 1))->toBe(0x40)
     expect(byteAt(ix.data, 2))->toBe(0x42)
     expect(byteAt(ix.data, 3))->toBe(0x0f)
-    expect(Array.length(ix.accounts))->toBe(15)
+    expect(Array.length(ix.accounts))->toBe(17)
     expect(role(ix, 0))->toBe(SolanaKit.Role.writableSigner)
     expect(address(ix, 0))->toBe(SolanaKit.addressToString(user))
     let (exchange, _) = await Pda.exchange(programId)
@@ -144,7 +160,7 @@ describe("Instructions (position ops)", () => {
       ~programId,
       ~user,
       ~market,
-      ~mint,
+      ~depositMint=mint,
       ~amount=5n,
       ~outcomeIndex=1,
     )
@@ -152,56 +168,14 @@ describe("Instructions (position ops)", () => {
     expect(byteAt(ix.data, 0))->toBe(11)
     expect(byteAt(ix.data, 1))->toBe(5)
     expect(byteAt(ix.data, 9))->toBe(1)
-    expect(Array.length(ix.accounts))->toBe(8)
+    expect(Array.length(ix.accounts))->toBe(11)
     expect(role(ix, 0))->toBe(SolanaKit.Role.writableSigner)
     let (position, _) = await Pda.position(programId, ~owner=user, ~market)
-    expect(address(ix, 2))->toBe(SolanaKit.addressToString(position))
-    expect(role(ix, 2))->toBe(SolanaKit.Role.writable)
-    expect(address(ix, 3))->toBe(SolanaKit.addressToString(mint))
+    expect(address(ix, 3))->toBe(SolanaKit.addressToString(position))
+    expect(role(ix, 3))->toBe(SolanaKit.Role.readonly)
+    expect(address(ix, 4))->toBe(SolanaKit.addressToString(mint))
     let (exchange, _) = await Pda.exchange(programId)
-    expect(address(ix, 7))->toBe(SolanaKit.addressToString(exchange))
-  })
-
-  testAsync("extendPositionTokens: opcode 21 + mint count; 10 + m*(3+2n) accounts", async () => {
-    let ix = await Instructions.extendPositionTokens(
-      ~programId,
-      ~operator=user,
-      ~user,
-      ~market,
-      ~lookupTable,
-      ~depositMints=[mint, market],
-      ~numOutcomes=2,
-    )
-    expect(byteLength(ix.data))->toBe(2)
-    expect(byteAt(ix.data, 0))->toBe(21)
-    expect(byteAt(ix.data, 1))->toBe(2)
-    expect(Array.length(ix.accounts))->toBe(24)
-    expect(role(ix, 0))->toBe(SolanaKit.Role.writableSigner)
-    // position is READONLY here (unlike initPositionTokens, where it is writable).
-    let (position, _) = await Pda.position(programId, ~owner=user, ~market)
-    expect(address(ix, 4))->toBe(SolanaKit.addressToString(position))
-    expect(role(ix, 4))->toBe(SolanaKit.Role.readonly)
-    expect(address(ix, 5))->toBe(SolanaKit.addressToString(lookupTable))
-    expect(role(ix, 5))->toBe(SolanaKit.Role.writable)
-  })
-
-  testAsync("closePositionAlt: opcode-only data; 6 accounts", async () => {
-    let position = SolanaKit.address("Stake11111111111111111111111111111111111111")
-    let ix = await Instructions.closePositionAlt(
-      ~programId,
-      ~operator=user,
-      ~position,
-      ~market,
-      ~lookupTable,
-    )
-    expect(byteLength(ix.data))->toBe(1)
-    expect(byteAt(ix.data, 0))->toBe(23)
-    expect(Array.length(ix.accounts))->toBe(6)
-    expect(role(ix, 0))->toBe(SolanaKit.Role.writableSigner)
-    expect(address(ix, 2))->toBe(SolanaKit.addressToString(position))
-    expect(address(ix, 4))->toBe(SolanaKit.addressToString(lookupTable))
-    expect(role(ix, 4))->toBe(SolanaKit.Role.writable)
-    expect(address(ix, 5))->toBe(SolanaKit.addressToString(Constants.altProgram))
+    expect(address(ix, 1))->toBe(SolanaKit.addressToString(exchange))
   })
 
   testAsync("closePositionTokenAccounts: opcode-only data; 5 + m*(1+2n) accounts", async () => {
@@ -216,7 +190,7 @@ describe("Instructions (position ops)", () => {
     )
     expect(byteLength(ix.data))->toBe(1)
     expect(byteAt(ix.data, 0))->toBe(25)
-    expect(Array.length(ix.accounts))->toBe(12)
+    expect(Array.length(ix.accounts))->toBe(14)
     expect(role(ix, 0))->toBe(SolanaKit.Role.writableSigner)
     expect(address(ix, 3))->toBe(SolanaKit.addressToString(position))
     expect(address(ix, 5))->toBe(SolanaKit.addressToString(mint))
@@ -252,7 +226,9 @@ describe("OrderPayload signed-order serialization + helpers", () => {
         expect(await OrderPayload.verifySignature(decoded, ~signature=decodedSignature))->toBe(true)
         // A different order must NOT verify against this signature.
         let tampered = {...decoded, amountIn: 1n}
-        expect(await OrderPayload.verifySignature(tampered, ~signature=decodedSignature))->toBe(false)
+        expect(await OrderPayload.verifySignature(tampered, ~signature=decodedSignature))->toBe(
+          false,
+        )
       }
     | Error(error) => expect(error)->toBe("roundtrip")
     }
@@ -372,46 +348,49 @@ describe("Instructions (admin + matching ops)", () => {
   let market = SolanaKit.address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
   let mint = SolanaKit.address("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB")
 
-  testAsync("createMarket: opcode 1 + 70-byte data (outcomes, oracle, question, fees)", async () => {
-    let questionId: Uint8Array.t = %raw(`new Uint8Array(32).fill(2)`)
-    switch await Instructions.createMarket(
-      ~programId,
-      ~manager=authority,
-      ~marketId=1n,
-      ~numOutcomes=2,
-      ~oracle=mint,
-      ~questionId,
-      ~makerFeeBps=-25,
-      ~takerFeeBps=75,
-    ) {
-    | Ok(ix) => {
-        expect(byteLength(ix.data))->toBe(70)
-        expect(byteAt(ix.data, 0))->toBe(1)
-        expect(byteAt(ix.data, 1))->toBe(2) // num_outcomes
-        // maker fee -25 → two's-complement LE (0xE7, 0xFF)
-        expect(byteAt(ix.data, 66))->toBe(0xe7)
-        expect(byteAt(ix.data, 67))->toBe(0xff)
-        expect(byteAt(ix.data, 68))->toBe(75)
-        expect(Array.length(ix.accounts))->toBe(5)
+  testAsync(
+    "createMarket: opcode 1 + 70-byte data (outcomes, oracle, question, fees)",
+    async () => {
+      let questionId: Uint8Array.t = %raw(`new Uint8Array(32).fill(2)`)
+      switch await Instructions.createMarket(
+        ~programId,
+        ~manager=authority,
+        ~marketId=1n,
+        ~numOutcomes=2,
+        ~oracle=mint,
+        ~questionId,
+        ~makerFeeBps=-25,
+        ~takerFeeBps=75,
+      ) {
+      | Ok(ix) => {
+          expect(byteLength(ix.data))->toBe(70)
+          expect(byteAt(ix.data, 0))->toBe(1)
+          expect(byteAt(ix.data, 1))->toBe(2) // num_outcomes
+          // maker fee -25 → two's-complement LE (0xE7, 0xFF)
+          expect(byteAt(ix.data, 66))->toBe(0xe7)
+          expect(byteAt(ix.data, 67))->toBe(0xff)
+          expect(byteAt(ix.data, 68))->toBe(75)
+          expect(Array.length(ix.accounts))->toBe(7)
+        }
+      | Error(_) => expect("error")->toBe("ok")
       }
-    | Error(_) => expect("error")->toBe("ok")
-    }
-    // Fee pair summing negative is rejected.
-    expect(
-      (
-        await Instructions.createMarket(
-          ~programId,
-          ~manager=authority,
-          ~marketId=1n,
-          ~numOutcomes=2,
-          ~oracle=mint,
-          ~questionId,
-          ~makerFeeBps=-100,
-          ~takerFeeBps=50,
-        )
-      )->Result.isError,
-    )->toBe(true)
-  })
+      // Fee pair summing negative is rejected.
+      expect(
+        (
+          await Instructions.createMarket(
+            ~programId,
+            ~manager=authority,
+            ~marketId=1n,
+            ~numOutcomes=2,
+            ~oracle=mint,
+            ~questionId,
+            ~makerFeeBps=-100,
+            ~takerFeeBps=50,
+          )
+        )->Result.isError,
+      )->toBe(true)
+    },
+  )
 
   testAsync("settleMarket: opcode 7 + u32 numerators; winnerTakesAll helper", async () => {
     switch Instructions.winnerTakesAllNumerators(~winningOutcome=1, ~numOutcomes=3) {
@@ -447,94 +426,76 @@ describe("Instructions (admin + matching ops)", () => {
     )->toBe(true)
   })
 
-  testAsync("matchOrdersMulti: data = 1 + 103 + 117/maker; bitmask trims order-status accounts", async () => {
-    let signature: Uint8Array.t = %raw(`new Uint8Array(64).fill(3)`)
-    let payload = OrderPayload.newBid(
-      ~nonce=1n,
-      ~salt=1n,
-      ~maker=authority,
-      ~market,
-      ~baseMint=mint,
-      ~quoteMint=mint,
-      ~amountIn=10n,
-      ~amountOut=20n,
-    )
-    let taker: Instructions.SignedOrder.t = {order: payload, signature}
-    let maker: Instructions.MatchMaker.t = {
-      order: {order: {...payload, side: 1}, signature},
-      makerFillAmount: 5n,
-      takerFillAmount: 10n,
-      isFullFill: true,
-    }
-    switch await Instructions.matchOrdersMulti(
-      ~programId,
-      ~operator=authority,
-      ~market,
-      ~baseMint=mint,
-      ~quoteMint=mint,
-      ~feeReceiver=authority,
-      ~takerOrder=taker,
-      ~takerIsFullFill=true,
-      ~makers=[maker],
-    ) {
-    | Ok(ix) => {
-        expect(byteLength(ix.data))->toBe(1 + 37 + 64 + 2 + 37 + 64 + 16)
-        expect(byteAt(ix.data, 0))->toBe(13)
-        expect(byteAt(ix.data, 102))->toBe(1) // num_makers
-        expect(byteAt(ix.data, 103))->toBe(129) // bitmask: taker bit 7 + maker bit 0
-        // Full fills: 15 fixed taker accounts + 4 per maker, no order-status.
-        expect(Array.length(ix.accounts))->toBe(19)
+  testAsync(
+    "matchOrdersMulti: data = 1 + 103 + 117/maker; bitmask trims order-status accounts",
+    async () => {
+      let signature: Uint8Array.t = %raw(`new Uint8Array(64).fill(3)`)
+      let payload = OrderPayload.newBid(
+        ~nonce=1n,
+        ~salt=1n,
+        ~maker=authority,
+        ~market,
+        ~baseMint=mint,
+        ~quoteMint=market,
+        ~amountIn=10n,
+        ~amountOut=20n,
+      )
+      let taker: Instructions.SignedOrder.t = {order: payload, signature}
+      let maker: Instructions.MatchMaker.t = {
+        order: {order: {...payload, side: 1}, signature},
+        makerFillAmount: 5n,
+        takerFillAmount: 10n,
+        isFullFill: true,
       }
-    | Error(_) => expect("error")->toBe("ok")
-    }
-    expect(
-      (
-        await Instructions.matchOrdersMulti(
-          ~programId,
-          ~operator=authority,
-          ~market,
-          ~baseMint=mint,
-          ~quoteMint=mint,
-          ~feeReceiver=authority,
-          ~takerOrder=taker,
-          ~takerIsFullFill=false,
-          ~makers=[],
-        )
-      )->Result.isError,
-    )->toBe(true)
-  })
-
-  testAsync("depositToGlobalWithAlt (Create): base accounts + ALT block; slot appended", async () => {
-    let ix = await Instructions.depositToGlobalWithAlt(
-      ~programId,
-      ~user=authority,
-      ~mint,
-      ~amount=1000000n,
-      ~altContext=Instructions.DepositToGlobalAltContext.Create({recentSlot: 5n}),
-    )
-    expect(Array.length(ix.accounts))->toBe(11) // 8 base + nonce + lookup table + alt program
-    expect(byteLength(ix.data))->toBe(17) // opcode + amount + recent slot
-    expect(byteAt(ix.data, 0))->toBe(17)
-    expect(byteAt(ix.data, 9))->toBe(5) // recent_slot LE low byte
-    let extended = await Instructions.depositToGlobalWithAlt(
-      ~programId,
-      ~user=authority,
-      ~mint,
-      ~amount=1000000n,
-      ~altContext=Instructions.DepositToGlobalAltContext.Extend({lookupTable: market}),
-    )
-    expect(byteLength(extended.data))->toBe(9) // no slot appended
-    expect(
-      SolanaKit.addressToString((extended.accounts->Array.getUnsafe(9)).address),
-    )->toBe(SolanaKit.addressToString(market))
-  })
+      switch await Instructions.matchOrdersMulti(
+        ~programId,
+        ~operator=authority,
+        ~market,
+        ~baseMint=mint,
+        ~quoteMint=market,
+        ~baseDepositMint=mint,
+        ~quoteDepositMint=market,
+        ~feeReceiver=authority,
+        ~takerOrder=taker,
+        ~takerIsFullFill=true,
+        ~makers=[maker],
+      ) {
+      | Ok(ix) => {
+          expect(byteLength(ix.data))->toBe(105 + 117)
+          expect(byteAt(ix.data, 0))->toBe(13)
+          expect(byteAt(ix.data, 102))->toBe(1) // num_makers
+          expect(byteAt(ix.data, 103))->toBe(1) // bitmask: taker bit 7 + maker bit 0
+          // Full fills: 15 fixed taker accounts + 4 per maker, no order-status.
+          expect(Array.length(ix.accounts))->toBe(23)
+        }
+      | Error(_) => expect("error")->toBe("ok")
+      }
+      expect(
+        (
+          await Instructions.matchOrdersMulti(
+            ~programId,
+            ~operator=authority,
+            ~market,
+            ~baseMint=mint,
+            ~quoteMint=market,
+            ~baseDepositMint=mint,
+            ~quoteDepositMint=market,
+            ~feeReceiver=authority,
+            ~takerOrder=taker,
+            ~takerIsFullFill=false,
+            ~makers=[],
+          )
+        )->Result.isError,
+      )->toBe(true)
+    },
+  )
 
   testAsync("closeOrderStatus: opcode 24 + 32-byte hash; 3 accounts", async () => {
     let orderHash: Uint8Array.t = %raw(`new Uint8Array(32).fill(9)`)
     let ix = await Instructions.closeOrderStatus(~programId, ~operator=authority, ~orderHash)
     expect(byteLength(ix.data))->toBe(33)
     expect(byteAt(ix.data, 0))->toBe(24)
-    expect(Array.length(ix.accounts))->toBe(3)
+    expect(Array.length(ix.accounts))->toBe(5)
   })
 
   testAsync("conditional metadata: validates lengths; update drops system+rent", async () => {
@@ -550,7 +511,7 @@ describe("Instructions (admin + matching ops)", () => {
     ) {
     | Ok(ix) => {
         expect(byteAt(ix.data, 0))->toBe(31)
-        expect(Array.length(ix.accounts))->toBe(10)
+        expect(Array.length(ix.accounts))->toBe(12)
       }
     | Error(_) => expect("error")->toBe("ok")
     }
@@ -566,7 +527,7 @@ describe("Instructions (admin + matching ops)", () => {
     ) {
     | Ok(ix) => {
         expect(byteAt(ix.data, 0))->toBe(32)
-        expect(Array.length(ix.accounts))->toBe(8)
+        expect(Array.length(ix.accounts))->toBe(10)
         expect((ix.accounts->Array.getUnsafe(0)).role)->toBe(SolanaKit.Role.readonlySigner)
       }
     | Error(_) => expect("error")->toBe("ok")

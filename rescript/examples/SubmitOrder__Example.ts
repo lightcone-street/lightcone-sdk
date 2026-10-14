@@ -44,7 +44,7 @@ async function waitForGlobalBalance(
   console.log(`waiting for global balance: mint=${mint} required=${minimum}`);
   for (let attempt = 1; attempt <= 15; attempt++) {
     const balances = await PositionClient.depositTokenBalances(client);
-    const idle = balances[mint]?.idle ?? "0";
+    const idle = balances.balances[mint]?.idle ?? "0";
     if (Number(idle) >= minimum) {
       console.log(`global balance ready: idle=${idle} (attempt ${attempt})`);
       return;
@@ -91,13 +91,7 @@ async function main(): Promise<void> {
     setOrderNonce(client, BigInt(nonce));
   }
 
-  // 3. Derive the scaling decimals from the pair's token metadata (no REST call),
-  //    mirroring OrderBookPair::decimals(): price_decimals = max(0, 6 + quote - base).
-  const baseDecimals = Math.trunc(pair.base.decimals);
-  const quoteDecimals = Math.trunc(pair.quote.decimals);
-  const priceDecimals = Math.max(0, 6 + quoteDecimals - baseDecimals);
-  const tickSize = Math.max(0, pair.tickSize);
-
+  // Trading rules are fetched and validated by the SDK before signing.
   // All-positional facade call; side 0 = bid, 1 = ask. timeInForce defaults (undefined).
   const response = await OrderClient.submitLimit(
     client,
@@ -107,10 +101,6 @@ async function main(): Promise<void> {
     0,
     "0.55",
     "2",
-    baseDecimals,
-    quoteDecimals,
-    priceDecimals,
-    tickSize,
     pair.orderbookId,
     undefined,
   );

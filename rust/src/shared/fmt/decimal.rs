@@ -6,6 +6,19 @@
 use rust_decimal::prelude::*;
 use std::sync::OnceLock;
 
+/// The compact visual and fully expanded spellings of one unchanged Decimal.
+///
+/// Both strings are derived from the same normalized value. `compact` may count
+/// a long run of leading fractional zeros with Unicode subscripts, while
+/// `expanded` always contains every digit and is suitable for accessible text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExactDecimalDisplay {
+    /// The exact visual spelling, with long leading fractional zero runs compacted.
+    pub compact: String,
+    /// The exact grouped spelling with every fractional digit written out.
+    pub expanded: String,
+}
+
 static TRILLION: OnceLock<Decimal> = OnceLock::new();
 static BILLION: OnceLock<Decimal> = OnceLock::new();
 static MILLION: OnceLock<Decimal> = OnceLock::new();
@@ -41,6 +54,61 @@ pub fn display(value: &Decimal) -> String {
     let rounded =
         value.round_dp_with_strategy(decimals as u32, RoundingStrategy::MidpointAwayFromZero);
     super::num::display_default_formatted_string(format!("{:.1$}", rounded, decimals))
+}
+
+/// Formats a Decimal without changing its numeric value.
+///
+/// Integer digits are grouped, insignificant trailing fractional zeros are
+/// removed by Decimal normalization, and zero is rendered as `0`. A run of six
+/// or more zeros immediately after the decimal point of a value between -1 and
+/// 1 is represented in `compact` as `0` followed by a Unicode subscript count;
+/// `expanded` retains the full run. For example, `0.000000123456` becomes compact
+/// `0.0₆123456` and expanded `0.000000123456`.
+pub fn display_exact(value: &Decimal) -> ExactDecimalDisplay {
+    let expanded = super::num::display_formatted_string(value.normalize().to_string());
+    let compact = compact_leading_fractional_zeros(&expanded);
+    ExactDecimalDisplay { compact, expanded }
+}
+
+/// Compacts only a tiny value's six-or-more leading fractional zero run.
+fn compact_leading_fractional_zeros(expanded: &str) -> String {
+    let Some((integer, fraction)) = expanded.split_once('.') else {
+        return expanded.to_string();
+    };
+    if integer != "0" && integer != "-0" {
+        return expanded.to_string();
+    }
+    let zero_count = fraction.bytes().take_while(|byte| *byte == b'0').count();
+    if zero_count < 6 || zero_count == fraction.len() {
+        return expanded.to_string();
+    }
+
+    format!(
+        "{integer}.0{}{}",
+        subscript_count(zero_count),
+        &fraction[zero_count..]
+    )
+}
+
+/// Writes a decimal zero-count with Unicode subscript digits.
+fn subscript_count(count: usize) -> String {
+    count
+        .to_string()
+        .chars()
+        .map(|digit| match digit {
+            '0' => '₀',
+            '1' => '₁',
+            '2' => '₂',
+            '3' => '₃',
+            '4' => '₄',
+            '5' => '₅',
+            '6' => '₆',
+            '7' => '₇',
+            '8' => '₈',
+            '9' => '₉',
+            other => other,
+        })
+        .collect()
 }
 
 /// Abbreviate a `Decimal` with k/m/b/t suffixes.
@@ -185,6 +253,65 @@ mod tests {
         assert_eq!(display(&dec("-15.4567")), "-15.457");
         assert_eq!(display(&dec("-0.00003")), "-0.00003");
         assert_eq!(display(&dec("-0.000004")), "0");
+    }
+
+    #[test]
+    /// Proves exact display groups and normalizes without changing significant digits.
+    fn test_display_exact_preserves_value() {
+        assert_eq!(
+            display_exact(&dec("1234.500000")),
+            ExactDecimalDisplay {
+                compact: "1,234.5".to_string(),
+                expanded: "1,234.5".to_string(),
+            }
+        );
+        assert_eq!(
+            display_exact(&dec("1.0000009")),
+            ExactDecimalDisplay {
+                compact: "1.0000009".to_string(),
+                expanded: "1.0000009".to_string(),
+            }
+        );
+        assert_eq!(
+            display_exact(&Decimal::ZERO),
+            ExactDecimalDisplay {
+                compact: "0".to_string(),
+                expanded: "0".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    /// Locks the six-zero compact grammar while retaining the expanded source of truth.
+    fn test_display_exact_compacts_leading_fractional_zeros() {
+        assert_eq!(
+            display_exact(&dec("0.00000123456")),
+            ExactDecimalDisplay {
+                compact: "0.00000123456".to_string(),
+                expanded: "0.00000123456".to_string(),
+            }
+        );
+        assert_eq!(
+            display_exact(&dec("0.000000123456")),
+            ExactDecimalDisplay {
+                compact: "0.0₆123456".to_string(),
+                expanded: "0.000000123456".to_string(),
+            }
+        );
+        assert_eq!(
+            display_exact(&dec("-0.000000123456")),
+            ExactDecimalDisplay {
+                compact: "-0.0₆123456".to_string(),
+                expanded: "-0.000000123456".to_string(),
+            }
+        );
+        assert_eq!(
+            display_exact(&dec("0.0000000000123456")),
+            ExactDecimalDisplay {
+                compact: "0.0₁₀123456".to_string(),
+                expanded: "0.0000000000123456".to_string(),
+            }
+        );
     }
 
     #[test]

@@ -70,6 +70,11 @@ isZero("0.000000");  // true
 isZero("0.001");     // false
 ```
 
+`applyImpactProtection(side, worstFillPrice, protectionPercent)` accepts
+any finite protection greater than zero. There is no policy maximum; Ask
+protection at or above 100% returns a zero boundary. Non-positive or non-finite
+values return `null`.
+
 ## For Program-Specific Code
 
 All program-specific code has been moved to the `program` module:

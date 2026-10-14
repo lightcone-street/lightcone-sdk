@@ -24,6 +24,7 @@ export {
 } from "./client";
 
 export { Rpc } from "./rpc";
+export type { CanonicalWsolAccountInfo } from "./rpc";
 export type { ClientContext } from "./context";
 
 export { Auth } from "./auth";
@@ -114,7 +115,7 @@ export type {
   TickerData,
   WsBookLevel,
 } from "./domain/orderbook";
-export { OrderBookValidationError } from "./domain/orderbook";
+export { ImpactDirection, OrderBookValidationError } from "./domain/orderbook";
 export type { BookAggregation } from "./domain/orderbook/aggregation";
 export {
   aggregationFromFrame,
@@ -166,6 +167,20 @@ export type {
   TokenBalanceTokenType,
   DepositAssetMetadata,
   DepositTokenBalance,
+  DepositTokenBalancesSnapshot,
+  WalletDepositBalanceSnapshot,
+  WalletDepositBalanceStatus,
+  WalletDepositBalanceStatusEvent,
+  WalletDepositBalancesApplyResult,
+  WalletDepositBalancesEvent,
+  WalletDepositBalanceUpdate,
+  WalletNativeSolBalanceUpdate,
+  SolActionCosts,
+  SolActionKind,
+  SolActionPlan,
+  SolBalanceAvailability,
+  SolBalanceBreakdown,
+  SolBalanceDelta,
 } from "./domain/position";
 
 export {
@@ -174,10 +189,16 @@ export {
   RedeemWinningsBuilder,
   WithdrawFromPositionBuilder,
   InitPositionTokensBuilder,
-  ExtendPositionTokensBuilder,
   DepositToGlobalBuilder,
   WithdrawFromGlobalBuilder,
   GlobalToMarketDepositBuilder,
+  WalletDepositBalancesState,
+  WRAPPED_SOL_MINT,
+  nativeWithdrawSeed,
+  solBalanceAvailability,
+  unwrapAllSolBalanceAvailability,
+  SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS,
+  SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS,
 } from "./domain/position";
 
 export type { Trade, WsTrade } from "./domain/trade";
@@ -212,15 +233,30 @@ export type {
   AuthCredentials,
   AuthMethod,
   ChainType,
+  EmailAccountData,
   GoogleAccountData,
+  LinkedIdentity,
+  LinkedIdentitySelector,
+  LinkedIdentityType,
+  MaxSlippagePreferenceBody,
   PrivyEmbeddedWallet,
+  RegisterPrivyConflict,
+  RegisterPrivyRequest,
   SessionResponse,
   User,
   UserIdentity,
   UserPrivyData,
   XAccountData,
 } from "./auth";
-export { avatarUrl, displayName, identityText, tradingWallet, userPrivy, userXAccount } from "./auth";
+export {
+  avatarUrl,
+  classifyRegisterPrivyConflict,
+  displayName,
+  identityText,
+  tradingWallet,
+  userPrivy,
+  userXAccount,
+} from "./auth";
 
 export {
   LimitOrderEnvelope,
@@ -239,7 +275,9 @@ export type {
 
 export {
   isUserCancellation,
+  requireNativeSigningStrategy,
   type ExternalSigner,
+  type NativeSigningStrategy,
   type SigningStrategy,
 } from "./shared/signing";
 
@@ -263,6 +301,7 @@ export type {
 
 export {
   RetryPolicy,
+  type CredentialRestorer,
   type RetryConfig,
 } from "./http";
 
@@ -282,6 +321,8 @@ export type AuthClient = import("./auth").Auth;
 export type MarketsClient = import("./domain/market").Markets;
 export type MarketsResult = import("./domain/market").MarketsResult;
 export type GlobalDepositAssetsResult = import("./domain/market").GlobalDepositAssetsResult;
+export type FavoriteMarkets = import("./domain/market").FavoriteMarkets;
+export type FavoriteMarketUpdate = import("./domain/market").FavoriteMarketUpdate;
 export type MetricsClient = import("./domain/metrics").Metrics;
 export type OrderbooksClient = import("./domain/orderbook").Orderbooks;
 export type OrdersClient = import("./domain/order").Orders;
@@ -291,3 +332,8 @@ export type PriceHistorySubClient = import("./domain/price_history").PriceHistor
 export type NotificationsClient = import("./domain/notification").Notifications;
 export type ReferralsClient = import("./domain/referral").Referrals;
 export type RpcClient = import("./rpc").Rpc;
+
+export { V1Transaction, validateV1Resources } from "./program/transaction";
+export type { V1ResourceConfig, V1TransactionContext } from "./program/transaction";
+
+export type { TransactionSimulation } from "./rpc";

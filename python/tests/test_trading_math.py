@@ -62,9 +62,16 @@ def test_apply_impact_protection_directions():
     ) == Decimal(90)
 
 
-def test_apply_impact_protection_requires_positive_inputs():
+def test_apply_impact_protection_requires_positive_unbounded_percent():
     assert Side.BID.apply_impact_protection(Decimal(0), Decimal(10)) is None
     assert Side.ASK.apply_impact_protection(Decimal(100), Decimal(0)) is None
+    assert Side.BID.apply_impact_protection(Decimal(100), Decimal(100)) == Decimal(200)
+    assert Side.ASK.apply_impact_protection(Decimal(100), Decimal(100)) == Decimal(0)
+    assert Side.BID.apply_impact_protection(Decimal(100), Decimal(101)) == Decimal(201)
+    assert Side.ASK.apply_impact_protection(Decimal(100), Decimal(101)) == Decimal(0)
+    assert Side.BID.apply_impact_protection(Decimal(100), Decimal(-1)) is None
+    assert Side.BID.apply_impact_protection(Decimal("NaN"), Decimal(10)) is None
+    assert Side.BID.apply_impact_protection(Decimal(100), Decimal("Infinity")) is None
 
 
 def test_order_side_from_side():

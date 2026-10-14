@@ -4,12 +4,30 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import Enum
 from typing import Optional, TYPE_CHECKING
 
 from .aggregation import BookAggregation, FULL_PRECISION
 
 if TYPE_CHECKING:
     from ..market import ConditionalToken
+
+
+class ImpactDirection(str, Enum):
+    """Direction of a conditional token's price impact."""
+
+    NEGATIVE = "negative"
+    ZERO = "zero"
+    POSITIVE = "positive"
+
+    @property
+    def sign(self) -> str:
+        """Return the display sign for this direction."""
+        if self == ImpactDirection.NEGATIVE:
+            return "-"
+        if self == ImpactDirection.POSITIVE:
+            return "+"
+        return ""
 
 
 @dataclass
@@ -49,22 +67,6 @@ class OrderBookPair:
         from solders.pubkey import Pubkey
         return Pubkey.from_string(self.quote.pubkey)
 
-    def decimals(self) -> "OrderbookDecimals":
-        """Derive scaling decimals from this pair's token metadata.
-
-        This is the recommended way to get OrderbookDecimals — no REST call needed.
-        """
-        from ...shared.scaling import OrderbookDecimals
-        base_decimals = self.base.decimals
-        quote_decimals = self.quote.decimals
-        return OrderbookDecimals(
-            orderbook_id=self.orderbook_id,
-            base_decimals=base_decimals,
-            quote_decimals=quote_decimals,
-            price_decimals=max(6 + quote_decimals - base_decimals, 0),
-            tick_size=max(self.tick_size, 0),
-        )
-
     @staticmethod
     def impact_pct(deposit_price: str, conditional_price: str) -> tuple[float, str]:
         """Price impact as percentage relative to a deposit asset price."""
@@ -88,23 +90,32 @@ class OrderBookPair:
         conditional = Decimal(conditional_price)
         if deposit == 0:
             return OutcomeImpact(pct=0.0, dollar="0")
-        pct = float((conditional - deposit) / deposit * 100)
-        sign = "+" if pct > 0 else "-"
+        dollar_delta = conditional - deposit
+        pct = float(dollar_delta / deposit * 100)
+        if dollar_delta > 0:
+            direction = ImpactDirection.POSITIVE
+        elif dollar_delta < 0:
+            direction = ImpactDirection.NEGATIVE
+        else:
+            direction = ImpactDirection.ZERO
         return OutcomeImpact(
-            sign=sign,
-            is_positive=pct > 0,
+            direction=direction,
             pct=abs(pct),
-            dollar=str(abs(conditional - deposit)),
+            dollar=str(abs(dollar_delta)),
         )
 
 
 @dataclass
 class OutcomeImpact:
     """Price impact calculation result."""
-    sign: str = ""
+    direction: ImpactDirection = ImpactDirection.ZERO
     pct: float = 0.0
     dollar: str = "0"
-    is_positive: bool = False
+
+    @property
+    def sign(self) -> str:
+        """Return the display sign derived from the impact direction."""
+        return self.direction.sign
 
 
 class OrderBookValidationError(Exception):
@@ -114,6 +125,7 @@ class OrderBookValidationError(Exception):
 __all__ = [
     "BookAggregation",
     "FULL_PRECISION",
+    "ImpactDirection",
     "OrderBookPair",
     "OutcomeImpact",
     "OrderBookValidationError",

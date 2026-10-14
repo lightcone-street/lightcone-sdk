@@ -12,7 +12,7 @@ let main = async () => {
   | Ok(_) =>
     switch await Position.Client.depositTokenBalances(client) {
     | Ok(balances) =>
-      let entries = balances->Dict.valuesToArray
+      let entries = balances.balances->Dict.valuesToArray
       Console.log(`tracked balances: ${Int.toString(Array.length(entries))}`)
       entries
       ->Array.toSorted((a, b) => String.compare(a.symbol, b.symbol))

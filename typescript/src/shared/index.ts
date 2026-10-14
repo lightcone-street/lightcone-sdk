@@ -21,10 +21,6 @@ export {
   Resolution,
   Side,
   TimeInForce,
-  TriggerResultStatus,
-  TriggerStatus,
-  TriggerType,
-  TriggerUpdateType,
   type Branded,
   type OrderBookId,
   type PubkeyStr,
@@ -41,22 +37,27 @@ export {
 export { RejectionCode } from "./rejection";
 
 export { formatDecimal, isZero, parseDecimal } from "./price";
+export { parseJsonExact, stringifyJsonExact } from "./json";
 
 export {
-  alignPriceToTick,
+  assertSignedRange,
+  exactScaledInteger,
+  I64_MAX,
+  PRICE_SCALE,
   scalePriceSize,
-  scalePriceSizeLegacy,
   ScalingError,
-  type LegacyScaledAmounts,
-  type OrderbookDecimals,
+  U32_MAX,
+  validateRawAmounts,
+  validateSignedFields,
+  type OrderbookRules,
+  type TradingRules,
   type ScaledAmounts,
 } from "./scaling";
 
-// Backward-compatible name from v1.
-export { scalePriceSizeLegacy as scalePriceSizeV1 } from "./scaling";
-
 export {
   isUserCancellation,
+  requireNativeSigningStrategy,
   type ExternalSigner,
+  type NativeSigningStrategy,
   type SigningStrategy,
 } from "./signing";

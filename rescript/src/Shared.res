@@ -1,13 +1,3 @@
-// Shared newtypes and enums used across every domain module.
-//
-// Enum codec convention (see the project memo): each string enum sets BOTH `@as`
-// (ReScript runtime value + the gentype TS union) and `@spice.as` (the JSON wire
-// value) to the exact wire string. That keeps three representations aligned —
-// ReScript constructor, JSON wire, and the TypeScript union the SDK exports.
-//
-// Each enum lives in its own sub-module (`type t`) so that look-alike constructors
-// across the trigger enums (Created/Triggered/…) don't collide.
-
 // ── Transparent string newtypes ──────────────────────────────────────────────
 // The wire carries these as plain JSON strings, so they stay string aliases
 // (spice → string codec, gentype → `string`).
@@ -47,7 +37,11 @@ module Side = {
   // padded by the impact-protection percentage in the direction that lets the
   // order fill (bids pay more, asks receive less). `None` unless both inputs
   // are positive Decimal strings.
-  let applyImpactProtection = (side: t, ~worstFillPrice: string, ~protectionPercent: string): option<string> =>
+  let applyImpactProtection = (
+    side: t,
+    ~worstFillPrice: string,
+    ~protectionPercent: string,
+  ): option<string> =>
     switch (Decimal.fromString(worstFillPrice), Decimal.fromString(protectionPercent)) {
     | (price, percent) =>
       let zero = Decimal.fromInt(0)
@@ -58,7 +52,12 @@ module Side = {
         let one = Decimal.fromInt(1)
         let padded = switch side {
         | Bid => Decimal.times(price, Decimal.plus(one, factor))
-        | Ask => Decimal.times(price, Decimal.minus(one, factor))
+        | Ask =>
+          if Decimal.gte(factor, one) {
+            zero
+          } else {
+            Decimal.times(price, Decimal.minus(one, factor))
+          }
         }
         Some(Decimal.toString(padded))
       }
@@ -78,12 +77,9 @@ module Denominator = {
   // (quote per one base, both Decimal strings). Same-denomination conversion is
   // the identity and never needs a price; crossing denominations requires a
   // positive price — `None` otherwise (or on malformed input).
-  let convertTo = (
-    denominator: t,
-    ~target: t,
-    ~amount: string,
-    ~basePriceInQuote: string,
-  ): option<string> =>
+  let convertTo = (denominator: t, ~target: t, ~amount: string, ~basePriceInQuote: string): option<
+    string,
+  > =>
     switch (Decimal.fromString(amount), Decimal.fromString(basePriceInQuote)) {
     | (amount, price) =>
       let priceIsUsable = Decimal.gt(price, Decimal.fromInt(0))
@@ -120,12 +116,6 @@ module TimeInForce = {
 }
 
 // ── TriggerType ──────────────────────────────────────────────────────────────
-module TriggerType = {
-  @spice
-  type t =
-    | @as("TP") @spice.as("TP") TakeProfit
-    | @as("SL") @spice.as("SL") StopLoss
-}
 
 // ── OrderStatus (UPPERCASE) ──────────────────────────────────────────────────
 // The engine's real-time order state, following the shared enum-codec
@@ -141,15 +131,6 @@ module OrderStatus = {
 }
 
 // ── TriggerStatus (WS, lowercase) ────────────────────────────────────────────
-module TriggerStatus = {
-  @spice
-  type t =
-    | @as("created") @spice.as("created") Created
-    | @as("triggered") @spice.as("triggered") Triggered
-    | @as("failed") @spice.as("failed") Failed
-    | @as("expired") @spice.as("expired") Expired
-    | @as("invalidated") @spice.as("invalidated") Invalidated
-}
 
 // ── OrderUpdateType (WS, UPPERCASE) ──────────────────────────────────────────
 module OrderUpdateType = {
@@ -161,24 +142,8 @@ module OrderUpdateType = {
 }
 
 // ── TriggerUpdateType (WS, UPPERCASE) ────────────────────────────────────────
-module TriggerUpdateType = {
-  @spice
-  type t =
-    | @as("CREATED") @spice.as("CREATED") Created
-    | @as("TRIGGERED") @spice.as("TRIGGERED") Triggered
-    | @as("FAILED") @spice.as("FAILED") Failed
-    | @as("EXPIRED") @spice.as("EXPIRED") Expired
-    | @as("INVALIDATED") @spice.as("INVALIDATED") Invalidated
-}
 
 // ── TriggerResultStatus ──────────────────────────────────────────────────────
-module TriggerResultStatus = {
-  @spice
-  type t =
-    | @as("filled") @spice.as("filled") Filled
-    | @as("accepted") @spice.as("accepted") Accepted
-    | @as("rejected") @spice.as("rejected") Rejected
-}
 
 // ── DepositSource ────────────────────────────────────────────────────────────
 module DepositSource = {

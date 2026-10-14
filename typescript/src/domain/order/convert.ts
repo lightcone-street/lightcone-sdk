@@ -1,8 +1,7 @@
 import Decimal from "decimal.js";
-import { TimeInForce } from "../../shared";
-import type { LimitOrder, TriggerOrder } from "./index";
+import type { LimitOrder } from "./index";
 import type { OrderUpdate, UserSnapshotOrder, UserSnapshotOrderCommon } from "./wire";
-import { UserOpenLimitOrders, UserTriggerOrders } from "./state";
+import { UserOpenLimitOrders } from "./state";
 
 export function orderFromUpdate(update: OrderUpdate): LimitOrder {
   const size = new Decimal(update.order.filled).plus(update.order.remaining);
@@ -45,50 +44,15 @@ export function limitSnapshotToOrder(common: UserSnapshotOrderCommon, txSignatur
   };
 }
 
-export function triggerSnapshotToOrder(
-  common: UserSnapshotOrderCommon,
-  triggerOrderId: string,
-  triggerPrice: string,
-  triggerType: import("../../shared").TriggerType,
-  timeInForce?: import("../../shared").TimeInForce
-): TriggerOrder {
-  return {
-    triggerOrderId,
-    orderHash: common.order_hash,
-    marketPubkey: common.market_pubkey,
-    orderbookId: common.orderbook_id,
-    triggerPrice,
-    triggerType,
-    side: common.side,
-    amountIn: common.amount_in,
-    amountOut: common.amount_out,
-    timeInForce: timeInForce ?? TimeInForce.Gtc,
-    createdAt: new Date(common.created_at),
-  };
-}
-
-export function convertSnapshotOrders(orders: UserSnapshotOrder[]): [UserOpenLimitOrders, UserTriggerOrders] {
+/** Groups open limit orders from a decoded account snapshot. */
+export function convertSnapshotOrders(orders: UserSnapshotOrder[]): UserOpenLimitOrders {
   const openOrders = new UserOpenLimitOrders();
-  const triggerOrders = new UserTriggerOrders();
 
   for (const snapshot of orders) {
-    if (snapshot.order_type === "limit") {
-      if (!new Decimal(snapshot.remaining).isZero()) {
-        openOrders.insert(limitSnapshotToOrder(snapshot, snapshot.tx_signature));
-      }
-      continue;
+    if (!new Decimal(snapshot.remaining).isZero()) {
+      openOrders.insert(limitSnapshotToOrder(snapshot, snapshot.tx_signature));
     }
-
-    triggerOrders.insert(
-      triggerSnapshotToOrder(
-        snapshot,
-        snapshot.trigger_order_id,
-        snapshot.trigger_price,
-        snapshot.trigger_type,
-        snapshot.time_in_force
-      )
-    );
   }
 
-  return [openOrders, triggerOrders];
+  return openOrders;
 }

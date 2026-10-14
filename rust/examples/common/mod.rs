@@ -7,6 +7,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use lightcone::domain::market::Status as MarketStatus;
 use lightcone::{auth::native::sign_login_message, prelude::*};
 use solana_keypair::{read_keypair_file, Keypair};
 use solana_pubkey::Pubkey;
@@ -36,7 +37,13 @@ pub async fn fresh_order_nonce(client: &LightconeClient, user: &Pubkey) -> Examp
 }
 
 pub fn rest_client() -> ExampleResult<LightconeClient> {
-    let mut builder = LightconeClient::builder();
+    let mut builder =
+        LightconeClient::builder().transaction_resources(lightcone::program::V1ResourceConfig {
+            compute_unit_limit: 1_400_000,
+            loaded_accounts_data_size_limit: 64 * 1024 * 1024,
+            priority_fee_lamports: 0,
+            heap_size: None,
+        });
     if let Ok(env_str) = env::var("LIGHTCONE_ENV") {
         let environment = match env_str.to_lowercase().as_str() {
             "local" => LightconeEnv::Local,
@@ -51,18 +58,33 @@ pub fn rest_client() -> ExampleResult<LightconeClient> {
         };
         builder = builder.env(environment);
     }
+    if let Ok(api_key) = env::var("LIGHTCONE_API_KEY") {
+        if !api_key.trim().is_empty() {
+            builder = builder.api_key(&api_key);
+        }
+    }
     Ok(builder.build()?)
 }
 
 pub fn get_keypair() -> ExampleResult<Keypair> {
-    let raw = env::var("LIGHTCONE_WALLET_PATH").unwrap_or_else(|_| DEFAULT_WALLET_PATH.to_string());
+    get_keypair_from_env("LIGHTCONE_WALLET_PATH", Some(DEFAULT_WALLET_PATH))
+}
+
+/// Load the keypair named by an existing example wallet-path variable.
+///
+/// `default` is reserved for the invoking SDK's normal wallet. Peer-wallet
+/// lookups pass `None` so a missing path fails before any fund-moving action.
+pub fn get_keypair_from_env(variable: &str, default: Option<&str>) -> ExampleResult<Keypair> {
+    let raw = env::var(variable)
+        .or_else(|_| default.map(str::to_owned).ok_or(env::VarError::NotPresent))
+        .map_err(|_| other(format!("{variable} is required")))?;
     let path = if let Some(rest) = raw.strip_prefix("~/") {
         let home = env::var("HOME").map_err(|_| other("HOME not set"))?;
         std::path::PathBuf::from(home).join(rest)
     } else {
         raw.into()
     };
-    Ok(read_keypair_file(path)?)
+    read_keypair_file(path)
 }
 
 pub async fn login(
@@ -83,15 +105,25 @@ pub async fn login(
         .await?)
 }
 
+/// Select the first non-resolved market in API order, continuing past resolved pages.
+/// The public list advances by increasing market ID. Exhaustion is an explicit error.
 pub async fn market(client: &LightconeClient) -> ExampleResult<Market> {
-    client
-        .markets()
-        .get(None, Some(1))
-        .await?
-        .markets
-        .into_iter()
-        .next()
-        .ok_or_else(|| other("no markets returned by the API").into())
+    let mut cursor = None;
+    loop {
+        let page = client.markets().get(cursor, Some(100)).await?;
+        let next_cursor = page.markets.last().map(|market| market.id);
+        if let Some(market) = page
+            .markets
+            .into_iter()
+            .find(|market| market.status != MarketStatus::Resolved)
+        {
+            return Ok(market);
+        }
+        match next_cursor {
+            Some(next) if cursor.is_none_or(|previous| next > previous) => cursor = Some(next),
+            _ => return Err(other("no non-resolved markets returned by the API").into()),
+        }
+    }
 }
 
 pub async fn market_and_orderbook(
@@ -124,8 +156,9 @@ pub async fn wait_for_global_balance(
 
     loop {
         attempt += 1;
-        let balances = client.positions().deposit_token_balances().await?;
-        let entry = balances
+        let snapshot = client.positions().deposit_token_balances(None).await?;
+        let entry = snapshot
+            .balances
             .values()
             .find(|balance| balance.mint.as_str() == mint_str);
         let current_idle = entry.map(|e| e.idle).unwrap_or_default();
@@ -169,5 +202,5 @@ pub fn quote_deposit_mint(orderbook: &OrderBookPair) -> ExampleResult<Pubkey> {
 }
 
 pub fn num_outcomes(market: &Market) -> ExampleResult<u8> {
-    u8::try_from(market.outcomes.len()).map_err(|_| other("market outcome count exceeds u8").into())
+    Ok(market.num_outcomes)
 }

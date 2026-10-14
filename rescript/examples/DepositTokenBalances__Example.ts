@@ -21,7 +21,7 @@ async function main(): Promise<void> {
   await AuthClient.login(client, undefined);
 
   const balances = await PositionClient.depositTokenBalances(client);
-  const entries = Object.values(balances);
+  const entries = Object.values(balances.balances);
   console.log(`tracked balances: ${entries.length}`);
 
   for (const balance of entries.sort((a, b) => a.symbol.localeCompare(b.symbol))) {

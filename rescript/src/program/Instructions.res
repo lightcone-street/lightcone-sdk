@@ -9,10 +9,14 @@
 //   signer    → READONLY_SIGNER (2)   readonly → READONLY (0)
 //
 // Every builder is async because PDA + ATA derivation hashes via WebCrypto.
+// Account counts below describe business accounts; all public instructions append
+// readonly event-authority and program accounts.
 
 // ── data packing (reuse OrderPayload's concat + kit's LE codecs) ──────────────
+let isInteger: int => bool = %raw(`Number.isInteger`)
 let concatBytes = OrderPayload.concatBytes
 let u8 = (value: int) => SolanaKitCodec.encode(SolanaKitCodec.getU8Encoder(), value)
+let u16 = (value: int) => SolanaKitCodec.encode(SolanaKitCodec.getU16Encoder(), value)
 let u64 = (value: bigint) => SolanaKitCodec.encode(SolanaKitCodec.getU64Encoder(), value)
 
 // ── account-meta helpers ──────────────────────────────────────────────────────
@@ -20,6 +24,20 @@ let meta = (address, role): SolanaKit.accountMeta => {address, role}
 let signerMut = address => meta(address, SolanaKit.Role.writableSigner)
 let writable = address => meta(address, SolanaKit.Role.writable)
 let readonly = address => meta(address, SolanaKit.Role.readonly)
+
+let rawAddressLte: (Uint8Array.t, Uint8Array.t) => bool = %raw(`(a,b) => {
+  for (let i=0;i<32;i++) { if (a[i] !== b[i]) return a[i] < b[i]; } return true;
+}`)
+let publicInstruction = async (instruction: SolanaKit.instruction): SolanaKit.instruction => {
+  let (eventAuthority, _) = await Pda.eventAuthority(instruction.programAddress)
+  {
+    ...instruction,
+    accounts: Array.concat(
+      instruction.accounts,
+      [readonly(eventAuthority), readonly(instruction.programAddress)],
+    ),
+  }
+}
 
 // Associated-token-account derivation. Both deposit-token and conditional-token
 // ATAs use the SPL Token program.
@@ -45,7 +63,7 @@ let depositToGlobal = async (
   let (userGlobalDeposit, _) = await Pda.userGlobalDeposit(programId, ~user, ~mint)
   let (exchange, _) = await Pda.exchange(programId)
   let (userTokenAccount, _) = await ata(~owner=user, ~mint)
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts: [
       signerMut(user),
@@ -58,7 +76,7 @@ let depositToGlobal = async (
       readonly(exchange),
     ],
     data: concatBytes([u8(Constants.Instruction.depositToGlobal), u64(amount)]),
-  }
+  })
 }
 
 // ── WithdrawFromGlobal (opcode 22) ────────────────────────────────────────────
@@ -76,7 +94,7 @@ let withdrawFromGlobal = async (
   let (userGlobalDeposit, _) = await Pda.userGlobalDeposit(programId, ~user, ~mint)
   let (exchange, _) = await Pda.exchange(programId)
   let (userTokenAccount, _) = await ata(~owner=user, ~mint)
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts: [
       signerMut(user),
@@ -88,7 +106,7 @@ let withdrawFromGlobal = async (
       readonly(exchange),
     ],
     data: concatBytes([u8(Constants.Instruction.withdrawFromGlobal), u64(amount)]),
-  }
+  })
 }
 
 // ── GlobalToMarketDeposit (opcode 18) ─────────────────────────────────────────
@@ -128,17 +146,21 @@ let globalToMarketDeposit = async (
     readonly(Constants.systemProgram),
   ]
   for outcomeIndex in 0 to numOutcomes - 1 {
-    let (conditionalMint, _) =
-      await Pda.conditionalMint(programId, ~market, ~depositMint=mint, ~outcomeIndex)
+    let (conditionalMint, _) = await Pda.conditionalMint(
+      programId,
+      ~market,
+      ~depositMint=mint,
+      ~outcomeIndex,
+    )
     let (positionAta, _) = await ata(~owner=position, ~mint=conditionalMint)
     accounts->Array.push(writable(conditionalMint))
     accounts->Array.push(writable(positionAta))
   }
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts,
     data: concatBytes([u8(Constants.Instruction.globalToMarketDeposit), u64(amount)]),
-  }
+  })
 }
 
 // ── MergeCompleteSet (opcode 4) ───────────────────────────────────────────────
@@ -173,17 +195,21 @@ let mergeCompleteSet = async (
     readonly(Constants.tokenProgram),
   ]
   for outcomeIndex in 0 to numOutcomes - 1 {
-    let (conditionalMint, _) =
-      await Pda.conditionalMint(programId, ~market, ~depositMint=mint, ~outcomeIndex)
+    let (conditionalMint, _) = await Pda.conditionalMint(
+      programId,
+      ~market,
+      ~depositMint=mint,
+      ~outcomeIndex,
+    )
     let (positionAta, _) = await ata(~owner=position, ~mint=conditionalMint)
     accounts->Array.push(writable(conditionalMint))
     accounts->Array.push(writable(positionAta))
   }
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts,
     data: concatBytes([u8(Constants.Instruction.mergeCompleteSet), u64(amount)]),
-  }
+  })
 }
 
 // ── RedeemWinnings (opcode 8) ─────────────────────────────────────────────────
@@ -204,11 +230,15 @@ let redeemWinnings = async (
   let (vault, _) = await Pda.vault(programId, ~depositMint=mint, ~market)
   let (mintAuthority, _) = await Pda.mintAuthority(programId, ~market)
   let (position, _) = await Pda.position(programId, ~owner=user, ~market)
-  let (conditionalMint, _) =
-    await Pda.conditionalMint(programId, ~market, ~depositMint=mint, ~outcomeIndex)
+  let (conditionalMint, _) = await Pda.conditionalMint(
+    programId,
+    ~market,
+    ~depositMint=mint,
+    ~outcomeIndex,
+  )
   let (positionConditionalAta, _) = await ata(~owner=position, ~mint=conditionalMint)
   let (userDepositAta, _) = await ata(~owner=user, ~mint)
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts: [
       signerMut(user),
@@ -223,73 +253,82 @@ let redeemWinnings = async (
       readonly(Constants.tokenProgram),
       readonly(exchange),
     ],
-    data: concatBytes([
-      u8(Constants.Instruction.redeemWinnings),
-      u64(amount),
-      u8(outcomeIndex),
-    ]),
-  }
+    data: concatBytes([u8(Constants.Instruction.redeemWinnings), u64(amount), u8(outcomeIndex)]),
+  })
 }
 
 // ── InitPositionTokens (opcode 19) ────────────────────────────────────────────
 // Permissionless (payer != user allowed).
-// Accounts (11 + per deposit_mint: 3 + numOutcomes*2):
-// 0 payer(signer,mut) 1 user 2 exchange 3 market 4 position(mut)
-// 5 lookup_table(mut) 6 mint_authority 7 token_program 8 ata_program
-// 9 alt_program 10 system_program
-// + per deposit_mint: deposit_mint, vault, global_deposit_token,
-//   then per outcome i: conditional_mint[i], position_conditional_ata[i](mut)
-// Data: [19, recent_slot u64 LE, deposit_mints.len u8]
+// Nine business accounts: payer(signer,writable), user(readonly), exchange,
+// market, position(writable), mint_authority, token_program, ata_program, system_program.
+// Each group adds deposit mint, vault, GDT, then conditional mint/position ATA per outcome.
+// The event-authority/program suffix follows all groups. Data: [19, group_count].
 let initPositionTokens = async (
   ~programId: SolanaKit.address,
   ~payer: SolanaKit.address,
   ~user: SolanaKit.address,
   ~market: SolanaKit.address,
   ~depositMints: array<SolanaKit.address>,
-  ~recentSlot: bigint,
   ~numOutcomes: int,
-): SolanaKit.instruction => {
-  let (exchange, _) = await Pda.exchange(programId)
-  let (position, _) = await Pda.position(programId, ~owner=user, ~market)
-  let (lookupTable, _) = await Pda.positionAlt(~position, ~recentSlot)
-  let (mintAuthority, _) = await Pda.mintAuthority(programId, ~market)
+): result<SolanaKit.instruction, SdkError.t> => {
+  if (
+    !isInteger(numOutcomes) ||
+    numOutcomes < 2 ||
+    numOutcomes > 6 ||
+    Array.length(depositMints) < 1 ||
+    Array.length(depositMints) > 8 ||
+    SolanaKit.addressToString(user) == "11111111111111111111111111111111" ||
+    SolanaKit.isOffCurveAddress(user) ||
+    depositMints->Array.some(mint =>
+      depositMints->Array.filter(other => other == mint)->Array.length != 1
+    )
+  ) {
+    Error(SdkError.Validation("invalid beneficiary, deposit groups, or outcome count"))
+  } else {
+    let (exchange, _) = await Pda.exchange(programId)
+    let (position, _) = await Pda.position(programId, ~owner=user, ~market)
+    let (mintAuthority, _) = await Pda.mintAuthority(programId, ~market)
 
-  let accounts = [
-    signerMut(payer),
-    readonly(user),
-    readonly(exchange),
-    readonly(market),
-    writable(position),
-    writable(lookupTable),
-    readonly(mintAuthority),
-    readonly(Constants.tokenProgram),
-    readonly(Constants.associatedTokenProgram),
-    readonly(Constants.altProgram),
-    readonly(Constants.systemProgram),
-  ]
-  for mintIdx in 0 to Array.length(depositMints) - 1 {
-    let depositMint = depositMints->Array.getUnsafe(mintIdx)
-    let (vault, _) = await Pda.vault(programId, ~depositMint, ~market)
-    let (globalDepositToken, _) = await Pda.globalDepositToken(programId, ~mint=depositMint)
-    accounts->Array.push(readonly(depositMint))
-    accounts->Array.push(readonly(vault))
-    accounts->Array.push(readonly(globalDepositToken))
-    for outcomeIndex in 0 to numOutcomes - 1 {
-      let (conditionalMint, _) =
-        await Pda.conditionalMint(programId, ~market, ~depositMint, ~outcomeIndex)
-      let (positionAta, _) = await ata(~owner=position, ~mint=conditionalMint)
-      accounts->Array.push(readonly(conditionalMint))
-      accounts->Array.push(writable(positionAta))
+    let accounts = [
+      signerMut(payer),
+      readonly(user),
+      readonly(exchange),
+      readonly(market),
+      writable(position),
+      readonly(mintAuthority),
+      readonly(Constants.tokenProgram),
+      readonly(Constants.associatedTokenProgram),
+      readonly(Constants.systemProgram),
+    ]
+    for mintIdx in 0 to Array.length(depositMints) - 1 {
+      let depositMint = depositMints->Array.getUnsafe(mintIdx)
+      let (vault, _) = await Pda.vault(programId, ~depositMint, ~market)
+      let (globalDepositToken, _) = await Pda.globalDepositToken(programId, ~mint=depositMint)
+      accounts->Array.push(readonly(depositMint))
+      accounts->Array.push(readonly(vault))
+      accounts->Array.push(readonly(globalDepositToken))
+      for outcomeIndex in 0 to numOutcomes - 1 {
+        let (conditionalMint, _) = await Pda.conditionalMint(
+          programId,
+          ~market,
+          ~depositMint,
+          ~outcomeIndex,
+        )
+        let (positionAta, _) = await ata(~owner=position, ~mint=conditionalMint)
+        accounts->Array.push(readonly(conditionalMint))
+        accounts->Array.push(writable(positionAta))
+      }
     }
-  }
-  {
-    programAddress: programId,
-    accounts,
-    data: concatBytes([
-      u8(Constants.Instruction.initPositionTokens),
-      u64(recentSlot),
-      u8(Array.length(depositMints)),
-    ]),
+    Ok(
+      await publicInstruction({
+        programAddress: programId,
+        accounts,
+        data: concatBytes([
+          u8(Constants.Instruction.initPositionTokens),
+          u8(Array.length(depositMints)),
+        ]),
+      }),
+    )
   }
 }
 
@@ -330,17 +369,21 @@ let deposit = async (
     readonly(Constants.systemProgram),
   ]
   for outcomeIndex in 0 to numOutcomes - 1 {
-    let (conditionalMint, _) =
-      await Pda.conditionalMint(programId, ~market, ~depositMint=mint, ~outcomeIndex)
+    let (conditionalMint, _) = await Pda.conditionalMint(
+      programId,
+      ~market,
+      ~depositMint=mint,
+      ~outcomeIndex,
+    )
     let (positionAta, _) = await ata(~owner=position, ~mint=conditionalMint)
     accounts->Array.push(writable(conditionalMint))
     accounts->Array.push(writable(positionAta))
   }
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts,
     data: concatBytes([u8(Constants.Instruction.mintCompleteSet), u64(amount)]),
-  }
+  })
 }
 
 // ── WithdrawFromPosition (opcode 11) ──────────────────────────────────────────
@@ -350,49 +393,53 @@ let deposit = async (
 // 0 user(signer,mut) 1 market 2 position(mut) 3 mint 4 position_ata(mut)
 // 5 user_ata(mut) 6 token_program 7 exchange
 // Data: [11, amount u64 LE, outcome_index u8]
-let withdrawFromPosition = async (
+let withdrawConditionalFromPosition = async (
   ~programId: SolanaKit.address,
   ~user: SolanaKit.address,
   ~market: SolanaKit.address,
-  ~mint: SolanaKit.address,
+  ~depositMint: SolanaKit.address,
   ~amount: bigint,
   ~outcomeIndex: int,
 ): SolanaKit.instruction => {
   let (exchange, _) = await Pda.exchange(programId)
   let (position, _) = await Pda.position(programId, ~owner=user, ~market)
-  let (positionAta, _) = await ata(~owner=position, ~mint)
-  let (userAta, _) = await ata(~owner=user, ~mint)
-  {
+  let (conditionalMint, _) = await Pda.conditionalMint(
+    programId,
+    ~market,
+    ~depositMint,
+    ~outcomeIndex,
+  )
+  let (positionAta, _) = await ata(~owner=position, ~mint=conditionalMint)
+  let (userAta, _) = await ata(~owner=user, ~mint=conditionalMint)
+  await publicInstruction({
     programAddress: programId,
     accounts: [
       signerMut(user),
+      readonly(exchange),
       readonly(market),
-      writable(position),
-      readonly(mint),
+      readonly(position),
+      readonly(depositMint),
+      readonly(conditionalMint),
       writable(positionAta),
       writable(userAta),
       readonly(Constants.tokenProgram),
-      readonly(exchange),
     ],
     data: concatBytes([
       u8(Constants.Instruction.withdrawFromPosition),
       u64(amount),
       u8(outcomeIndex),
     ]),
-  }
+  })
 }
+let withdrawFromPosition = withdrawConditionalFromPosition
 
-// ── IncrementNonce (opcode 6) ─────────────────────────────────────────────────
-// Accounts (4):
-// 0 user(signer,mut) 1 user_nonce(mut) 2 system_program 3 exchange
-// Data: [6]  (opcode only)
 let incrementNonce = async (
   ~programId: SolanaKit.address,
   ~user: SolanaKit.address,
 ): SolanaKit.instruction => {
   let (userNonce, _) = await Pda.userNonce(programId, ~user)
   let (exchange, _) = await Pda.exchange(programId)
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts: [
       signerMut(user),
@@ -401,107 +448,9 @@ let incrementNonce = async (
       readonly(exchange),
     ],
     data: concatBytes([u8(Constants.Instruction.incrementNonce)]),
-  }
+  })
 }
 
-// ── ExtendPositionTokens (opcode 21) ──────────────────────────────────────────
-// Operator-signed: appends the ATAs for newly-added deposit mints to an
-// existing position ALT (from initPositionTokens).
-// `depositMints` must be non-empty (the builder rejects an empty extension).
-// Accounts (10 + per deposit_mint: 3 + numOutcomes*2):
-// 0 operator(signer,mut) 1 user 2 exchange 3 market 4 position 5 lookup_table(mut)
-// 6 token_program 7 ata_program 8 alt_program 9 system_program
-// + per deposit_mint: deposit_mint, vault, global_deposit_token,
-//   then per outcome i: conditional_mint[i], position_conditional_ata[i](mut)
-// Data: [21, deposit_mints.len u8]
-let extendPositionTokens = async (
-  ~programId: SolanaKit.address,
-  ~operator: SolanaKit.address,
-  ~user: SolanaKit.address,
-  ~market: SolanaKit.address,
-  ~lookupTable: SolanaKit.address,
-  ~depositMints: array<SolanaKit.address>,
-  ~numOutcomes: int,
-): SolanaKit.instruction => {
-  let (exchange, _) = await Pda.exchange(programId)
-  let (position, _) = await Pda.position(programId, ~owner=user, ~market)
-
-  let accounts = [
-    signerMut(operator),
-    readonly(user),
-    readonly(exchange),
-    readonly(market),
-    readonly(position),
-    writable(lookupTable),
-    readonly(Constants.tokenProgram),
-    readonly(Constants.associatedTokenProgram),
-    readonly(Constants.altProgram),
-    readonly(Constants.systemProgram),
-  ]
-  for mintIdx in 0 to Array.length(depositMints) - 1 {
-    let depositMint = depositMints->Array.getUnsafe(mintIdx)
-    let (vault, _) = await Pda.vault(programId, ~depositMint, ~market)
-    let (globalDepositToken, _) = await Pda.globalDepositToken(programId, ~mint=depositMint)
-    accounts->Array.push(readonly(depositMint))
-    accounts->Array.push(readonly(vault))
-    accounts->Array.push(readonly(globalDepositToken))
-    for outcomeIndex in 0 to numOutcomes - 1 {
-      let (conditionalMint, _) =
-        await Pda.conditionalMint(programId, ~market, ~depositMint, ~outcomeIndex)
-      let (positionAta, _) = await ata(~owner=position, ~mint=conditionalMint)
-      accounts->Array.push(readonly(conditionalMint))
-      accounts->Array.push(writable(positionAta))
-    }
-  }
-  {
-    programAddress: programId,
-    accounts,
-    data: concatBytes([
-      u8(Constants.Instruction.extendPositionTokens),
-      u8(Array.length(depositMints)),
-    ]),
-  }
-}
-
-// ── ClosePositionAlt (opcode 23) ──────────────────────────────────────────────
-// Operator-signed: deactivates an active position ALT, or closes an
-// already-deactivated one. `~position` is the position PDA address itself
-// (passed through, not derived). Accounts (6):
-// 0 operator(signer,mut) 1 exchange 2 position 3 market 4 lookup_table(mut)
-// 5 alt_program
-// Data: [23]  (opcode only)
-let closePositionAlt = async (
-  ~programId: SolanaKit.address,
-  ~operator: SolanaKit.address,
-  ~position: SolanaKit.address,
-  ~market: SolanaKit.address,
-  ~lookupTable: SolanaKit.address,
-): SolanaKit.instruction => {
-  let (exchange, _) = await Pda.exchange(programId)
-  {
-    programAddress: programId,
-    accounts: [
-      signerMut(operator),
-      readonly(exchange),
-      readonly(position),
-      readonly(market),
-      writable(lookupTable),
-      readonly(Constants.altProgram),
-    ],
-    data: concatBytes([u8(Constants.Instruction.closePositionAlt)]),
-  }
-}
-
-// ── ClosePositionTokenAccounts (opcode 25) ────────────────────────────────────
-// Operator-signed: closes empty SPL conditional ATAs owned by a position PDA
-// after market resolution (non-empty accounts are skipped by the program).
-// `~position` is the position PDA address itself; `depositMints` must be
-// non-empty and `numOutcomes` within 2..=6 (the builder validates both).
-// Accounts (5 + per deposit_mint: 1 + numOutcomes*2):
-// 0 operator(signer,mut) 1 exchange 2 market 3 position 4 token_program
-// + per deposit_mint: deposit_mint,
-//   then per outcome i: conditional_mint[i], position_conditional_ata[i](mut)
-// Data: [25]  (opcode only)
 let closePositionTokenAccounts = async (
   ~programId: SolanaKit.address,
   ~operator: SolanaKit.address,
@@ -522,18 +471,22 @@ let closePositionTokenAccounts = async (
     let depositMint = depositMints->Array.getUnsafe(mintIdx)
     accounts->Array.push(readonly(depositMint))
     for outcomeIndex in 0 to numOutcomes - 1 {
-      let (conditionalMint, _) =
-        await Pda.conditionalMint(programId, ~market, ~depositMint, ~outcomeIndex)
+      let (conditionalMint, _) = await Pda.conditionalMint(
+        programId,
+        ~market,
+        ~depositMint,
+        ~outcomeIndex,
+      )
       let (positionAta, _) = await ata(~owner=position, ~mint=conditionalMint)
       accounts->Array.push(readonly(conditionalMint))
       accounts->Array.push(writable(positionAta))
     }
   }
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts,
     data: concatBytes([u8(Constants.Instruction.closePositionTokenAccounts)]),
-  }
+  })
 }
 
 // ═══ Operator / admin / lifecycle instructions ══════════════════════════════
@@ -556,12 +509,14 @@ let isZeroAddress = address => SolanaKit.addressToString(address) == zeroAddress
 
 // ── Validators (the program's parameter bounds) ───────────────────────────────
 let validateOutcomeCount = (numOutcomes: int): result<unit, SdkError.t> =>
-  numOutcomes >= Constants.minOutcomes && numOutcomes <= Constants.maxOutcomes
+  isInteger(numOutcomes) &&
+  numOutcomes >= Constants.minOutcomes &&
+  numOutcomes <= Constants.maxOutcomes
     ? Ok()
     : Error(SdkError.Validation(`invalid outcome count: ${Int.toString(numOutcomes)}`))
 
 let validateOutcomeIndex = (outcomeIndex: int, ~numOutcomes: int): result<unit, SdkError.t> =>
-  outcomeIndex >= 0 && outcomeIndex < numOutcomes
+  isInteger(outcomeIndex) && outcomeIndex >= 0 && outcomeIndex < numOutcomes
     ? Ok()
     : Error(SdkError.Validation(`invalid outcome index: ${Int.toString(outcomeIndex)}`))
 
@@ -631,7 +586,10 @@ module SwapMaker = {
 }
 
 let signedOrderBytes = (signed: SignedOrder.t): Uint8Array.t =>
-  concatBytes([OrderPayload.Compact.serialize(OrderPayload.toOrder(signed.order)), signed.signature])
+  concatBytes([
+    OrderPayload.Compact.serialize(OrderPayload.toOrder(signed.order)),
+    signed.signature,
+  ])
 
 // 2^index — bitmask bits are distinct per maker, so OR collapses to addition.
 let bitValue = (index: int): int => Float.toInt(2.0 ** Int.toFloat(index))
@@ -644,11 +602,11 @@ let initialize = async (
   ~authority: SolanaKit.address,
 ): SolanaKit.instruction => {
   let (exchange, _) = await Pda.exchange(programId)
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts: [signerMut(authority), writable(exchange), readonly(Constants.systemProgram)],
     data: concatBytes([u8(Constants.Instruction.initialize)]),
-  }
+  })
 }
 
 // ── CreateMarket (opcode 1) ───────────────────────────────────────────────────
@@ -667,29 +625,33 @@ let createMarket = async (
 ): result<SolanaKit.instruction, SdkError.t> =>
   switch (validateOutcomeCount(numOutcomes), validateFeePair(~makerFeeBps, ~takerFeeBps)) {
   | (Error(error), _) | (_, Error(error)) => Error(error)
+  | (Ok(), Ok()) if isZeroAddress(oracle) || SolanaKit.isOffCurveAddress(oracle) =>
+    Error(SdkError.Validation("oracle must be a nonzero on-curve key"))
   | (Ok(), Ok()) =>
     let (exchange, _) = await Pda.exchange(programId)
     let (market, _) = await Pda.market(programId, ~marketId)
     let conditionId = OrderPayload.deriveConditionId(~oracle, ~questionId, ~numOutcomes)
     let (conditionTombstone, _) = await Pda.condition(programId, ~conditionId)
-    Ok({
-      programAddress: programId,
-      accounts: [
-        signerMut(manager),
-        writable(exchange),
-        writable(market),
-        readonly(Constants.systemProgram),
-        writable(conditionTombstone),
-      ],
-      data: concatBytes([
-        u8(Constants.Instruction.createMarket),
-        u8(numOutcomes),
-        addressBytes(oracle),
-        questionId,
-        i16(makerFeeBps),
-        i16(takerFeeBps),
-      ]),
-    })
+    Ok(
+      await publicInstruction({
+        programAddress: programId,
+        accounts: [
+          signerMut(manager),
+          writable(exchange),
+          writable(market),
+          readonly(Constants.systemProgram),
+          writable(conditionTombstone),
+        ],
+        data: concatBytes([
+          u8(Constants.Instruction.createMarket),
+          u8(numOutcomes),
+          addressBytes(oracle),
+          questionId,
+          i16(makerFeeBps),
+          i16(takerFeeBps),
+        ]),
+      }),
+    )
   }
 
 // ── AddDepositMint (opcode 2) ─────────────────────────────────────────────────
@@ -723,14 +685,21 @@ let addDepositMint = async (
       readonly(globalDepositToken),
     ]
     for outcomeIndex in 0 to numOutcomes - 1 {
-      let (conditionalMint, _) = await Pda.conditionalMint(programId, ~market, ~depositMint, ~outcomeIndex)
+      let (conditionalMint, _) = await Pda.conditionalMint(
+        programId,
+        ~market,
+        ~depositMint,
+        ~outcomeIndex,
+      )
       accounts->Array.push(writable(conditionalMint))
     }
-    Ok({
-      programAddress: programId,
-      accounts,
-      data: concatBytes([u8(Constants.Instruction.addDepositMint)]),
-    })
+    Ok(
+      await publicInstruction({
+        programAddress: programId,
+        accounts,
+        data: concatBytes([u8(Constants.Instruction.addDepositMint)]),
+      }),
+    )
   }
 
 // ── CancelOrder (opcode 5) ────────────────────────────────────────────────────
@@ -747,7 +716,7 @@ let cancelOrder = async (
   let orderHash = OrderPayload.hash(order)
   let (exchange, _) = await Pda.exchange(programId)
   let (orderStatus, _) = await Pda.orderStatus(programId, ~orderHash)
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts: [signerMut(operator), readonly(exchange), readonly(market), writable(orderStatus)],
     data: concatBytes([
@@ -755,7 +724,7 @@ let cancelOrder = async (
       orderHash,
       OrderPayload.serialize(order, ~signature),
     ]),
-  }
+  })
 }
 
 // ── SettleMarket (opcode 7) ───────────────────────────────────────────────────
@@ -779,21 +748,26 @@ let settleMarket = async (
   } else {
     let (exchange, _) = await Pda.exchange(programId)
     let (market, _) = await Pda.market(programId, ~marketId)
-    Ok({
-      programAddress: programId,
-      accounts: [signer(oracle), readonly(exchange), writable(market)],
-      data: concatBytes(
-        [u8(Constants.Instruction.settleMarket)]->Array.concat(
-          payoutNumerators->Array.map(numerator => u32(numerator)),
+    Ok(
+      await publicInstruction({
+        programAddress: programId,
+        accounts: [signer(oracle), readonly(exchange), writable(market)],
+        data: concatBytes(
+          [u8(Constants.Instruction.settleMarket)]->Array.concat(
+            payoutNumerators->Array.map(numerator => u32(numerator)),
+          ),
         ),
-      ),
-    })
+      }),
+    )
   }
 }
 
 // Winner-takes-all payout numerators for `settleMarket`: 1 for the winning
 // outcome, 0 elsewhere.
-let winnerTakesAllNumerators = (~winningOutcome: int, ~numOutcomes: int): result<array<int>, SdkError.t> =>
+let winnerTakesAllNumerators = (~winningOutcome: int, ~numOutcomes: int): result<
+  array<int>,
+  SdkError.t,
+> =>
   switch (validateOutcomeCount(numOutcomes), validateOutcomeIndex(winningOutcome, ~numOutcomes)) {
   | (Error(error), _) | (_, Error(error)) => Error(error)
   | (Ok(), Ok()) =>
@@ -807,26 +781,35 @@ let setPaused = async (
   ~paused: bool,
 ): SolanaKit.instruction => {
   let (exchange, _) = await Pda.exchange(programId)
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts: [signerMut(authority), writable(exchange)],
     data: concatBytes([u8(Constants.Instruction.setPaused), u8(paused ? 1 : 0)]),
-  }
+  })
 }
 
 // ── Role management (opcodes 10, 14, 28, 35–37) ───────────────────────────────
 // Propose a new role holder; the change lands when the incoming holder accepts.
 let proposeRole = async (~programId, ~current, ~proposed, ~opcode): SolanaKit.instruction => {
   let (exchange, _) = await Pda.exchange(programId)
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts: [signerMut(current), writable(exchange)],
     data: concatBytes([u8(opcode), addressBytes(proposed)]),
-  }
+  })
 }
 
-let setOperator = (~programId: SolanaKit.address, ~authority: SolanaKit.address, ~newOperator: SolanaKit.address) =>
-  proposeRole(~programId, ~current=authority, ~proposed=newOperator, ~opcode=Constants.Instruction.setOperator)
+let setOperator = (
+  ~programId: SolanaKit.address,
+  ~authority: SolanaKit.address,
+  ~newOperator: SolanaKit.address,
+) =>
+  proposeRole(
+    ~programId,
+    ~current=authority,
+    ~proposed=newOperator,
+    ~opcode=Constants.Instruction.setOperator,
+  )
 
 let setAuthority = (
   ~programId: SolanaKit.address,
@@ -840,17 +823,26 @@ let setAuthority = (
     ~opcode=Constants.Instruction.setAuthority,
   )
 
-let setManager = (~programId: SolanaKit.address, ~authority: SolanaKit.address, ~newManager: SolanaKit.address) =>
-  proposeRole(~programId, ~current=authority, ~proposed=newManager, ~opcode=Constants.Instruction.setManager)
+let setManager = (
+  ~programId: SolanaKit.address,
+  ~authority: SolanaKit.address,
+  ~newManager: SolanaKit.address,
+) =>
+  proposeRole(
+    ~programId,
+    ~current=authority,
+    ~proposed=newManager,
+    ~opcode=Constants.Instruction.setManager,
+  )
 
 // The proposed holder accepts the role. Accounts (2): incoming(signer) exchange(mut).
 let acceptRole = async (~programId, ~incomingRole, ~opcode): SolanaKit.instruction => {
   let (exchange, _) = await Pda.exchange(programId)
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts: [signer(incomingRole), writable(exchange)],
     data: concatBytes([u8(opcode)]),
-  }
+  })
 }
 
 let acceptAuthority = (~programId: SolanaKit.address, ~incomingRole: SolanaKit.address) =>
@@ -869,11 +861,11 @@ let activateMarket = async (
 ): SolanaKit.instruction => {
   let (exchange, _) = await Pda.exchange(programId)
   let (market, _) = await Pda.market(programId, ~marketId)
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts: [signerMut(manager), readonly(exchange), writable(market)],
     data: concatBytes([u8(Constants.Instruction.activateMarket)]),
-  }
+  })
 }
 
 // ── SetOracle (opcode 33) ─────────────────────────────────────────────────────
@@ -884,15 +876,17 @@ let setOracle = async (
   ~market: SolanaKit.address,
   ~newOracle: SolanaKit.address,
 ): result<SolanaKit.instruction, SdkError.t> =>
-  if isZeroAddress(newOracle) {
+  if isZeroAddress(newOracle) || SolanaKit.isOffCurveAddress(newOracle) {
     Error(SdkError.Validation("oracle must not be the zero pubkey"))
   } else {
     let (exchange, _) = await Pda.exchange(programId)
-    Ok({
-      programAddress: programId,
-      accounts: [signer(authority), readonly(exchange), writable(market)],
-      data: concatBytes([u8(Constants.Instruction.setOracle), addressBytes(newOracle)]),
-    })
+    Ok(
+      await publicInstruction({
+        programAddress: programId,
+        accounts: [signer(authority), readonly(exchange), writable(market)],
+        data: concatBytes([u8(Constants.Instruction.setOracle), addressBytes(newOracle)]),
+      }),
+    )
   }
 
 // ── SetMarketFees (opcode 29) ─────────────────────────────────────────────────
@@ -929,7 +923,13 @@ let setMarketFees = async (
         dataParts->Array.push(i16(update.makerFeeBps))
         dataParts->Array.push(i16(update.takerFeeBps))
       })
-      Ok({programAddress: programId, accounts, data: concatBytes(dataParts)})
+      Ok(
+        await publicInstruction({
+          programAddress: programId,
+          accounts,
+          data: concatBytes(dataParts),
+        }),
+      )
     }
   }
 
@@ -945,11 +945,13 @@ let setFeeReceiver = async (
     Error(SdkError.Validation("fee receiver must not be the zero pubkey"))
   } else {
     let (exchange, _) = await Pda.exchange(programId)
-    Ok({
-      programAddress: programId,
-      accounts: [signerMut(authority), writable(exchange)],
-      data: concatBytes([u8(Constants.Instruction.setFeeReceiver), addressBytes(newFeeReceiver)]),
-    })
+    Ok(
+      await publicInstruction({
+        programAddress: programId,
+        accounts: [signerMut(authority), writable(exchange)],
+        data: concatBytes([u8(Constants.Instruction.setFeeReceiver), addressBytes(newFeeReceiver)]),
+      }),
+    )
   }
 
 let setFeeReceiverWithAtas = async (
@@ -978,11 +980,13 @@ let setFeeReceiverWithAtas = async (
       accounts->Array.push(readonly(quoteMint))
       accounts->Array.push(writable(receiverQuoteAta))
     }
-    Ok({
-      programAddress: programId,
-      accounts,
-      data: concatBytes([u8(Constants.Instruction.setFeeReceiver), addressBytes(newFeeReceiver)]),
-    })
+    Ok(
+      await publicInstruction({
+        programAddress: programId,
+        accounts,
+        data: concatBytes([u8(Constants.Instruction.setFeeReceiver), addressBytes(newFeeReceiver)]),
+      }),
+    )
   }
 
 // ── WhitelistDepositToken (opcode 16) / SetDepositTokenStatus (opcode 38) ─────
@@ -993,7 +997,7 @@ let whitelistDepositToken = async (
 ): SolanaKit.instruction => {
   let (exchange, _) = await Pda.exchange(programId)
   let (globalDepositToken, _) = await Pda.globalDepositToken(programId, ~mint)
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts: [
       signerMut(authority),
@@ -1003,7 +1007,7 @@ let whitelistDepositToken = async (
       readonly(Constants.systemProgram),
     ],
     data: concatBytes([u8(Constants.Instruction.whitelistDepositToken)]),
-  }
+  })
 }
 
 let setDepositTokenStatus = async (
@@ -1014,11 +1018,11 @@ let setDepositTokenStatus = async (
 ): SolanaKit.instruction => {
   let (exchange, _) = await Pda.exchange(programId)
   let (globalDepositToken, _) = await Pda.globalDepositToken(programId, ~mint)
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts: [signer(manager), readonly(exchange), writable(globalDepositToken)],
     data: concatBytes([u8(Constants.Instruction.setDepositTokenStatus), u8(active ? 1 : 0)]),
-  }
+  })
 }
 
 // ── Conditional metadata (opcodes 31 / 32) ────────────────────────────────────
@@ -1040,7 +1044,12 @@ let conditionalMetadata = async (
     | Error(error) => Error(error)
     | Ok(metadataBytes) =>
       let (exchange, _) = await Pda.exchange(programId)
-      let (conditionalMint, _) = await Pda.conditionalMint(programId, ~market, ~depositMint, ~outcomeIndex)
+      let (conditionalMint, _) = await Pda.conditionalMint(
+        programId,
+        ~market,
+        ~depositMint,
+        ~outcomeIndex,
+      )
       let (mintAuthority, _) = await Pda.mintAuthority(programId, ~market)
       let (metadata, _) = await Pda.mplMetadata(~conditionalMint)
       let accounts = [
@@ -1057,19 +1066,21 @@ let conditionalMetadata = async (
         accounts->Array.push(readonly(Constants.systemProgram))
         accounts->Array.push(readonly(Constants.rentSysvar))
       }
-      Ok({
-        programAddress: programId,
-        accounts,
-        data: concatBytes([
-          u8(
-            isCreate
-              ? Constants.Instruction.createConditionalMetadata
-              : Constants.Instruction.updateConditionalMetadata,
-          ),
-          u8(outcomeIndex),
-          metadataBytes,
-        ]),
-      })
+      Ok(
+        await publicInstruction({
+          programAddress: programId,
+          accounts,
+          data: concatBytes([
+            u8(
+              isCreate
+                ? Constants.Instruction.createConditionalMetadata
+                : Constants.Instruction.updateConditionalMetadata,
+            ),
+            u8(outcomeIndex),
+            metadataBytes,
+          ]),
+        }),
+      )
     }
   }
 
@@ -1083,7 +1094,17 @@ let createConditionalMetadata = (
   ~symbol: string,
   ~uri: string,
 ) =>
-  conditionalMetadata(~programId, ~manager, ~market, ~depositMint, ~outcomeIndex, ~name, ~symbol, ~uri, ~isCreate=true)
+  conditionalMetadata(
+    ~programId,
+    ~manager,
+    ~market,
+    ~depositMint,
+    ~outcomeIndex,
+    ~name,
+    ~symbol,
+    ~uri,
+    ~isCreate=true,
+  )
 
 let updateConditionalMetadata = (
   ~programId: SolanaKit.address,
@@ -1095,19 +1116,49 @@ let updateConditionalMetadata = (
   ~symbol: string,
   ~uri: string,
 ) =>
-  conditionalMetadata(~programId, ~manager, ~market, ~depositMint, ~outcomeIndex, ~name, ~symbol, ~uri, ~isCreate=false)
+  conditionalMetadata(
+    ~programId,
+    ~manager,
+    ~market,
+    ~depositMint,
+    ~outcomeIndex,
+    ~name,
+    ~symbol,
+    ~uri,
+    ~isCreate=false,
+  )
 
 // ── MatchOrdersMulti (opcode 13) ──────────────────────────────────────────────
 // Operator-only taker↔makers match. Full fills (taker bit 7, maker bit i) skip
 // that order's status account. Data: [13, taker order 37, taker sig 64,
 // num_makers u8, full_fill_bitmask u8, per maker: order 37 ‖ sig 64 ‖
 // maker_fill u64 ‖ taker_fill u64].
+let validTradeOrder = (signed: SignedOrder.t, market, baseMint, quoteMint) =>
+  signed.order.market == market &&
+  signed.order.baseMint == baseMint &&
+  signed.order.quoteMint == quoteMint &&
+  (signed.order.side == 0 || signed.order.side == 1) &&
+  byteLength(signed.signature) == 64 &&
+  Scaling.validateSignedFields(
+    ~amountIn=signed.order.amountIn,
+    ~amountOut=signed.order.amountOut,
+    ~salt=signed.order.salt,
+    ~nonce=signed.order.nonce,
+  )->Result.isOk
+let tradingGdts = async (programId, baseMint, quoteMint, baseDepositMint, quoteDepositMint) => {
+  let (base, _) = await Pda.globalDepositToken(programId, ~mint=baseDepositMint)
+  let (quote, _) = await Pda.globalDepositToken(programId, ~mint=quoteDepositMint)
+  rawAddressLte(addressBytes(baseMint), addressBytes(quoteMint)) ? (base, quote) : (quote, base)
+}
+
 let matchOrdersMulti = async (
   ~programId: SolanaKit.address,
   ~operator: SolanaKit.address,
   ~market: SolanaKit.address,
   ~baseMint: SolanaKit.address,
   ~quoteMint: SolanaKit.address,
+  ~baseDepositMint: SolanaKit.address,
+  ~quoteDepositMint: SolanaKit.address,
   ~feeReceiver: SolanaKit.address,
   ~takerOrder: SignedOrder.t,
   ~takerIsFullFill: bool,
@@ -1117,7 +1168,24 @@ let matchOrdersMulti = async (
     Error(SdkError.Validation("maker_orders is required"))
   } else if Array.length(makers) > Constants.maxMakers {
     Error(SdkError.Validation(`too many makers: ${Int.toString(Array.length(makers))}`))
+  } else if (
+    baseMint == quoteMint ||
+    baseDepositMint == quoteDepositMint ||
+    !validTradeOrder(takerOrder, market, baseMint, quoteMint) ||
+    makers->Array.some(maker =>
+      !validTradeOrder(maker.order, market, baseMint, quoteMint) ||
+      maker.order.order.side == takerOrder.order.side
+    )
+  ) {
+    Error(SdkError.Validation("invalid trade market, pair, collateral, or side"))
   } else {
+    let (gdtA, gdtB) = await tradingGdts(
+      programId,
+      baseMint,
+      quoteMint,
+      baseDepositMint,
+      quoteDepositMint,
+    )
     let (exchange, _) = await Pda.exchange(programId)
     let (orderbook, _) = await Pda.orderbook(programId, ~mintA=baseMint, ~mintB=quoteMint)
     let (takerNonce, _) = await Pda.userNonce(programId, ~user=takerOrder.order.maker)
@@ -1126,14 +1194,23 @@ let matchOrdersMulti = async (
     let (takerQuoteAta, _) = await ata(~owner=takerPosition, ~mint=quoteMint)
     let (feeReceiverQuoteAta, _) = await ata(~owner=feeReceiver, ~mint=quoteMint)
 
-    let accounts = [signerMut(operator), readonly(exchange), readonly(market), readonly(orderbook)]
+    let accounts = [
+      signerMut(operator),
+      readonly(exchange),
+      readonly(market),
+      readonly(orderbook),
+      readonly(gdtA),
+      readonly(gdtB),
+    ]
     if !takerIsFullFill {
-      let (takerOrderStatus, _) =
-        await Pda.orderStatus(programId, ~orderHash=OrderPayload.hash(takerOrder.order))
+      let (takerOrderStatus, _) = await Pda.orderStatus(
+        programId,
+        ~orderHash=OrderPayload.hash(takerOrder.order),
+      )
       accounts->Array.push(writable(takerOrderStatus))
     }
     accounts->Array.push(readonly(takerNonce))
-    accounts->Array.push(writable(takerPosition))
+    accounts->Array.push(readonly(takerPosition))
     accounts->Array.push(readonly(baseMint))
     accounts->Array.push(readonly(quoteMint))
     accounts->Array.push(writable(takerBaseAta))
@@ -1144,23 +1221,29 @@ let matchOrdersMulti = async (
     accounts->Array.push(readonly(feeReceiver))
     accounts->Array.push(readonly(Constants.associatedTokenProgram))
 
-    let fullFillBitmask = ref(takerIsFullFill ? 128 : 0)
+    let fullFillBitmask = ref(takerIsFullFill ? 32768 : 0)
     for index in 0 to Array.length(makers) - 1 {
       let maker = makers->Array.getUnsafe(index)
       if maker.isFullFill {
         fullFillBitmask := fullFillBitmask.contents + bitValue(index)
       }
       if !maker.isFullFill {
-        let (makerOrderStatus, _) =
-          await Pda.orderStatus(programId, ~orderHash=OrderPayload.hash(maker.order.order))
+        let (makerOrderStatus, _) = await Pda.orderStatus(
+          programId,
+          ~orderHash=OrderPayload.hash(maker.order.order),
+        )
         accounts->Array.push(writable(makerOrderStatus))
       }
       let (makerNonce, _) = await Pda.userNonce(programId, ~user=maker.order.order.maker)
-      let (makerPosition, _) = await Pda.position(programId, ~owner=maker.order.order.maker, ~market)
+      let (makerPosition, _) = await Pda.position(
+        programId,
+        ~owner=maker.order.order.maker,
+        ~market,
+      )
       let (makerBaseAta, _) = await ata(~owner=makerPosition, ~mint=baseMint)
       let (makerQuoteAta, _) = await ata(~owner=makerPosition, ~mint=quoteMint)
       accounts->Array.push(readonly(makerNonce))
-      accounts->Array.push(writable(makerPosition))
+      accounts->Array.push(readonly(makerPosition))
       accounts->Array.push(writable(makerBaseAta))
       accounts->Array.push(writable(makerQuoteAta))
     }
@@ -1169,14 +1252,14 @@ let matchOrdersMulti = async (
       u8(Constants.Instruction.matchOrdersMulti),
       signedOrderBytes(takerOrder),
       u8(Array.length(makers)),
-      u8(fullFillBitmask.contents),
+      u16(fullFillBitmask.contents),
     ]
     makers->Array.forEach(maker => {
       dataParts->Array.push(signedOrderBytes(maker.order))
       dataParts->Array.push(u64(maker.makerFillAmount))
       dataParts->Array.push(u64(maker.takerFillAmount))
     })
-    Ok({programAddress: programId, accounts, data: concatBytes(dataParts)})
+    Ok(await publicInstruction({programAddress: programId, accounts, data: concatBytes(dataParts)}))
   }
 
 // ── CreateOrderbook (opcode 15) ───────────────────────────────────────────────
@@ -1204,7 +1287,6 @@ let createOrderbook = async (
   // 0 ⇒ mintA is the base asset, 1 ⇒ mintB.
   ~baseIndex: int,
   ~feeReceiver: SolanaKit.address,
-  ~recentSlot: bigint,
 ): result<SolanaKit.instruction, SdkError.t> =>
   if baseIndex < 0 || baseIndex > 1 {
     Error(SdkError.Validation(`invalid base index: ${Int.toString(baseIndex)}`))
@@ -1219,133 +1301,70 @@ let createOrderbook = async (
 
     let (exchange, _) = await Pda.exchange(programId)
     let (orderbook, _) = await Pda.orderbook(programId, ~mintA=first.mint, ~mintB=second.mint)
-    let (lookupTable, _) = await Pda.alt(~orderbook, ~recentSlot)
     let quoteMint = canonicalBaseIndex == 0 ? second.mint : first.mint
     let (feeReceiverQuoteAta, _) = await ata(~owner=feeReceiver, ~mint=quoteMint)
-    Ok({
-      programAddress: programId,
-      accounts: [
-        signerMut(manager),
-        readonly(market),
-        readonly(first.mint),
-        readonly(second.mint),
-        writable(orderbook),
-        writable(lookupTable),
-        readonly(exchange),
-        readonly(Constants.altProgram),
-        readonly(Constants.systemProgram),
-        readonly(first.depositMint),
-        readonly(second.depositMint),
-        readonly(Constants.tokenProgram),
-        readonly(Constants.associatedTokenProgram),
-        readonly(feeReceiver),
-        writable(feeReceiverQuoteAta),
-      ],
-      data: concatBytes([
-        u8(Constants.Instruction.createOrderbook),
-        u64(recentSlot),
-        u8(canonicalBaseIndex),
-        u8(first.outcomeIndex),
-        u8(second.outcomeIndex),
-      ]),
-    })
+    let (gdtA, _) = await Pda.globalDepositToken(programId, ~mint=first.depositMint)
+    let (gdtB, _) = await Pda.globalDepositToken(programId, ~mint=second.depositMint)
+    let (derivedA, _) = await Pda.conditionalMint(
+      programId,
+      ~market,
+      ~depositMint=first.depositMint,
+      ~outcomeIndex=first.outcomeIndex,
+    )
+    let (derivedB, _) = await Pda.conditionalMint(
+      programId,
+      ~market,
+      ~depositMint=second.depositMint,
+      ~outcomeIndex=second.outcomeIndex,
+    )
+    if (
+      first.depositMint == second.depositMint ||
+      first.outcomeIndex != second.outcomeIndex ||
+      first.outcomeIndex < 0 ||
+      first.outcomeIndex >= 6 ||
+      derivedA != first.mint ||
+      derivedB != second.mint
+    ) {
+      Error(SdkError.Validation("invalid conditional mint, outcome, or duplicate collateral"))
+    } else {
+      Ok(
+        await publicInstruction({
+          programAddress: programId,
+          accounts: [
+            signerMut(manager),
+            readonly(market),
+            readonly(first.mint),
+            readonly(second.mint),
+            writable(orderbook),
+            readonly(gdtA),
+            readonly(gdtB),
+            readonly(exchange),
+            readonly(Constants.systemProgram),
+            readonly(first.depositMint),
+            readonly(second.depositMint),
+            readonly(Constants.tokenProgram),
+            readonly(Constants.associatedTokenProgram),
+            readonly(feeReceiver),
+            writable(feeReceiverQuoteAta),
+          ],
+          data: concatBytes([
+            u8(Constants.Instruction.createOrderbook),
+            u8(canonicalBaseIndex),
+            u8(first.outcomeIndex),
+          ]),
+        }),
+      )
+    }
   }
 
-// ── RefreshOrderbookAlt (opcode 34) ───────────────────────────────────────────
-// Manager-only: ensures the current fee receiver's quote ATA exists and is in
-// the orderbook ALT.
-let refreshOrderbookAlt = async (
-  ~programId: SolanaKit.address,
-  ~manager: SolanaKit.address,
-  ~market: SolanaKit.address,
-  ~orderbook: SolanaKit.address,
-  ~lookupTable: SolanaKit.address,
-  ~quoteMint: SolanaKit.address,
-  ~feeReceiver: SolanaKit.address,
-): SolanaKit.instruction => {
-  let (exchange, _) = await Pda.exchange(programId)
-  let (feeReceiverQuoteAta, _) = await ata(~owner=feeReceiver, ~mint=quoteMint)
-  {
-    programAddress: programId,
-    accounts: [
-      signerMut(manager),
-      readonly(exchange),
-      readonly(market),
-      readonly(orderbook),
-      writable(lookupTable),
-      readonly(quoteMint),
-      readonly(feeReceiver),
-      writable(feeReceiverQuoteAta),
-      readonly(Constants.tokenProgram),
-      readonly(Constants.associatedTokenProgram),
-      readonly(Constants.altProgram),
-      readonly(Constants.systemProgram),
-    ],
-    data: concatBytes([u8(Constants.Instruction.refreshOrderbookAlt)]),
-  }
-}
-
-// ── DepositToGlobal with ALT context (opcode 17) ──────────────────────────────
-// The deposit-to-global instruction with the optional user-deposit-ALT block:
-// `Create` derives the ALT from (user_nonce, recent_slot) and appends the slot
-// to the data; `Extend` reuses an existing table.
-module DepositToGlobalAltContext = {
-  type t =
-    | Create({recentSlot: bigint})
-    | Extend({lookupTable: SolanaKit.address})
-}
-
-let depositToGlobalWithAlt = async (
-  ~programId: SolanaKit.address,
-  ~user: SolanaKit.address,
-  ~mint: SolanaKit.address,
-  ~amount: bigint,
-  ~altContext: DepositToGlobalAltContext.t,
-): SolanaKit.instruction => {
-  let (globalDepositToken, _) = await Pda.globalDepositToken(programId, ~mint)
-  let (userGlobalDeposit, _) = await Pda.userGlobalDeposit(programId, ~user, ~mint)
-  let (exchange, _) = await Pda.exchange(programId)
-  let (userTokenAccount, _) = await ata(~owner=user, ~mint)
-  let (userNonce, _) = await Pda.userNonce(programId, ~user)
-
-  let dataParts = [u8(Constants.Instruction.depositToGlobal), u64(amount)]
-  let lookupTable = switch altContext {
-  | Create({recentSlot}) =>
-    dataParts->Array.push(u64(recentSlot))
-    let (derived, _) = await Pda.alt(~orderbook=userNonce, ~recentSlot)
-    derived
-  | Extend({lookupTable}) => lookupTable
-  }
-  {
-    programAddress: programId,
-    accounts: [
-      signerMut(user),
-      readonly(globalDepositToken),
-      readonly(mint),
-      writable(userGlobalDeposit),
-      writable(userTokenAccount),
-      readonly(Constants.tokenProgram),
-      readonly(Constants.systemProgram),
-      readonly(exchange),
-      readonly(userNonce),
-      writable(lookupTable),
-      readonly(Constants.altProgram),
-    ],
-    data: concatBytes(dataParts),
-  }
-}
-
-// ── DepositAndSwap (opcode 20) ────────────────────────────────────────────────
-// Unified order execution: each participant may deposit from global and/or swap
-// conditional tokens. Bitmasks: full-fill (taker bit 7, maker bit i) and deposit
-// (same layout). Data: [20, taker order 37, taker sig 64, num_makers u8,
-// full_fill_bitmask u8, deposit_bitmask u8, per maker: order ‖ sig ‖ fills].
 let depositAndSwap = async (
   ~programId: SolanaKit.address,
   ~operator: SolanaKit.address,
   ~market: SolanaKit.address,
   ~baseMint: SolanaKit.address,
   ~quoteMint: SolanaKit.address,
+  ~baseDepositMint: SolanaKit.address,
+  ~quoteDepositMint: SolanaKit.address,
   ~feeReceiver: SolanaKit.address,
   ~takerOrder: SignedOrder.t,
   ~takerIsFullFill: bool,
@@ -1358,7 +1377,35 @@ let depositAndSwap = async (
     Error(SdkError.Validation("makers is required"))
   } else if Array.length(makers) > Constants.maxMakers {
     Error(SdkError.Validation(`too many makers: ${Int.toString(Array.length(makers))}`))
+  } else if (
+    numOutcomes < 2 ||
+    numOutcomes > 6 ||
+    takerIsDeposit &&
+    takerDepositMint != (takerOrder.order.side == 0 ? quoteDepositMint : baseDepositMint) ||
+    makers->Array.some(maker =>
+      maker.isDeposit &&
+      maker.depositMint != (maker.order.order.side == 0 ? quoteDepositMint : baseDepositMint)
+    )
+  ) {
+    Error(SdkError.Validation("invalid deposit outcome count or funding mint"))
+  } else if (
+    baseMint == quoteMint ||
+    baseDepositMint == quoteDepositMint ||
+    !validTradeOrder(takerOrder, market, baseMint, quoteMint) ||
+    makers->Array.some(maker =>
+      !validTradeOrder(maker.order, market, baseMint, quoteMint) ||
+      maker.order.order.side == takerOrder.order.side
+    )
+  ) {
+    Error(SdkError.Validation("invalid trade market, pair, collateral, or side"))
   } else {
+    let (gdtA, gdtB) = await tradingGdts(
+      programId,
+      baseMint,
+      quoteMint,
+      baseDepositMint,
+      quoteDepositMint,
+    )
     let (exchange, _) = await Pda.exchange(programId)
     let (orderbook, _) = await Pda.orderbook(programId, ~mintA=baseMint, ~mintB=quoteMint)
     let (mintAuthority, _) = await Pda.mintAuthority(programId, ~market)
@@ -1374,6 +1421,8 @@ let depositAndSwap = async (
       readonly(exchange),
       readonly(market),
       readonly(orderbook),
+      readonly(gdtA),
+      readonly(gdtB),
       readonly(mintAuthority),
       readonly(Constants.tokenProgram),
       writable(feeReceiverQuoteAta),
@@ -1381,14 +1430,16 @@ let depositAndSwap = async (
       readonly(Constants.associatedTokenProgram),
     ]
     if !takerIsFullFill {
-      let (takerOrderStatus, _) =
-        await Pda.orderStatus(programId, ~orderHash=OrderPayload.hash(takerOrder.order))
+      let (takerOrderStatus, _) = await Pda.orderStatus(
+        programId,
+        ~orderHash=OrderPayload.hash(takerOrder.order),
+      )
       accounts->Array.push(writable(takerOrderStatus))
     }
     let (takerReceiveAta, _) = await ata(~owner=takerPosition, ~mint=receiveMint)
     let (takerGiveAta, _) = await ata(~owner=takerPosition, ~mint=giveMint)
     accounts->Array.push(readonly(takerNonce))
-    accounts->Array.push(writable(takerPosition))
+    accounts->Array.push(readonly(takerPosition))
     accounts->Array.push(readonly(baseMint))
     accounts->Array.push(readonly(quoteMint))
     accounts->Array.push(writable(takerReceiveAta))
@@ -1398,23 +1449,30 @@ let depositAndSwap = async (
     if takerIsDeposit {
       let (vault, _) = await Pda.vault(programId, ~depositMint=takerDepositMint, ~market)
       let (gdt, _) = await Pda.globalDepositToken(programId, ~mint=takerDepositMint)
-      let (takerGlobalDeposit, _) =
-        await Pda.userGlobalDeposit(programId, ~user=takerOrder.order.maker, ~mint=takerDepositMint)
+      let (takerGlobalDeposit, _) = await Pda.userGlobalDeposit(
+        programId,
+        ~user=takerOrder.order.maker,
+        ~mint=takerDepositMint,
+      )
       accounts->Array.push(readonly(takerDepositMint))
       accounts->Array.push(writable(vault))
       accounts->Array.push(readonly(gdt))
       accounts->Array.push(writable(takerGlobalDeposit))
       for outcomeIndex in 0 to numOutcomes - 1 {
-        let (conditionalMint, _) =
-          await Pda.conditionalMint(programId, ~market, ~depositMint=takerDepositMint, ~outcomeIndex)
+        let (conditionalMint, _) = await Pda.conditionalMint(
+          programId,
+          ~market,
+          ~depositMint=takerDepositMint,
+          ~outcomeIndex,
+        )
         let (takerAta, _) = await ata(~owner=takerPosition, ~mint=conditionalMint)
         accounts->Array.push(writable(conditionalMint))
         accounts->Array.push(writable(takerAta))
       }
     }
 
-    let fullFillBitmask = ref(takerIsFullFill ? 128 : 0)
-    let depositBitmask = ref(takerIsDeposit ? 128 : 0)
+    let fullFillBitmask = ref(takerIsFullFill ? 32768 : 0)
+    let depositBitmask = ref(takerIsDeposit ? 32768 : 0)
     for index in 0 to Array.length(makers) - 1 {
       let maker = makers->Array.getUnsafe(index)
       if maker.isFullFill {
@@ -1424,26 +1482,39 @@ let depositAndSwap = async (
         depositBitmask := depositBitmask.contents + bitValue(index)
       }
       let (makerNonce, _) = await Pda.userNonce(programId, ~user=maker.order.order.maker)
-      let (makerPosition, _) = await Pda.position(programId, ~owner=maker.order.order.maker, ~market)
+      let (makerPosition, _) = await Pda.position(
+        programId,
+        ~owner=maker.order.order.maker,
+        ~market,
+      )
       if !maker.isFullFill {
-        let (makerOrderStatus, _) =
-          await Pda.orderStatus(programId, ~orderHash=OrderPayload.hash(maker.order.order))
+        let (makerOrderStatus, _) = await Pda.orderStatus(
+          programId,
+          ~orderHash=OrderPayload.hash(maker.order.order),
+        )
         accounts->Array.push(writable(makerOrderStatus))
       }
       accounts->Array.push(readonly(makerNonce))
-      accounts->Array.push(writable(makerPosition))
+      accounts->Array.push(readonly(makerPosition))
       if maker.isDeposit {
         let (vault, _) = await Pda.vault(programId, ~depositMint=maker.depositMint, ~market)
         let (gdt, _) = await Pda.globalDepositToken(programId, ~mint=maker.depositMint)
-        let (makerGlobalDeposit, _) =
-          await Pda.userGlobalDeposit(programId, ~user=maker.order.order.maker, ~mint=maker.depositMint)
+        let (makerGlobalDeposit, _) = await Pda.userGlobalDeposit(
+          programId,
+          ~user=maker.order.order.maker,
+          ~mint=maker.depositMint,
+        )
         accounts->Array.push(readonly(maker.depositMint))
         accounts->Array.push(writable(vault))
         accounts->Array.push(readonly(gdt))
         accounts->Array.push(writable(makerGlobalDeposit))
         for outcomeIndex in 0 to numOutcomes - 1 {
-          let (conditionalMint, _) =
-            await Pda.conditionalMint(programId, ~market, ~depositMint=maker.depositMint, ~outcomeIndex)
+          let (conditionalMint, _) = await Pda.conditionalMint(
+            programId,
+            ~market,
+            ~depositMint=maker.depositMint,
+            ~outcomeIndex,
+          )
           let (makerAta, _) = await ata(~owner=makerPosition, ~mint=conditionalMint)
           accounts->Array.push(writable(conditionalMint))
           accounts->Array.push(writable(makerAta))
@@ -1459,15 +1530,15 @@ let depositAndSwap = async (
       u8(Constants.Instruction.depositAndSwap),
       signedOrderBytes(takerOrder),
       u8(Array.length(makers)),
-      u8(fullFillBitmask.contents),
-      u8(depositBitmask.contents),
+      u16(fullFillBitmask.contents),
+      u16(depositBitmask.contents),
     ]
     makers->Array.forEach(maker => {
       dataParts->Array.push(signedOrderBytes(maker.order))
       dataParts->Array.push(u64(maker.makerFillAmount))
       dataParts->Array.push(u64(maker.takerFillAmount))
     })
-    Ok({programAddress: programId, accounts, data: concatBytes(dataParts)})
+    Ok(await publicInstruction({programAddress: programId, accounts, data: concatBytes(dataParts)}))
   }
 
 // ── CloseOrderStatus (opcode 24) ──────────────────────────────────────────────
@@ -1481,35 +1552,11 @@ let closeOrderStatus = async (
 ): SolanaKit.instruction => {
   let (exchange, _) = await Pda.exchange(programId)
   let (orderStatus, _) = await Pda.orderStatus(programId, ~orderHash)
-  {
+  await publicInstruction({
     programAddress: programId,
     accounts: [signerMut(operator), readonly(exchange), writable(orderStatus)],
     data: concatBytes([u8(Constants.Instruction.closeOrderStatus), orderHash]),
-  }
-}
-
-// ── CloseOrderbookAlt (opcode 26) / CloseOrderbook (opcode 27) ────────────────
-// Operator-only ALT deactivate/close, then the orderbook PDA itself.
-let closeOrderbookAlt = async (
-  ~programId: SolanaKit.address,
-  ~operator: SolanaKit.address,
-  ~orderbook: SolanaKit.address,
-  ~market: SolanaKit.address,
-  ~lookupTable: SolanaKit.address,
-): SolanaKit.instruction => {
-  let (exchange, _) = await Pda.exchange(programId)
-  {
-    programAddress: programId,
-    accounts: [
-      signerMut(operator),
-      readonly(exchange),
-      readonly(orderbook),
-      readonly(market),
-      writable(lookupTable),
-      readonly(Constants.altProgram),
-    ],
-    data: concatBytes([u8(Constants.Instruction.closeOrderbookAlt)]),
-  }
+  })
 }
 
 let closeOrderbook = async (
@@ -1517,18 +1564,11 @@ let closeOrderbook = async (
   ~operator: SolanaKit.address,
   ~orderbook: SolanaKit.address,
   ~market: SolanaKit.address,
-  ~lookupTable: SolanaKit.address,
 ): SolanaKit.instruction => {
   let (exchange, _) = await Pda.exchange(programId)
-  {
+  await publicInstruction({
     programAddress: programId,
-    accounts: [
-      signerMut(operator),
-      readonly(exchange),
-      writable(orderbook),
-      readonly(market),
-      readonly(lookupTable),
-    ],
+    accounts: [signerMut(operator), readonly(exchange), writable(orderbook), readonly(market)],
     data: concatBytes([u8(Constants.Instruction.closeOrderbook)]),
-  }
+  })
 }

@@ -17,6 +17,15 @@ let decodeIdentity = (json: JSON.t): result<Auth__Model.Identity.t, Spice.decode
   switch json {
   | JSON.Object(dict) =>
     switch field(dict, "type") {
+    | Some(JSON.String("email")) =>
+      switch (field(dict, "account"), field(dict, "privy")) {
+      | (Some(account), Some(privy)) =>
+        switch (Auth__Model.EmailAccount.t_decode(account), Auth__Model.PrivyData.t_decode(privy)) {
+        | (Ok(account), Ok(privy)) => Ok(Auth__Model.Identity.Email({account, privy}))
+        | (Error(error), _) | (_, Error(error)) => Error(error)
+        }
+      | _ => Spice.error("email identity missing account/privy", json)
+      }
     | Some(JSON.String("google")) =>
       switch (field(dict, "account"), field(dict, "privy")) {
       | (Some(account), Some(privy)) =>
@@ -57,6 +66,55 @@ let decodeIdentity = (json: JSON.t): result<Auth__Model.Identity.t, Spice.decode
   | _ => Spice.error("identity is not an object", json)
   }
 
+let decodeLinked = (json: JSON.t): result<Auth__Model.LinkedIdentity.t, Spice.decodeError> =>
+  switch json {
+  | JSON.Object(dict) =>
+    switch (field(dict, "type"), field(dict, "account")) {
+    | (Some(JSON.String("email")), Some(account)) =>
+      Auth__Model.EmailAccount.t_decode(
+        account,
+      )->Result.map(account => Auth__Model.LinkedIdentity.Email(account))
+    | (Some(JSON.String("google")), Some(account)) =>
+      Auth__Model.GoogleAccount.t_decode(
+        account,
+      )->Result.map(account => Auth__Model.LinkedIdentity.Google(account))
+    | (Some(JSON.String("x")), Some(account)) =>
+      Auth__Model.XAccount.t_decode(account)->Result.map(account => Auth__Model.LinkedIdentity.X(
+        account,
+      ))
+    | (Some(JSON.String("wallet")), _) =>
+      switch (field(dict, "address"), field(dict, "chain")) {
+      | (Some(JSON.String(address)), Some(chain)) =>
+        Auth__Model.ChainType.t_decode(
+          chain,
+        )->Result.map(chain => Auth__Model.LinkedIdentity.Wallet({address, chain}))
+      | _ => Spice.error("linked wallet missing address or chain", json)
+      }
+    | _ => Spice.error("invalid linked identity", json)
+    }
+  | _ => Spice.error("invalid linked identity", json)
+  }
+let decodeLinkedList = json =>
+  switch json {
+  | None => Ok([])
+  | Some(JSON.Array(values)) =>
+    values->Array.reduce(Ok([]), (acc, value) =>
+      acc->Result.flatMap(items =>
+        decodeLinked(value)->Result.map(item => Array.concat(items, [item]))
+      )
+    )
+  | Some(json) => Spice.error("linked identities must be an array", json)
+  }
+let decodePreference = json =>
+  switch json {
+  | None | Some(JSON.Null) => Ok(None)
+  | Some(JSON.String(value)) =>
+    switch ExactDecimal.scaledInteger(value, 28) {
+    | Ok(_) => Ok(Some(value))
+    | Error(_) => Spice.error("invalid decimal preference", JSON.String(value))
+    }
+  | Some(json) => Spice.error("max slippage preference must be decimal text or null", json)
+  }
 // ── User + session (composite) ────────────────────────────────────────────────
 let decodeUser = (json: JSON.t): result<Auth__Model.User.t, Spice.decodeError> =>
   switch json {
@@ -69,7 +127,25 @@ let decodeUser = (json: JSON.t): result<Auth__Model.User.t, Spice.decodeError> =
           field(dict, "connected_x")->Option.flatMap(json =>
             Auth__Model.XAccount.t_decode(json)->Result.mapOr(None, value => Some(value))
           )
-        Ok({userId, identity, ?connectedX})
+        switch (
+          decodeLinkedList(field(dict, "linked_identities")),
+          decodePreference(field(dict, "max_slippage_preference")),
+        ) {
+        | (Ok(linkedIdentities), Ok(maxSlippagePreference)) =>
+          let telegramInviteUrl = switch field(dict, "telegram_invite_url") {
+          | Some(JSON.String(value)) => Some(value)
+          | _ => None
+          }
+          Ok({
+            userId,
+            identity,
+            ?connectedX,
+            linkedIdentities,
+            ?maxSlippagePreference,
+            ?telegramInviteUrl,
+          })
+        | (Error(error), _) | (_, Error(error)) => Error(error)
+        }
       | Error(error) => Error(error)
       }
     | _ => Spice.error("user missing user_id/identity", json)
@@ -118,4 +194,18 @@ module SignedLogin = {
     )
     JSON.Object(Dict.fromArray(fields))
   }
+}
+
+let registerPrivyJson = (request: Auth__Model.RegisterPrivyRequest.t) => {
+  let fields = switch request.attemptedIdentity {
+  | Email(email) => [("type", JSON.String("email")), ("email", JSON.String(email))]
+  | Google(email) => [("type", JSON.String("google")), ("email", JSON.String(email))]
+  | X(username) => [("type", JSON.String("x")), ("username", JSON.String(username))]
+  | Wallet({address, chain}) => [
+      ("type", JSON.String("wallet")),
+      ("address", JSON.String(address)),
+      ("chain", Auth__Model.ChainType.t_encode(chain)),
+    ]
+  }
+  JSON.Object(Dict.fromArray([("attempted_identity", JSON.Object(Dict.fromArray(fields)))]))
 }

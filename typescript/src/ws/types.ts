@@ -20,6 +20,11 @@ export interface IWsClient {
   isConnected(): boolean;
   readyState(): ReadyState;
   restartConnection(): Promise<void>;
+  /**
+   * Purge User/wallet replay tracking and queued authenticated messages.
+   * Public subscriptions remain. This does not unsubscribe an open server
+   * stream, so callers must also send unsubscribe or disconnect on logout.
+   */
   clearAuthedSubscriptions(): void;
   on(callback: (event: WsEvent) => void): () => void;
 }

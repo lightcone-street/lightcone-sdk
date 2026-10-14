@@ -202,6 +202,7 @@ module Kind: {
     | BookUpdate(Orderbook__Raw.Book.t)
     | Trades(Trade.t)
     | User(UserUpdate.t)
+    | WalletDepositBalances(Position__Raw.WalletDepositBalancesEvent.t)
     | Ticker(Ticker.t)
     | PriceHistory(WsPriceHistory.t)
     | Market(MarketEvent.t)

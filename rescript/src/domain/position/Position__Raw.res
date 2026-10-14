@@ -101,4 +101,84 @@ module DepositTokenBalance = {
     onBook: "0",
     tokenType: Position__Model.TokenBalance.DepositAsset,
   }
+  let t_decode = json => t_decode(SdkError.stripNulls(json))
+}
+
+module NativeSolBalance = {
+  @genType type t = string
+  let t_decode = json =>
+    switch json {
+    | JSON.String(value) if RegExp.test(/^(0|[1-9][0-9]*)\.[0-9]{9}$/, value) => Ok(value)
+    | _ =>
+      Spice.error(
+        "native SOL must be canonical non-negative text with nine fractional digits",
+        json,
+      )
+    }
+  let t_encode = value => JSON.String(value)
+  let t_encodeJson = t_encode
+}
+
+module DepositTokenBalancesSnapshot = {
+  @genType @spice
+  type t = {
+    @spice.key("context_slot") contextSlot: ProtocolInt.U64.t,
+    balances: dict<DepositTokenBalance.t>,
+    @spice.key("native_sol_balance") nativeSolBalance: NativeSolBalance.t,
+  }
+}
+module WalletDepositBalanceStatus = {
+  @genType @spice
+  type t =
+    | @as("reconnecting") @spice.as("reconnecting") Reconnecting
+    | @as("metadata_unavailable") @spice.as("metadata_unavailable") MetadataUnavailable
+}
+module WalletDepositBalancesEvent = {
+  @genType @spice
+  type snapshot = {
+    @spice.key("wallet_address") walletAddress: string,
+    @spice.key("context_slot") contextSlot: ProtocolInt.U64.t,
+    balances: dict<DepositTokenBalance.t>,
+    @spice.key("native_sol_balance") nativeSolBalance: NativeSolBalance.t,
+  }
+  @genType @spice
+  type balanceUpdate = {
+    @spice.key("wallet_address") walletAddress: string,
+    @spice.key("context_slot") contextSlot: ProtocolInt.U64.t,
+    balance: DepositTokenBalance.t,
+  }
+  @genType @spice
+  type nativeUpdate = {
+    @spice.key("wallet_address") walletAddress: string,
+    @spice.key("context_slot") contextSlot: ProtocolInt.U64.t,
+    @spice.key("native_sol_balance") nativeSolBalance: NativeSolBalance.t,
+  }
+  @genType @spice
+  type status = {
+    @spice.key("wallet_address") walletAddress: string,
+    status: WalletDepositBalanceStatus.t,
+    code: string,
+  }
+  @genType
+  type t =
+    | Snapshot(snapshot)
+    | BalanceUpdate(balanceUpdate)
+    | NativeSolBalanceUpdate(nativeUpdate)
+    | Status(status)
+  let t_decode = json =>
+    switch json {
+    | JSON.Object(dict) =>
+      switch Dict.get(dict, "event_type") {
+      | Some(JSON.String("wallet_deposit_balance_snapshot")) =>
+        snapshot_decode(json)->Result.map(value => Snapshot(value))
+      | Some(JSON.String("wallet_deposit_balance_update")) =>
+        balanceUpdate_decode(json)->Result.map(value => BalanceUpdate(value))
+      | Some(JSON.String("wallet_native_sol_balance_update")) =>
+        nativeUpdate_decode(json)->Result.map(value => NativeSolBalanceUpdate(value))
+      | Some(JSON.String("wallet_deposit_balance_status")) =>
+        status_decode(json)->Result.map(value => Status(value))
+      | _ => Spice.error("unknown wallet balance event", json)
+      }
+    | _ => Spice.error("invalid wallet balance event", json)
+    }
 }

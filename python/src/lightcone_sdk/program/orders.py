@@ -1,4 +1,7 @@
-"""Order creation, hashing, signing, and serialization for the Lightcone SDK."""
+"""Order creation, hashing, signing, and serialization for the Lightcone SDK.
+
+Compatibility imports use explicit aliases to retain ordinary public module attributes.
+"""
 
 import os
 import time
@@ -7,14 +10,14 @@ import uuid
 import nacl.exceptions
 from nacl.signing import SigningKey, VerifyKey
 from solders.keypair import Keypair
-from solders.pubkey import Pubkey
+from solders.pubkey import Pubkey as Pubkey
 
+from ..shared.scaling import OrderbookRules, validate_raw_amounts
+from .constants import COMPACT_ORDER_SIZE as COMPACT_ORDER_SIZE
+from .constants import FULL_ORDER_SIZE as FULL_ORDER_SIZE
 from .constants import (
-    ORDER_SIZE,
-    SIGNED_ORDER_SIZE,
     ORDER_BASE_MINT_OFFSET,
     ORDER_EXPIRATION_OFFSET,
-    ORDER_HASH_SIZE,
     ORDER_MAKER_AMOUNT_OFFSET,
     ORDER_MAKER_OFFSET,
     ORDER_MARKET_OFFSET,
@@ -23,47 +26,49 @@ from .constants import (
     ORDER_SALT_OFFSET,
     ORDER_SIDE_OFFSET,
     ORDER_SIGNATURE_OFFSET,
+    ORDER_SIZE,
     ORDER_TAKER_AMOUNT_OFFSET,
     SIGNATURE_SIZE,
-    # Backward compat
-    FULL_ORDER_SIZE,
-    COMPACT_ORDER_SIZE,
+    SIGNED_ORDER_SIZE,
 )
+from .constants import ORDER_HASH_SIZE as ORDER_HASH_SIZE
 from .errors import InvalidOrderError, InvalidSignatureError
 from .types import (
     AskOrderParams,
     BidOrderParams,
     Order,
-    SignedOrder,
     OrderSide,
+    SignedOrder,
 )
 from .utils import (
     decode_i64,
     decode_pubkey,
+    decode_u8,
     decode_u32,
     decode_u64,
-    decode_u8,
-    derive_condition_id,
     encode_i64,
+    encode_u8,
     encode_u32,
     encode_u64,
-    encode_u8,
     keccak256,
     orders_cross,
 )
+from .utils import derive_condition_id as derive_condition_id
 
 # Backward compatibility alias
 FullOrder = SignedOrder
 
-# Maximum value for a u64 integer
+# Durable backend signed integer maximum.
+MAX_I64 = 2**63 - 1
+# Maximum value for a u64 integer used only by on-chain arithmetic helpers.
 MAX_U64 = 2**64 - 1
 # Maximum value for a u32 integer
 MAX_U32 = 2**32 - 1
 
 
 def generate_salt() -> int:
-    """Generate a random u64 salt for order uniqueness."""
-    return int.from_bytes(os.urandom(8), "little")
+    """Generate a uniform salt in the durable signed-64-bit range."""
+    return int.from_bytes(os.urandom(8), "little") & MAX_I64
 
 
 def create_bid_order(params: BidOrderParams) -> SignedOrder:
@@ -114,7 +119,7 @@ def serialize_order_for_hashing(order: SignedOrder) -> bytes:
       base_mint (32) | quote_mint (32) | side (1) | amount_in (8) |
       amount_out (8) | expiration (8)
     """
-    if order.nonce > MAX_U32:
+    if order.nonce < 0 or order.nonce > MAX_U32:
         raise InvalidOrderError(f"nonce exceeds u32 max: {order.nonce}")
     return (
         encode_u64(order.nonce)  # Widen u32 to u64 for wire compatibility
@@ -144,13 +149,15 @@ def hash_order_hex(order: SignedOrder) -> str:
     return hash_order(order).hex()
 
 
-def sign_order(order: SignedOrder, keypair: Keypair) -> bytes:
+def sign_order(order: SignedOrder, keypair: Keypair, rules: OrderbookRules) -> bytes:
     """Sign an order with a keypair.
 
     Signs the hex-encoded keccak256 hash of the order (64-char ASCII string)
     with the keypair's Ed25519 private key. Updates the order's signature in
     place and returns the signature.
     """
+    validate_order(order)
+    validate_raw_amounts(order.amount_in, order.amount_out, int(order.side), rules)
     order_hash_hex = hash_order_hex(order)
     message = order_hash_hex.encode("ascii")
 
@@ -192,7 +199,7 @@ def verify_order_signature(order: SignedOrder) -> bool:
     except nacl.exceptions.BadSignatureError:
         return False
     except (nacl.exceptions.ValueError, ValueError) as e:
-        raise InvalidOrderError(f"Invalid maker public key: {e}")
+        raise InvalidOrderError(f"Invalid maker public key: {e}") from e
 
 
 def serialize_full_order(order: SignedOrder) -> bytes:
@@ -227,7 +234,9 @@ def deserialize_full_order(data: bytes) -> SignedOrder:
         amount_in=decode_u64(data, ORDER_MAKER_AMOUNT_OFFSET),
         amount_out=decode_u64(data, ORDER_TAKER_AMOUNT_OFFSET),
         expiration=decode_i64(data, ORDER_EXPIRATION_OFFSET),
-        signature=data[ORDER_SIGNATURE_OFFSET : ORDER_SIGNATURE_OFFSET + SIGNATURE_SIZE],
+        signature=data[
+            ORDER_SIGNATURE_OFFSET : ORDER_SIGNATURE_OFFSET + SIGNATURE_SIZE
+        ],
     )
 
 
@@ -288,17 +297,21 @@ def deserialize_order(data: bytes) -> Order:
 deserialize_compact_order = deserialize_order
 
 
-def create_signed_bid_order(params: BidOrderParams, keypair: Keypair) -> SignedOrder:
+def create_signed_bid_order(
+    params: BidOrderParams, keypair: Keypair, rules: OrderbookRules
+) -> SignedOrder:
     """Create and sign a bid order in one call."""
     order = create_bid_order(params)
-    sign_order(order, keypair)
+    sign_order(order, keypair, rules)
     return order
 
 
-def create_signed_ask_order(params: AskOrderParams, keypair: Keypair) -> SignedOrder:
+def create_signed_ask_order(
+    params: AskOrderParams, keypair: Keypair, rules: OrderbookRules
+) -> SignedOrder:
     """Create and sign an ask order in one call."""
     order = create_ask_order(params)
-    sign_order(order, keypair)
+    sign_order(order, keypair, rules)
     return order
 
 
@@ -312,27 +325,32 @@ def validate_order(order: SignedOrder, check_expiration: bool = False) -> None:
     Raises InvalidOrderError if any field is invalid.
     """
     # Validate nonce range (u32)
-    if order.nonce > MAX_U32:
+    if order.nonce < 0 or order.nonce > MAX_U32:
         raise InvalidOrderError(f"nonce exceeds u32 max: {order.nonce}")
 
     # Validate amounts
-    if order.amount_in == 0:
+    if order.amount_in <= 0:
         raise InvalidOrderError("amount_in cannot be zero")
-    if order.amount_out == 0:
+    if order.amount_out <= 0:
         raise InvalidOrderError("amount_out cannot be zero")
 
-    # Validate u64 bounds
-    if order.amount_in > MAX_U64:
-        raise InvalidOrderError(f"amount_in exceeds u64 max: {order.amount_in}")
-    if order.amount_out > MAX_U64:
-        raise InvalidOrderError(f"amount_out exceeds u64 max: {order.amount_out}")
+    if order.amount_in > MAX_I64:
+        raise InvalidOrderError(f"amount_in exceeds i64 max: {order.amount_in}")
+    if order.amount_out > MAX_I64:
+        raise InvalidOrderError(f"amount_out exceeds i64 max: {order.amount_out}")
+    if order.salt < 0 or order.salt > MAX_I64:
+        raise InvalidOrderError(f"salt exceeds durable signed range: {order.salt}")
 
     # Validate side
     if order.side not in (OrderSide.BID, OrderSide.ASK):
         raise InvalidOrderError(f"Invalid side: {order.side}")
 
     # Validate expiration (if set and check enabled, must be in the future)
-    if check_expiration and order.expiration != 0 and order.expiration < int(time.time()):
+    if (
+        check_expiration
+        and order.expiration != 0
+        and order.expiration < int(time.time())
+    ):
         raise InvalidOrderError(f"Order already expired: expiration={order.expiration}")
 
     # Validate maker is not zero pubkey
@@ -363,14 +381,6 @@ def cancel_order_message(order_hash: str) -> bytes:
     (same protocol as order signing).
     """
     return order_hash.encode("ascii")
-
-
-def cancel_trigger_order_message(trigger_order_id: str) -> bytes:
-    """Build the message bytes for cancelling a trigger order.
-
-    The message is the trigger_order_id as ASCII bytes.
-    """
-    return trigger_order_id.encode("ascii")
 
 
 def sign_cancel_order(order_hash: str, keypair: Keypair) -> str:
@@ -462,8 +472,6 @@ def to_submit_request(
     order: SignedOrder,
     orderbook_id: str,
     time_in_force=None,
-    trigger_price=None,
-    trigger_type=None,
     deposit_source=None,
 ):
     """Convert a signed SignedOrder to a SubmitOrderRequest.
@@ -472,8 +480,6 @@ def to_submit_request(
         order: A signed SignedOrder
         orderbook_id: The orderbook identifier
         time_in_force: Optional TimeInForce value
-        trigger_price: Optional trigger price (float)
-        trigger_type: Optional TriggerType value
         deposit_source: Optional DepositSource value
 
     Returns:
@@ -484,6 +490,7 @@ def to_submit_request(
     """
     if not is_signed(order):
         raise InvalidOrderError("Order must be signed before submitting")
+    validate_order(order)
 
     # Import here to avoid circular dependency
     from ..shared.types import SubmitOrderRequest
@@ -502,8 +509,6 @@ def to_submit_request(
         signature=signature_hex(order),
         orderbook_id=orderbook_id,
         time_in_force=time_in_force,
-        trigger_price=trigger_price,
-        trigger_type=trigger_type,
         deposit_source=deposit_source,
     )
 
@@ -515,9 +520,12 @@ def is_order_expired(order: SignedOrder, current_time: int) -> bool:
     return current_time >= order.expiration
 
 
-def apply_signature(order: SignedOrder, sig_bs58: str) -> None:
+def apply_signature(order: SignedOrder, sig_bs58: str, rules: OrderbookRules) -> None:
     """Apply a base58-encoded signature to an order in place."""
     import base58
+
+    validate_order(order)
+    validate_raw_amounts(order.amount_in, order.amount_out, int(order.side), rules)
     sig_bytes = base58.b58decode(sig_bs58)
     if len(sig_bytes) != SIGNATURE_SIZE:
         raise InvalidSignatureError(

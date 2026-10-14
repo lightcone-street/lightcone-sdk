@@ -2,14 +2,18 @@
 
 use thiserror::Error;
 
-#[cfg(feature = "native")]
-use solana_client::client_error::ClientError;
+#[cfg(feature = "solana-rpc")]
+use solana_rpc_client_api::client_error::Error as ClientError;
 
 /// SDK-specific errors
 #[derive(Debug, Error)]
 pub enum SdkError {
+    /// Invalid v1 resources, message, signatures, or wire encoding.
+    #[error("Invalid v1 transaction: {0}")]
+    InvalidTransaction(String),
+
     /// RPC client error
-    #[cfg(feature = "native")]
+    #[cfg(feature = "solana-rpc")]
     #[error("RPC error: {0}")]
     Rpc(#[from] ClientError),
 
@@ -147,10 +151,6 @@ pub enum SdkError {
     #[error("Token account is not empty")]
     TokenAccountNotEmpty,
 
-    /// Lookup table must be closed first
-    #[error("Lookup table is not closed")]
-    LookupTableNotClosed,
-
     /// Invalid manager
     #[error("Invalid manager")]
     InvalidManager,
@@ -167,13 +167,9 @@ pub enum SdkError {
     #[error("Invalid fee receiver")]
     InvalidFeeReceiver,
 
-    /// Invalid oracle pubkey.
+    /// Oracle pubkey is zero or off-curve.
     #[error("Invalid oracle")]
     InvalidOracle,
-
-    /// Lookup table is deactivated and cannot be extended.
-    #[error("Lookup table is deactivated")]
-    LookupTableDeactivated,
 
     /// No pending privileged-role transfer exists.
     #[error("No pending role transfer")]
@@ -182,6 +178,46 @@ pub enum SdkError {
     /// Pending role transfer kind or signer does not match.
     #[error("Pending role transfer mismatch")]
     PendingRoleMismatch,
+
+    /// Event-authority trailer account is missing, writable, or not the program PDA.
+    #[error("Invalid event authority")]
+    InvalidEventAuthority,
+
+    /// Serialized event batch exceeds its bounded capacity.
+    #[error("Event batch overflow")]
+    EventBatchOverflow,
+
+    /// Event batch framing or payload is malformed.
+    #[error("Invalid event batch")]
+    InvalidEventBatch,
+
+    /// Recorded events do not match the source instruction's event contract.
+    #[error("Invalid event contract")]
+    InvalidEventContract,
+
+    /// Event batch schema version is unsupported.
+    #[error("Unsupported event schema")]
+    UnsupportedEventSchema,
+
+    /// The public instruction or invocation depth is outside the governance CPI allowlist.
+    #[error("Public instruction must be top-level")]
+    PublicInstructionMustBeTopLevel,
+
+    /// Too many deposit mints for one market or one position-token instruction.
+    #[error("Too many deposit mints: {count} (max {max})", max = crate::program::constants::MAX_DEPOSIT_MINTS_PER_IX)]
+    TooManyDepositMints { count: usize },
+
+    /// A required trading collateral is inactive (program custom error 76).
+    #[error("Inactive deposit token")]
+    InactiveDepositToken,
+
+    /// Collateral differs from the required provenance (program custom error 77).
+    #[error("Deposit mint mismatch")]
+    DepositMintMismatch,
+
+    /// A conditional mint does not derive from the supplied market, collateral, and outcome.
+    #[error("Invalid conditional mint")]
+    InvalidConditionalMint,
 
     /// Invalid pubkey
     #[error("Invalid pubkey: {0}")]

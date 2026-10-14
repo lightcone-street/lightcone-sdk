@@ -3,7 +3,7 @@
 import * as Spice from "@mununki/ppx-spice/src/rescript/Spice.res.mjs";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
 import * as Stdlib_Result from "@rescript/runtime/lib/es6/Stdlib_Result.js";
-import * as Notification__Model from "./Notification__Model.res.mjs";
+import * as Notification__Model$LightconeSdk from "./Notification__Model.res.mjs";
 
 function optString(dict, key) {
   let match = dict[key];
@@ -31,8 +31,8 @@ function marketResolutionDecode(json) {
   if (match$2 === undefined) {
     return Spice.error(undefined, "market resolution missing kind/payout_denominator/payouts", json);
   }
-  let match$3 = Notification__Model.MarketResolution.Kind.t_decode(match);
-  let match$4 = Spice.arrayFromJson(Notification__Model.MarketResolution.payout_decode, match$2);
+  let match$3 = Notification__Model$LightconeSdk.MarketResolution.Kind.t_decode(match);
+  let match$4 = Spice.arrayFromJson(Notification__Model$LightconeSdk.MarketResolution.payout_decode, match$2);
   if (match$3.TAG !== "Ok") {
     return {
       TAG: "Error",

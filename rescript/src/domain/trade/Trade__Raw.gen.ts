@@ -3,36 +3,36 @@
 /* eslint-disable */
 /* tslint:disable */
 
-import type {Side_t as Shared_Side_t} from '../../../src/Shared.gen.ts';
+import type {Shared_Side_t as LightconeSdk_Shared_Side_t} from './LightconeSdk.gen.ts';
 
-import type {orderBookId as Shared_orderBookId} from '../../../src/Shared.gen.ts';
+import type {Shared_orderBookId as LightconeSdk_Shared_orderBookId} from './LightconeSdk.gen.ts';
 
-import type {pubkeyStr as Shared_pubkeyStr} from '../../../src/Shared.gen.ts';
+import type {Shared_pubkeyStr as LightconeSdk_Shared_pubkeyStr} from './LightconeSdk.gen.ts';
 
 export type TradeResponse_t = {
-  readonly id: number; 
-  readonly tradeId: string; 
-  readonly orderbookId: Shared_orderBookId; 
-  readonly takerPubkey: string; 
-  readonly makerPubkey: string; 
-  readonly side: Shared_Side_t; 
-  readonly size: string; 
-  readonly price: string; 
-  readonly takerFee?: string; 
-  readonly makerFee?: string; 
+  readonly id: number;
+  readonly tradeId: string;
+  readonly orderbookId: LightconeSdk_Shared_orderBookId;
+  readonly takerPubkey: string;
+  readonly makerPubkey: string;
+  readonly side: LightconeSdk_Shared_Side_t;
+  readonly size: string;
+  readonly price: string;
+  readonly takerFee?: string;
+  readonly makerFee?: string;
   readonly executedAt: number
 };
 
 export type TradesResponse_t = {
-  readonly orderbookId: Shared_orderBookId; 
-  readonly trades: TradeResponse_t[]; 
-  readonly nextCursor?: number; 
+  readonly orderbookId: LightconeSdk_Shared_orderBookId;
+  readonly trades: TradeResponse_t[];
+  readonly nextCursor?: number;
   readonly hasMore: boolean
 };
 
 export type MarketTradesResponse_t = {
-  readonly marketPubkey: Shared_pubkeyStr; 
-  readonly trades: TradeResponse_t[]; 
-  readonly nextCursor?: number; 
+  readonly marketPubkey: LightconeSdk_Shared_pubkeyStr;
+  readonly trades: TradeResponse_t[];
+  readonly nextCursor?: number;
   readonly hasMore: boolean
 };

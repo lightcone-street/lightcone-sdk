@@ -1,7 +1,19 @@
-import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import {
+  V1Transaction,
+  validateV1Resources,
+  type V1ResourceConfig,
+  type V1TransactionContext,
+} from "./program/transaction";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { Auth, type AuthCredentials } from "./auth";
 import type { ClientContext } from "./context";
-import { signAndSubmitTx as signAndSubmitTxFn } from "./context";
+import {
+  signAndSubmitTx as signAndSubmitTxFn,
+  signAndSubmitTxConfirmed as signAndSubmitTxConfirmedFn,
+  signAndSubmitTxConfirmedWithSlot as signAndSubmitTxConfirmedWithSlotFn,
+  signAndSubmitPreparedTxConfirmedWithSlot as signAndSubmitPreparedTxConfirmedWithSlotFn,
+} from "./context";
+import type { ConfirmedTransaction } from "./context";
 import type { FaucetRequest, FaucetResponse } from "./domain/faucet";
 import { Markets } from "./domain/market";
 import { Metrics } from "./domain/metrics";
@@ -12,12 +24,12 @@ import { Positions } from "./domain/position";
 import { PriceHistoryClient } from "./domain/price_history";
 import { Referrals } from "./domain/referral";
 import { Trades } from "./domain/trade";
-import { LightconeHttp, RetryPolicy } from "./http";
+import { LightconeHttp, RetryPolicy, type CredentialRestorer } from "./http";
 import { LightconeEnv, apiUrl, wsUrl, rpcUrl, programId as envProgramId } from "./env";
 import { Privy } from "./privy";
 import { Rpc } from "./rpc";
 import { RpcFailoverState } from "./rpcFailover";
-import { DepositSource, type PubkeyStr } from "./shared";
+import { DepositSource, type OrderbookRules, type PubkeyStr } from "./shared";
 import { type ExternalSigner, type SigningStrategy } from "./shared/signing";
 import { WsClient, type WsConfig } from "./ws";
 
@@ -42,6 +54,8 @@ class AuthState {
 }
 
 export class LightconeClient implements ClientContext {
+  readonly transactionResources?: V1ResourceConfig;
+  readonly rpcFetch?: typeof fetch;
   readonly http: LightconeHttp;
   readonly programId: PublicKey;
   readonly primaryConnection?: Connection;
@@ -49,9 +63,11 @@ export class LightconeClient implements ClientContext {
   readonly rpcFailoverState: RpcFailoverState;
   private depositSourceValue: DepositSource;
   private signingStrategyValue?: SigningStrategy;
+  private transactionSponsorshipEnabledValue: boolean;
   private orderNonceValue: number | undefined;
   private readonly wsConfigValue: WsConfig;
   private readonly authStateStore: AuthState;
+  readonly orderbookRulesCache: Map<string, Promise<OrderbookRules>>;
 
   /** @deprecated Use primaryConnection — kept for ClientContext compat. */
   get connection(): Connection | undefined {
@@ -67,10 +83,19 @@ export class LightconeClient implements ClientContext {
     rpcFailoverState?: RpcFailoverState;
     depositSource?: DepositSource;
     signingStrategy?: SigningStrategy;
+    transactionSponsorshipEnabled?: boolean;
+    transactionResources?: V1ResourceConfig;
+    rpcFetch?: typeof fetch;
     orderNonce?: number;
     authCredentials?: AuthCredentials;
     authState?: AuthState;
+    orderbookRulesCache?: Map<string, Promise<OrderbookRules>>;
   }) {
+    if (params.transactionResources) validateV1Resources(params.transactionResources);
+    this.transactionResources = params.transactionResources
+      ? Object.freeze({ ...params.transactionResources })
+      : undefined;
+    this.rpcFetch = params.rpcFetch;
     this.http = params.http;
     this.programId = params.programId ?? envProgramId(LightconeEnv.Prod);
     this.primaryConnection = params.primaryConnection;
@@ -79,11 +104,14 @@ export class LightconeClient implements ClientContext {
       params.rpcFailoverState ?? new RpcFailoverState();
     this.depositSourceValue = params.depositSource ?? DepositSource.Global;
     this.signingStrategyValue = params.signingStrategy;
+    this.transactionSponsorshipEnabledValue =
+      params.transactionSponsorshipEnabled ?? false;
     this.orderNonceValue = params.orderNonce;
     this.wsConfigValue = params.wsConfig;
     this.authStateStore =
       params.authState ??
       new AuthState(params.authCredentials);
+    this.orderbookRulesCache = params.orderbookRulesCache ?? new Map();
   }
 
   // ── Deposit source ──────────────────────────────────────────────────
@@ -102,12 +130,32 @@ export class LightconeClient implements ClientContext {
     return this.signingStrategyValue;
   }
 
+  /**
+   * Cached authenticated identity shared by domain sub-clients.
+   *
+   * This is distinct from the HTTP cookie token and may be expired; fund-moving
+   * operations must re-check its lifetime and wallet before signing.
+   */
+  get authCredentials(): AuthCredentials | undefined {
+    return this.authStateStore.getCredentials();
+  }
+
   setSigningStrategy(strategy: SigningStrategy): void {
     this.signingStrategyValue = strategy;
   }
 
   clearSigningStrategy(): void {
     this.signingStrategyValue = undefined;
+  }
+
+  /** Return the client-wide trusted assertion that an external sponsor pays fees. */
+  get transactionSponsorshipEnabled(): boolean {
+    return this.transactionSponsorshipEnabledValue;
+  }
+
+  /** Replace the Transaction Sponsorship Capability for subsequent submissions. */
+  setTransactionSponsorshipEnabled(enabled: boolean): void {
+    this.transactionSponsorshipEnabledValue = enabled;
   }
 
   // ── Nonce cache ──────────────────────────────────────────────────────
@@ -145,10 +193,68 @@ export class LightconeClient implements ClientContext {
     await this.http.clearAuthToken();
   }
 
+  /**
+   * Register the credential restorer consulted when a request fails with
+   * HTTP 401: it attempts to restore credentials (e.g. refresh the app's
+   * auth session so the auth cookie is valid again); on success the
+   * transport replays the request once IF it declared itself retry-safe
+   * (RetryPolicy.None mutations are never auto-replayed). See {@link CredentialRestorer}.
+   * Without a restorer, 401s propagate to callers unchanged.
+   *
+   * Common use: set once at app startup, alongside the signing strategy.
+   */
+  setCredentialRestorer(restorer: CredentialRestorer): void {
+    this.http.setCredentialRestorer(restorer);
+  }
+
+  /** Remove the credential restorer (e.g. in tests); 401s propagate again. */
+  clearCredentialRestorer(): void {
+    this.http.clearCredentialRestorer();
+  }
+
+  /** Fetch a fresh context with configured v1 transaction resources. */
+  transactionContext(): Promise<V1TransactionContext> {
+    return this.rpc().transactionContext();
+  }
+
+  /** Fetch a fresh context with explicit limits and total priority fee lamports. */
+  transactionContextWithResources(
+    resources: V1ResourceConfig
+  ): Promise<V1TransactionContext> {
+    return this.rpc().transactionContextWithResources(resources);
+  }
+
   // ── Transaction signing + submission ────────────────────────────────
 
-  async signAndSubmitTx(tx: Transaction): Promise<string> {
+  async signAndSubmitTx(tx: V1Transaction): Promise<string> {
     return signAndSubmitTxFn(this, tx);
+  }
+
+  /**
+   * Sign and submit a transaction, then wait until it reaches `confirmed`
+   * commitment on-chain. Prefer this over {@link signAndSubmitTx} when a
+   * follow-up transaction depends on this one's state.
+   */
+  async signAndSubmitTxConfirmed(tx: V1Transaction): Promise<string> {
+    return signAndSubmitTxConfirmedFn(this, tx);
+  }
+
+  /** Sign, submit, confirm, and return the transaction's processing slot. */
+  async signAndSubmitTxConfirmedWithSlot(
+    tx: V1Transaction
+  ): Promise<ConfirmedTransaction> {
+    return signAndSubmitTxConfirmedWithSlotFn(this, tx);
+  }
+
+  /**
+   * Sign, submit, and confirm a fee-prepared transaction without replacing its
+   * message. Privy and wallet-adapter message mutation are rejected. A confirmation
+   * timeout leaves the outcome unknown; inspect authoritative state before retrying.
+   */
+  async signAndSubmitPreparedTxConfirmedWithSlot(
+    tx: V1Transaction
+  ): Promise<ConfirmedTransaction> {
+    return signAndSubmitPreparedTxConfirmedWithSlotFn(this, tx);
   }
 
   static builder(): LightconeClientBuilder {
@@ -237,22 +343,30 @@ export class LightconeClient implements ClientContext {
     return new WsClient(this.wsConfigValue, this.http.authTokenRef());
   }
 
+  /**
+   * Return a client whose Transaction Sponsorship Capability starts at this value.
+   * Later runtime changes remain local to each clone, matching other mutable settings.
+   */
   clone(): LightconeClient {
     return new LightconeClient({
       http: this.http,
       wsConfig: { ...this.wsConfigValue },
       programId: this.programId,
       primaryConnection: this.primaryConnection
-        ? new Connection(this.primaryConnection.rpcEndpoint, { commitment: "confirmed" })
+        ? new Connection(this.primaryConnection.rpcEndpoint, { commitment: "confirmed", fetch: this.rpcFetch })
         : undefined,
       backupConnection: this.backupConnection
-        ? new Connection(this.backupConnection.rpcEndpoint, { commitment: "confirmed" })
+        ? new Connection(this.backupConnection.rpcEndpoint, { commitment: "confirmed", fetch: this.rpcFetch })
         : undefined,
       rpcFailoverState: this.rpcFailoverState,
       depositSource: this.depositSourceValue,
       signingStrategy: this.signingStrategyValue,
+      transactionSponsorshipEnabled: this.transactionSponsorshipEnabledValue,
+      transactionResources: this.transactionResources,
+      rpcFetch: this.rpcFetch,
       orderNonce: this.orderNonceValue,
       authState: this.authStateStore,
+      orderbookRulesCache: this.orderbookRulesCache,
     });
   }
 }
@@ -264,8 +378,12 @@ export class LightconeClientBuilder {
   private programIdValue: PublicKey = envProgramId(LightconeEnv.Prod);
   private depositSourceValue: DepositSource = DepositSource.Global;
   private signingStrategyValue?: SigningStrategy;
+  private transactionSponsorshipEnabledValue = false;
+  private transactionResourcesValue?: V1ResourceConfig;
+  private rpcFetchValue?: typeof fetch;
   private primaryRpcUrlValue?: string = rpcUrl(LightconeEnv.Prod);
   private backupRpcUrlValue?: string;
+  private apiKeyValue?: string;
 
   /**
    * Set the deployment environment. Configures the API URL, WebSocket URL,
@@ -288,6 +406,16 @@ export class LightconeClientBuilder {
 
   withBaseUrl(url: string): LightconeClientBuilder {
     this.baseUrlValue = url;
+    return this;
+  }
+
+  /**
+   * Set the API key sent as `x-lightcone-api-key` on submit, cancel, and cancel-all POST requests to
+   * the API origin. Keep it server-side: it identifies an API Consumer, never
+   * a user, and the SDK never logs it.
+   */
+  apiKey(key: string): LightconeClientBuilder {
+    this.apiKeyValue = key;
     return this;
   }
 
@@ -329,8 +457,30 @@ export class LightconeClientBuilder {
     return this;
   }
 
-  privyWalletId(walletId: string): LightconeClientBuilder {
-    this.signingStrategyValue = { type: "privy", walletId };
+  privyWalletId(
+    walletId: string,
+    walletAddress?: string
+  ): LightconeClientBuilder {
+    this.signingStrategyValue = { type: "privy", walletId, walletAddress };
+    return this;
+  }
+
+  /** Set the initial trusted Transaction Sponsorship Capability; defaults to false. */
+  transactionSponsorship(enabled: boolean): LightconeClientBuilder {
+    this.transactionSponsorshipEnabledValue = enabled;
+    return this;
+  }
+
+  /** Set explicit v1 limits and total priority fee lamports for fluent builders and SOL plans. */
+  transactionResources(resources: V1ResourceConfig): LightconeClientBuilder {
+    validateV1Resources(resources);
+    this.transactionResourcesValue = Object.freeze({ ...resources });
+    return this;
+  }
+
+  /** Set the one-attempt fetch transport for v1 RPC, for example to add RPC authentication headers. */
+  rpcFetch(transport: typeof fetch): LightconeClientBuilder {
+    this.rpcFetchValue = transport;
     return this;
   }
 
@@ -347,7 +497,7 @@ export class LightconeClientBuilder {
 
   build(): LightconeClient {
     return new LightconeClient({
-      http: new LightconeHttp(this.baseUrlValue),
+      http: new LightconeHttp(this.baseUrlValue, { apiKey: this.apiKeyValue }),
       wsConfig: {
         url: this.wsUrlValue,
         reconnect: true,
@@ -359,12 +509,15 @@ export class LightconeClientBuilder {
       programId: this.programIdValue,
       depositSource: this.depositSourceValue,
       signingStrategy: this.signingStrategyValue,
+      transactionSponsorshipEnabled: this.transactionSponsorshipEnabledValue,
       primaryConnection: this.primaryRpcUrlValue
-        ? new Connection(this.primaryRpcUrlValue, { commitment: "confirmed" })
+        ? new Connection(this.primaryRpcUrlValue, { commitment: "confirmed", fetch: this.rpcFetchValue })
         : undefined,
       backupConnection: this.backupRpcUrlValue
-        ? new Connection(this.backupRpcUrlValue, { commitment: "confirmed" })
+        ? new Connection(this.backupRpcUrlValue, { commitment: "confirmed", fetch: this.rpcFetchValue })
         : undefined,
+      transactionResources: this.transactionResourcesValue,
+      rpcFetch: this.rpcFetchValue,
       authCredentials: this.authCredentials,
     });
   }

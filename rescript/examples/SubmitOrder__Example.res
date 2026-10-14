@@ -24,7 +24,7 @@ let waitForGlobalBalance = async (client, ~mint: string, ~minimum: string): resu
     switch await Position.Client.depositTokenBalances(client) {
     | Error(error) => Error(SdkError.toMessage(error))
     | Ok(balances) => {
-        let idle = switch balances->Dict.get(mint) {
+        let idle = switch balances.balances->Dict.get(mint) {
         | Some(balance) => balance.idle
         | None => "0"
         }
@@ -34,7 +34,9 @@ let waitForGlobalBalance = async (client, ~mint: string, ~minimum: string): resu
         } else if n >= 15 {
           Error(`global balance for ${mint} did not reach ${minimum} within 30s`)
         } else {
-          Console.log(`global balance not ready: idle=${idle}/${minimum} (attempt ${Int.toString(n)})`)
+          Console.log(
+            `global balance not ready: idle=${idle}/${minimum} (attempt ${Int.toString(n)})`,
+          )
           await delay(2000)
           await attempt(n + 1)
         }
@@ -45,37 +47,22 @@ let waitForGlobalBalance = async (client, ~mint: string, ~minimum: string): resu
 
 // Derive the scaling decimals, sign with the maker's on-chain nonce, and submit
 // the bid.
-let submitOrder = async (client, ~pair: Market.OrderBookPair.t, ~maker, ~keypair) => {
-  // Derive scaling decimals from the pair's token metadata (no REST call):
-  // price_decimals = max(0, 6 + quote_decimals - base_decimals).
-  let baseDecimals = Float.toInt(pair.base.decimals)
-  let quoteDecimals = Float.toInt(pair.quote.decimals)
-  let priceDecimals = 6 + quoteDecimals - baseDecimals
-  let decimals: Scaling.OrderbookDecimals.t = {
-    baseDecimals,
-    quoteDecimals,
-    priceDecimals: priceDecimals > 0 ? priceDecimals : 0,
-    tickSize: pair.tickSize > 0.0 ? pair.tickSize : 0.0,
-  }
-
+let submitOrder = async (client, ~pair: Market.OrderBookPair.t, ~maker, ~keypair as _keypair) => {
   // Sign with the maker's current on-chain nonce so the order is valid.
   let nonce = switch await Order.Client.getNonce(client, ~user=maker) {
   | Ok(value) => BigInt.fromFloat(value)->Option.getOr(0n)
   | Error(_) => 0n
   }
 
-  switch await Envelope.submitLimitOrder(
+  switch await Envelope.submitLimitOrderSigned(
     client,
-    ~maker,
     ~market=SolanaKit.address(pair.marketPubkey),
     ~baseMint=SolanaKit.address(pair.base.mint),
     ~quoteMint=SolanaKit.address(pair.quote.mint),
     ~side=0, // 0 = bid, 1 = ask
     ~price="0.55",
     ~size="2",
-    ~decimals,
     ~orderbookId=pair.orderbookId,
-    ~keypair,
     ~nonce,
   ) {
   | Ok(response) => {

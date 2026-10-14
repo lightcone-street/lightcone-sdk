@@ -1,16 +1,13 @@
 import Decimal from "decimal.js";
-import { asPubkeyStr, TimeInForce, TriggerType } from "../../shared";
+import { asPubkeyStr } from "../../shared";
 import type {
   OrderBookId,
   OrderUpdateType,
   PubkeyStr,
   Side,
-  TriggerResultStatus,
-  TriggerStatus,
-  TriggerUpdateType,
 } from "../../shared";
 import type { Notification } from "../notification";
-import type { OrderStatus, TriggerOrder } from "./index";
+import type { OrderStatus } from "./index";
 
 export interface ConditionalBalance {
   outcome_index: number;
@@ -108,15 +105,9 @@ export interface UserSnapshotOrderCommon {
   status: OrderStatus;
 }
 
+/** Limit order from a REST response or WebSocket account snapshot. */
 export type UserSnapshotOrder =
-  | ({ order_type: "limit"; tx_signature?: string } & UserSnapshotOrderCommon)
-  | ({
-      order_type: "trigger";
-      trigger_order_id: string;
-      trigger_price: string;
-      trigger_type: TriggerType;
-      time_in_force?: TimeInForce;
-    } & UserSnapshotOrderCommon);
+  { order_type: "limit"; tx_signature?: string } & UserSnapshotOrderCommon;
 
 export interface UserSnapshot {
   orders: UserSnapshotOrder[];
@@ -126,46 +117,8 @@ export interface UserSnapshot {
   nonce?: number;
 }
 
-export interface TriggerOrderUpdate {
-  trigger_order_id: string;
-  user_pubkey?: PubkeyStr;
-  market_pubkey: PubkeyStr;
-  orderbook_id: OrderBookId;
-  trigger_price: string;
-  trigger_above: boolean;
-  status: TriggerStatus;
-  type?: TriggerUpdateType;
-  order_hash: string;
-  side: Side;
-  result_status?: TriggerResultStatus;
-  result_filled?: string;
-  result_remaining?: string;
-  timestamp: string;
-  maker_amount?: string;
-  taker_amount?: string;
-  tif?: TimeInForce;
-}
-
-export function triggerUpdateToTriggerOrder(update: TriggerOrderUpdate): TriggerOrder {
-  const triggerType = update.trigger_above ? TriggerType.TakeProfit : TriggerType.StopLoss;
-  return {
-    triggerOrderId: update.trigger_order_id,
-    orderHash: update.order_hash,
-    marketPubkey: update.market_pubkey,
-    orderbookId: update.orderbook_id,
-    triggerPrice: update.trigger_price,
-    triggerType,
-    side: update.side,
-    amountIn: update.maker_amount ?? "0",
-    amountOut: update.taker_amount ?? "0",
-    timeInForce: update.tif ?? TimeInForce.Gtc,
-    createdAt: new Date(update.timestamp),
-  };
-}
-
-export type OrderEvent =
-  | ({ order_type: "limit" } & OrderUpdate)
-  | ({ order_type: "trigger" } & TriggerOrderUpdate);
+/** Live limit-order update. */
+export type OrderEvent = { order_type: "limit" } & OrderUpdate;
 
 export interface NotificationUpdate {
   notification: Notification;
@@ -262,18 +215,11 @@ type RawUserSnapshotOrderCommon = Omit<UserSnapshotOrderCommon, "amount_in" | "a
   taker_amount?: string;
 };
 
-type RawUserSnapshotOrder =
-  | ({ order_type: "limit"; tx_signature?: string } & RawUserSnapshotOrderCommon)
-  | ({
-      order_type: "trigger";
-      trigger_order_id: string;
-      trigger_price: string;
-      trigger_type: TriggerType;
-      time_in_force?: TimeInForce;
-    } & RawUserSnapshotOrderCommon);
+type RawLimitSnapshotOrder =
+  { order_type: "limit"; tx_signature?: string } & RawUserSnapshotOrderCommon;
 
 type RawUserSnapshot = Omit<UserSnapshot, "orders" | "market_balances"> & {
-  orders: RawUserSnapshotOrder[];
+  orders: RawLimitSnapshotOrder[];
   market_balances: RawUserMarketBalance[];
 };
 
@@ -284,8 +230,7 @@ type RawUserBalanceUpdate = Omit<UserBalanceUpdate, "market_pubkey" | "market_ba
 
 type RawUserUpdate =
   | ({ event_type: "snapshot" } & RawUserSnapshot)
-  | ({ event_type: "order" } & ({ order_type: "limit" } & RawOrderUpdate))
-  | ({ event_type: "order" } & ({ order_type: "trigger" } & TriggerOrderUpdate))
+  | ({ event_type: "order"; order_type: "limit" } & RawOrderUpdate)
   | ({ event_type: "market_balance_update" } & RawUserBalanceUpdate)
   | ({ event_type: "global_deposit_update" } & GlobalDepositUpdate)
   | ({ event_type: "nonce" | "nonce_update" } & NonceUpdate)
@@ -293,7 +238,7 @@ type RawUserUpdate =
 
 type RawUserOrdersPayload = {
   user_pubkey: PubkeyStr;
-  orders?: RawUserSnapshotOrder[];
+  orders?: RawLimitSnapshotOrder[];
   market_balances: RawUserMarketBalance[];
   next_cursor?: string | null;
   has_more?: boolean;
@@ -342,10 +287,10 @@ function normalizeUserSnapshotOrderCommon(
   const amountIn = order.amount_in ?? order.maker_amount;
   const amountOut = order.amount_out ?? order.taker_amount;
 
-  if (amountIn === undefined) {
+  if (amountIn === undefined || amountIn === null) {
     throw new Error("Invalid user snapshot order: missing amount_in/maker_amount");
   }
-  if (amountOut === undefined) {
+  if (amountOut === undefined || amountOut === null) {
     throw new Error("Invalid user snapshot order: missing amount_out/taker_amount");
   }
 
@@ -356,32 +301,19 @@ function normalizeUserSnapshotOrderCommon(
   };
 }
 
-export function normalizeUserSnapshotOrder(
-  order: RawUserSnapshotOrder
-): UserSnapshotOrder {
-  const common = normalizeUserSnapshotOrderCommon(order);
-
-  if (order.order_type === "limit") {
-    return {
-      ...common,
-      order_type: "limit",
-      tx_signature: order.tx_signature,
-    };
+/** Normalizes limit-order amounts, propagating missing-amount errors. */
+export function normalizeUserSnapshotOrder(order: RawLimitSnapshotOrder): UserSnapshotOrder {
+  if (order.order_type !== "limit") {
+    throw new Error("Invalid snapshot order: expected order_type limit");
   }
-
-  if (order.order_type === "trigger") {
-    return {
-      ...common,
-      order_type: "trigger",
-      trigger_order_id: order.trigger_order_id,
-      trigger_price: order.trigger_price,
-      trigger_type: order.trigger_type,
-      time_in_force: order.time_in_force,
-    };
+  if (typeof order.order_hash !== "string") {
+    throw new Error("Invalid snapshot order: order_hash must be a string");
   }
-
-  const rawOrderType = (order as { order_type: string }).order_type;
-  throw new Error(`Invalid user snapshot order: unsupported order_type "${rawOrderType}"`);
+  return {
+    ...normalizeUserSnapshotOrderCommon(order),
+    order_type: "limit",
+    tx_signature: order.tx_signature,
+  };
 }
 
 function requireArray<T>(value: T[] | undefined, context: string): T[] {
@@ -438,6 +370,7 @@ export function normalizeUserMarketBalance(
   };
 }
 
+/** Decodes limit orders with their account and pagination metadata. */
 export function normalizeUserOrdersPayload(
   response: RawUserOrdersPayload
 ): {
@@ -449,7 +382,8 @@ export function normalizeUserOrdersPayload(
 } {
   return {
     user_pubkey: response.user_pubkey,
-    orders: (response.orders ?? []).map(normalizeUserSnapshotOrder),
+    orders: requireArray(response.orders === undefined ? [] : response.orders, "user orders")
+      .map(normalizeUserSnapshotOrder),
     market_balances: requireArray(
       response.market_balances,
       "user orders response market_balances"
@@ -459,13 +393,14 @@ export function normalizeUserOrdersPayload(
   };
 }
 
+/** Normalizes account snapshots, limit-order updates, and other account events. */
 export function normalizeUserUpdate(raw: RawUserUpdate): UserUpdate {
   switch (raw.event_type) {
     case "snapshot":
       return {
         ...raw,
         event_type: "snapshot",
-        orders: raw.orders.map(normalizeUserSnapshotOrder),
+        orders: requireArray(raw.orders, "user orders").map(normalizeUserSnapshotOrder),
         market_balances: requireArray(
           raw.market_balances,
           "user snapshot market_balances"
@@ -475,23 +410,14 @@ export function normalizeUserUpdate(raw: RawUserUpdate): UserUpdate {
         nonce: raw.nonce ?? 0,
       };
     case "order":
-      if (raw.order_type === "limit") {
-        return {
-          ...normalizeOrderUpdate(raw),
-          event_type: "order",
-          order_type: "limit",
-        };
+      if (raw.order_type !== "limit") {
+        throw new Error("Invalid order event: expected order_type limit");
       }
-      if (raw.order_type === "trigger") {
-        return {
-          ...raw,
-          event_type: "order",
-          order_type: "trigger",
-        };
-      }
-      throw new Error(
-        `Invalid user order event: unsupported order_type "${(raw as { order_type: string }).order_type}"`
-      );
+      return {
+        ...normalizeOrderUpdate(raw),
+        event_type: "order",
+        order_type: "limit",
+      };
     case "market_balance_update":
       return {
         ...raw,

@@ -5,13 +5,23 @@ open RescriptBun.Test.Expect
 // last-write-wins, zero-size levels omitted, resync bails without mutating, best bid = max
 // price / best ask = min price. Feeds synthetic decoded frames (no network).
 
-let level = (side, price, size): Orderbook.Raw.WsLevel.t => {side, price, size}
+let level = (side, price, size): Orderbook.Raw.WsLevel.t => {
+  side,
+  price,
+  size,
+  quoteNotional: Decimal.times(
+    Decimal.fromString(price),
+    Decimal.fromString(size),
+  )->Decimal.toString,
+}
 
-let bookOf = (~bids, ~asks, ~seq=1.0, ~resync=false, ()): Orderbook.Raw.Book.t => {
+let bookOf = (~bids, ~asks, ~seq=1n, ~resync=false, ()): Orderbook.Raw.Book.t => {
   id: "ob_1",
   isSnapshot: true,
   seq,
   resync,
+  bidsTruncated: false,
+  asksTruncated: false,
   bids,
   asks,
 }
@@ -29,7 +39,7 @@ describe("Orderbook.State.apply", () => {
     )
     let applied = switch result {
     | Applied => true
-    | RefreshRequired(_) => false
+    | _ => false
     }
     expect(applied)->toBe(true)
     expect(Orderbook.State.bestBid(state))->toBe(Some("100.5"))
@@ -86,11 +96,11 @@ describe("Orderbook.State.apply", () => {
     )->ignore
     Orderbook.State.apply(
       state,
-      bookOf(~bids=[level(Bid, "200", "1")], ~asks=[level(Ask, "201", "1")], ~seq=7.0, ()),
+      bookOf(~bids=[level(Bid, "200", "1")], ~asks=[level(Ask, "201", "1")], ~seq=7n, ()),
     )->ignore
     expect(Orderbook.State.bestBid(state))->toBe(Some("200"))
     expect(Orderbook.State.bestAsk(state))->toBe(Some("201"))
-    expect(Orderbook.State.seq(state))->toBe(7.0)
+    expect(Orderbook.State.seq(state))->toBe(7n)
   })
 
   test("resync frame returns RefreshRequired and leaves the book untouched", () => {
@@ -102,7 +112,7 @@ describe("Orderbook.State.apply", () => {
     let result = Orderbook.State.apply(state, bookOf(~bids=[], ~asks=[], ~resync=true, ()))
     let isRefresh = switch result {
     | RefreshRequired(ServerResync) => true
-    | Applied => false
+    | _ => false
     }
     expect(isRefresh)->toBe(true)
     expect(Orderbook.State.bestBid(state))->toBe(Some("100")) // unchanged
@@ -115,4 +125,42 @@ describe("Orderbook.State.apply", () => {
     expect(Orderbook.State.midPrice(state))->toBe(None)
     expect(Orderbook.State.spread(state))->toBe(None)
   })
+})
+
+test("sequence gates are scoped to subscription generations", () => {
+  let state = Orderbook.State.make("ob_1")
+  let frame = bookOf(~bids=[level(Bid, "100", "1")], ~asks=[], ~seq=9007199254740993n, ())
+  expect(Orderbook.State.apply(state, frame))->toEqual(Applied)
+  expect(Orderbook.State.apply(state, frame))->toEqual(DiscardedStale)
+  expect(Orderbook.State.apply(state, {...frame, seq: 1n}))->toEqual(DiscardedStale)
+  expect(Orderbook.State.apply(state, {...frame, seq: 9007199254741993n}))->toEqual(Applied)
+  Orderbook.State.beginGeneration(state)
+  expect(Orderbook.State.bestBid(state))->toEqual(Some("100"))
+  expect(Orderbook.State.apply(state, {...frame, seq: 1n, bidsTruncated: true}))->toEqual(Applied)
+  expect(Orderbook.State.bidsTruncated(state))->toBe(true)
+  Orderbook.State.clear(state)
+  expect(Orderbook.State.bidsTruncated(state))->toBe(false)
+})
+test("normalized aggregation matches and grouped notional is preserved", () => {
+  let state = Orderbook.State.withAggregation("ob_1", {nSigFigs: 5})
+  let frame = {
+    ...bookOf(~bids=[{side: Bid, price: "100", size: "2", quoteNotional: "199.9"}], ~asks=[], ()),
+    nSigFigs: 5,
+    mantissa: 1,
+  }
+  expect(Orderbook.State.apply(state, frame))->toEqual(Applied)
+  expect(
+    Orderbook.State.bidLevels(state)->Array.get(0)->Option.map(level => level.quoteNotional),
+  )->toEqual(Some("199.9"))
+  expect(Orderbook.State.apply(state, {...frame, id: "another"}))->toEqual(SubscriptionMismatch)
+  expect(Orderbook.State.apply(state, {...frame, mantissa: 2}))->toEqual(SubscriptionMismatch)
+})
+test("resync still requires an exact sequence; WS quote notional is mandatory", () => {
+  let parse: string => JSON.t = %raw(`JSON.parse`)
+  expect(
+    Orderbook.Raw.Book.t_decode(parse(`{"orderbook_id":"ob_1","resync":true}`))->Result.isError,
+  )->toBe(true)
+  expect(
+    Orderbook.Raw.WsLevel.t_decode(parse(`{"side":"bid","price":"1","size":"2"}`))->Result.isError,
+  )->toBe(true)
 })

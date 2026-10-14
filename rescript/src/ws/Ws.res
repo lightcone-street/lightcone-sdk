@@ -39,6 +39,10 @@ let defaultConfig: Config.t = {
 // subscriptions / callbacks persist.
 type t = {
   url: string,
+  socketFactory: string => WebSocketClient.t,
+  mutable generation: int,
+  mutable pending: array<Subscriptions.t>,
+  mutable reconnectTimer: option<timeoutId>,
   config: Config.t,
   onMessage: Messages.t => unit,
   onConnected: unit => unit,
@@ -78,6 +82,8 @@ let clearPongTimer = (connection: t): unit => {
 }
 
 let clearTimers = (connection: t): unit => {
+  connection.reconnectTimer->Option.forEach(timer => clearTimeout(timer))
+  connection.reconnectTimer = None
   connection.pingTimer->Option.forEach(timer => clearInterval(timer))
   connection.pingTimer = None
   clearPongTimer(connection)
@@ -102,55 +108,69 @@ let reconnectDelay = (connection: t, code: int): int => {
 
 // ── Connection lifecycle (mutually recursive: reconnect re-establishes) ───────
 let rec establish = (connection: t): unit => {
-  let socket = WebSocketClient.make(connection.url)
+  let socket = connection.socketFactory(connection.url)
+  connection.generation = connection.generation + 1
+  let generation = connection.generation
+  let active = () => !connection.closedByUser && generation == connection.generation
+  let errorReported = ref(false)
   connection.socket = Some(socket)
 
   socket->WebSocketClient.setOnOpen(() => {
-    connection.reconnectAttempts = 0
-    // Re-send every tracked subscription — this also covers subscriptions issued
-    // before the initial connection opened.
-    connection.activeSubscriptions->Array.forEach(params =>
-      sendMessage(connection, Subscriptions.Subscribe(params))->ignore
-    )
-    startHeartbeat(connection)
-    connection.onConnected()
-  })
-
-  socket->WebSocketClient.setOnMessage(event => {
-    // Any inbound frame proves the socket is alive — disarm the pong deadline.
-    clearPongTimer(connection)
-    let text = WebSocketClient.data(event)
-    switch JSON.parseOrThrow(text) {
-    | json =>
-      switch Messages.decodeMessage(json) {
-      | Ok(message) => connection.onMessage(message)
-      | Error(error) => connection.onError(error)
-      }
-    | exception JsExn(error) =>
-      connection.onError(
-        SdkError.Ws(
-          SdkError.WsError.DeserializationError(
-            error->JsExn.message->Option.getOr("invalid JSON frame"),
-          ),
-        ),
+    if active() {
+      connection.reconnectAttempts = 0
+      // Re-send every tracked subscription — this also covers subscriptions issued
+      // before the initial connection opened.
+      connection.activeSubscriptions->Array.forEach(params =>
+        sendMessage(connection, Subscriptions.Subscribe(params))->ignore
       )
+      let queued = connection.pending
+      connection.pending = []
+      queued->Array.forEach(message =>
+        switch message {
+        | Subscribe(_) => () // current subscription intent was replayed above
+        | message => sendMessage(connection, message)->ignore
+        }
+      )
+      startHeartbeat(connection)
+      connection.onConnected()
     }
   })
 
-  socket->WebSocketClient.setOnError(_event =>
-    connection.onError(SdkError.Ws(SdkError.WsError.ConnectionFailed("websocket error")))
-  )
+  socket->WebSocketClient.setOnMessage(event => {
+    if active() {
+      // Any inbound frame proves the socket is alive — disarm the pong deadline.
+      clearPongTimer(connection)
+      let text = WebSocketClient.data(event)
+      switch ExactJson.parse(text) {
+      | Ok(json) =>
+        switch Messages.decodeMessage(json) {
+        | Ok(message) => connection.onMessage(message)
+        | Error(error) => connection.onError(error)
+        }
+      | Error(message) => connection.onError(SdkError.Ws(DeserializationError(message)))
+      }
+    }
+  })
+
+  socket->WebSocketClient.setOnError(_event => {
+    if active() && !errorReported.contents {
+      errorReported := true
+      connection.onError(SdkError.Ws(ConnectionFailed("websocket error")))
+    }
+  })
 
   socket->WebSocketClient.setOnClose(event => {
-    let code = WebSocketClient.code(event)
-    let reason = WebSocketClient.reason(event)
-    clearTimers(connection)
-    connection.socket = None
-    connection.onDisconnected(Some(code), reason)
+    if active() {
+      let code = WebSocketClient.code(event)
+      let reason = WebSocketClient.reason(event)
+      clearTimers(connection)
+      connection.socket = None
+      connection.onDisconnected(Some(code), reason)
 
-    // 1000 is a normal close; never reconnect after it or a user-initiated close.
-    if !connection.closedByUser && connection.config.reconnect && code != 1000 {
-      scheduleReconnect(connection, code)
+      // 1000 is a normal close; never reconnect after it or a user-initiated close.
+      if !connection.closedByUser && connection.config.reconnect && code != 1000 {
+        scheduleReconnect(connection, code)
+      }
     }
   })
 }
@@ -185,11 +205,13 @@ and scheduleReconnect = (connection: t, code: int): unit =>
   } else {
     connection.reconnectAttempts = connection.reconnectAttempts + 1
     let delay = reconnectDelay(connection, code)
-    setTimeout(() =>
-      if !connection.closedByUser {
-        establish(connection)
-      }
-    , delay)->ignore
+    let generation = connection.generation
+    connection.reconnectTimer = Some(setTimeout(() => {
+        connection.reconnectTimer = None
+        if !connection.closedByUser && generation == connection.generation {
+          establish(connection)
+        }
+      }, delay))
   }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -197,6 +219,7 @@ and scheduleReconnect = (connection: t, code: int): unit =>
 // default to no-ops; pass a `~config` to tune reconnect/heartbeat behavior.
 let connect = (
   ~url: string,
+  ~socketFactory: string => WebSocketClient.t=WebSocketClient.make,
   ~onMessage: Messages.t => unit,
   ~onConnected: unit => unit=() => (),
   ~onDisconnected: (option<int>, string) => unit=(_, _) => (),
@@ -206,6 +229,10 @@ let connect = (
 ): t => {
   let connection = {
     url,
+    socketFactory,
+    generation: 0,
+    pending: [],
+    reconnectTimer: None,
     config,
     onMessage,
     onConnected,
@@ -248,14 +275,41 @@ let readyState = (connection: t): ReadyState.t =>
 
 // Drop tracked authenticated-channel subscriptions (the `User` channel) so they
 // are not re-sent on the next reconnect — call after logout.
-let clearAuthedSubscriptions = (connection: t): unit =>
+let clearAuthedSubscriptions = (connection: t): unit => {
   connection.activeSubscriptions =
     connection.activeSubscriptions->Array.filter(subscription =>
       switch subscription {
-      | Subscriptions.SubscribeParams.User(_) => false
+      | User(_) | WalletDepositBalances(_) => false
       | _ => true
       }
     )
+  connection.pending =
+    connection.pending->Array.filter(message =>
+      switch message {
+      | Subscribe(User(_))
+      | Subscribe(WalletDepositBalances(_))
+      | Unsubscribe(User(_))
+      | Unsubscribe(WalletDepositBalances(_)) => false
+      | _ => true
+      }
+    )
+}
+let sendOrQueue = (connection, message) => {
+  if connection.closedByUser {
+    Error(SdkError.Ws(NotConnected))
+  } else {
+    switch connection.socket {
+    | Some(socket) if WebSocketClient.readyState(socket) == 1 => sendMessage(connection, message)
+    | _ =>
+      Array.push(connection.pending, message)
+      if connection.socket->Option.mapOr(true, socket => WebSocketClient.readyState(socket) >= 2) {
+        clearTimers(connection)
+        establish(connection)
+      }
+      Ok()
+    }
+  }
+}
 
 // Track the subscription (deduped by key, so it survives reconnects) and send it.
 // While disconnected the send is a no-op — tracking re-sends it on the next open,
@@ -272,8 +326,7 @@ let subscribe = (connection: t, params: Subscriptions.SubscribeParams.t): result
   if !alreadyTracked {
     connection.activeSubscriptions->Array.push(params)
   }
-  let _ = sendMessage(connection, Subscriptions.Subscribe(params))
-  Ok()
+  sendOrQueue(connection, Subscriptions.Subscribe(params))
 }
 
 // Stop tracking the matching subscription(s) and send the unsubscribe (a no-op on
@@ -286,23 +339,30 @@ let unsubscribe = (connection: t, params: Subscriptions.UnsubscribeParams.t): re
     connection.activeSubscriptions->Array.filter(sub =>
       !Subscriptions.matchesUnsubscribe(sub, params)
     )
-  switch sendMessage(connection, Subscriptions.Unsubscribe(params)) {
-  | Ok() => Ok()
-  | Error(_) => Ok()
-  }
+  sendOrQueue(connection, Subscriptions.Unsubscribe(params))
 }
 
 // Send an application-level ping immediately (the heartbeat sends these on an
 // interval; this is for manual liveness checks).
-let ping = (connection: t): result<unit, SdkError.t> =>
-  sendMessage(connection, Subscriptions.Ping)
+let ping = (connection: t): result<unit, SdkError.t> => sendOrQueue(connection, Subscriptions.Ping)
 
 // Close the connection and suppress reconnection. Idempotent.
 let disconnect = (connection: t): unit => {
   connection.closedByUser = true
+  connection.generation = connection.generation + 1
+  connection.pending = []
   clearTimers(connection)
   connection.socket->Option.forEach(socket =>
     socket->WebSocketClient.closeWith(~code=1000, ~reason="Client disconnect")
   )
   connection.socket = None
+}
+
+let stop = disconnect
+let isStopped = connection => connection.closedByUser
+let restartConnection = connection => {
+  disconnect(connection)
+  connection.closedByUser = false
+  connection.reconnectAttempts = 0
+  establish(connection)
 }

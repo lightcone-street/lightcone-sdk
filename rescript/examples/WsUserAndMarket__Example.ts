@@ -1,3 +1,4 @@
+import { connect as connectServer } from "../src/ServerApi.gen.ts";
 // TypeScript example — WebSocket (authenticated): a user's private stream (auth
 // handshake, balance, order, deposit, and nonce events) alongside a market's lifecycle
 // stream. The user channel requires login first — the cookie set by `login` authenticates
@@ -40,7 +41,7 @@ async function main(): Promise<void> {
   }
 
   let eventCount = 0;
-  const connection = WsClient.connect(
+  const connection = connectServer(
     client,
     (msg: wsMessage) => {
       const kind = msg.kind;

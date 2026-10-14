@@ -17,22 +17,25 @@ Rust SDK for the Lightcone impact market protocol on Solana.
 - [Examples](#examples)
 - [Authentication](#authentication)
 - [Error Handling](#error-handling)
+- [Transaction Fee Funding](#transaction-fee-funding)
 - [Retry Strategy](#retry-strategy)
 
 ## Installation
 
-Add to your `Cargo.toml`:
+This branch targets `0.10.0-rc.1`. Until that version is published, use a path
+dependency to this checkout's `rust` directory or pin its Git revision.
+After publication, add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-lightcone = { version = "0.7.0", features = ["native"] }
+lightcone = { version = "=0.10.0-rc.1", features = ["native"] }
 ```
 
 For browser/WASM targets:
 
 ```toml
 [dependencies]
-lightcone = { version = "0.7.0", features = ["wasm"] }
+lightcone = { version = "=0.10.0-rc.1", features = ["wasm"] }
 ```
 
 ## Feature Flags
@@ -41,9 +44,60 @@ lightcone = { version = "0.7.0", features = ["wasm"] }
 |---------|-----------------|----------|
 | **`native`** | `http` + `native-auth` + `ws-native` + `solana-rpc` | **Market makers, bots, CLI tools** |
 | **`wasm`** | `http` + `ws-wasm` | **Browser applications** |
-| **`trigger_orders`** | Stop-limit & take-profit-limit order types, envelope, state | **Under development** — not yet available. For internal use only. |
+
+## Solana v1 transactions
+
+This Rust release is a hard cutover to `V1Transaction`. Every `_tx` and fluent
+`build_tx` takes `&V1TransactionContext`. Context binds explicit compute units,
+loaded account bytes, total priority fee lamports, optional heap bytes, and a
+blockhash with its last valid block height. There is no legacy/v0 fallback or ALT
+configuration. Configure `LightconeClientBuilder::transaction_resources` for SOL
+planners and fluent submitters, or call `transaction_context_with_resources`.
+
+Use `to_wire_bytes()` and `message_bytes()` for canonical v1 encoding. Wallet
+responses must preserve the complete message and provide valid signatures.
+External signers must implement `ExternalSigner::wallet_address()` and return
+the connected wallet's public key for unsponsored transaction submission.
+Submission requires active cluster support, exact-message simulation, and
+preflight. A definite request or preflight rejection returns `SubmissionRejected` with its RPC
+code and reason. An uncertain send or `AlreadyProcessed` response returns
+`SubmissionUnknown` with the signature
+and expiry; reconcile it before rebuilding. Existing SOL balance, reserve,
+canonical WSOL, and temporary-account semantics remain intact.
+
+```rust,ignore
+let resources = V1ResourceConfig {
+    compute_unit_limit: 200_000,
+    loaded_accounts_data_size_limit: 1024 * 1024,
+    priority_fee_lamports: 1_000, // total lamports per transaction
+    heap_size: None,
+};
+let context = client.transaction_context_with_resources(resources).await?;
+let tx = client.orders().increment_nonce_tx(&payer, &context)?;
+let confirmed = client.sign_and_submit_tx_confirmed_with_slot(tx).await?;
+```
+
+## Transaction Fee Funding
+
+Shared on-chain submission checks the exact prepared message fee and declared
+fee-payer Native SOL Balance before signing when both RPC facts are available.
+A proven shortfall returns
+`SdkError::InsufficientSolForTransactionFees { available_lamports,
+required_lamports }` with the canonical deposit-SOL message. Fee or balance
+lookup failure continues through the existing submission path; planner-owned SOL
+actions retain fail-closed live fee, rent, and reserve checks.
+
+`LightconeClientBuilder::transaction_sponsorship(true)` and
+`LightconeClient::set_transaction_sponsorship_enabled(true)` are trusted
+application assertions for external signing. The default is false, cloned clients
+share one runtime signer/capability context, and each transaction captures that
+pair before asynchronous RPC work. Local-keypair transaction submission rejects
+an enabled capability. Raw caller-prepared forwarding and off-chain order message
+signing are outside this contract.
 
 ## Quick Start
+
+This example authenticates and subscribes to public market data. For funded order submission, use the [trading example](examples/submit_order.rs).
 
 ```rust
 use lightcone::prelude::*;
@@ -53,9 +107,7 @@ use solana_keypair::Keypair;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Defaults to Prod. Use .env(LightconeEnv::Staging) for staging.
-    let client = LightconeClient::builder()
-        .deposit_source(DepositSource::Market)
-        .build()?;
+    let client = LightconeClient::builder().build()?;
     let keypair = Keypair::new();
 
     // 1. Authenticate
@@ -70,97 +122,131 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("signed in as {}", session.user.user_id);
 
     // 2. Find a market
-    let market = client.markets().get(None, Some(1)).await?.markets.into_iter().next().unwrap();
-    let orderbook = &market.orderbook_pairs[0];
+    let market = client.markets().get(None, Some(1)).await?.markets
+        .into_iter().next().ok_or("No markets returned by the API")?;
+    let orderbook = market.orderbook_pairs.first().ok_or("Market has no orderbooks")?;
 
-    // 3. Deposit collateral to the global pool
-    let deposit_mint = market.deposit_assets[0].pubkey().to_pubkey()?;
-    let deposit_ix = client.positions().deposit().await
-        .user(keypair.pubkey())
-        .mint(deposit_mint)
-        .amount(1_000_000)
-        .build_ix()
-        .await?;
-
-    // 4. Build, sign, and submit a limit order
-    let request = client.orders().limit_order().await
-        .maker(keypair.pubkey())
-        .bid()
-        .price("0.55")
-        .size("100")
-        .sign(&keypair, &orderbook)?;
-
-    let response = client.orders().submit(&request).await?;
-    println!("Order submitted: {:?}", response);
-
-    // 5. Withdraw from the global pool
-    let withdraw_ix = client.positions().withdraw().await
-        .user(keypair.pubkey())
-        .mint(deposit_mint)
-        .amount(1_000_000)
-        .build_ix()
-        .await?;
-
-    // 6. Stream real-time updates
+    // 3. Subscribe to real-time updates for ten seconds.
     let mut ws = client.ws_native();
     ws.connect().await?;
     ws.subscribe(SubscribeParams::Books {
         orderbook_ids: vec![orderbook.orderbook_id.clone()],
+        n_sig_figs: None,
+        mantissa: None,
     })?;
-
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    ws.disconnect().await?;
     Ok(())
 }
 ```
 
 ## Start Trading
 
+These excerpts run inside an async function that returns `Result`. Use a funded keypair for the selected environment. The [submit example](examples/submit_order.rs) confirms the deposit and waits for the API balance before ordering.
+
 ```rust
 use lightcone::prelude::*;
 use solana_keypair::read_keypair_file;
 use solana_signer::Signer;
+use std::sync::Arc;
 
 // Defaults to Prod. Use .env(LightconeEnv::Staging) for staging.
+let keypair = Arc::new(read_keypair_file(std::env::var("LIGHTCONE_WALLET_PATH")?)?);
+let rpc_url = std::env::var("SDK_RPC_URL")?;
+let payer = keypair.pubkey();
 let client = LightconeClient::builder()
-    .deposit_source(DepositSource::Market)
+    .deposit_source(DepositSource::Global)
+    .transaction_resources(V1ResourceConfig {
+        compute_unit_limit: 200_000,
+        loaded_accounts_data_size_limit: 1024 * 1024,
+        priority_fee_lamports: 1_000,
+        heap_size: None,
+    })
+    .rpc_url(&rpc_url)
     .build()?;
-let keypair = read_keypair_file("~/.config/solana/id.json")?;
+client.set_signing_strategy(SigningStrategy::Native(keypair.clone())).await;
+let nonce = client.auth().get_nonce().await?;
+let signed = lightcone::auth::native::sign_login_message(keypair.as_ref(), &nonce);
+client.auth().login_with_message(
+    &signed.message, &signed.signature_bs58, &signed.pubkey_bytes, None,
+).await?;
+client.set_order_nonce(u64::from(client.orders().current_nonce(&payer).await?)).await;
 ```
 
 ### Step 1: Find a Market
 
 ```rust
-let market = client.markets().get(None, Some(1)).await?.markets.into_iter().next().unwrap();
+let market = client.markets().get(None, Some(1)).await?.markets
+    .into_iter().next().ok_or("No markets returned by the API")?;
 let orderbook = market
     .orderbook_pairs
     .iter()
     .find(|pair| pair.active)
     .or_else(|| market.orderbook_pairs.first())
-    .expect("market has no orderbooks");
+    .ok_or("Market has no orderbooks")?;
 ```
 
 ### Step 2: Deposit Collateral
 
+The amount is in the deposit mint's smallest units. Instruction construction alone does not transfer collateral. Submit and confirm the transaction, then wait for the API balance to cover the order. Select the deposit mint backing the orderbook's quote token, as shown in the [submit example](examples/submit_order.rs).
+
+Calculate the deposit from the same price and size used by the order. Poll at most 15 times, with two seconds between unsuccessful reads. A timeout or read failure stops before order submission. Check the confirmed deposit before repeating this step.
+
 ```rust
-let deposit_mint = market.deposit_assets[0].pubkey().to_pubkey()?;
-let deposit_ix = client.positions().deposit().await
-    .user(keypair.pubkey())
+let rules = client.orderbooks().decimals(orderbook.orderbook_id.as_str()).await?;
+let order_price = "0.55"; // Quote tokens per base token.
+let order_size = "1"; // Base tokens.
+let quote_atoms = lightcone::shared::scale_price_size(
+    order_price, order_size, lightcone::program::types::OrderSide::Bid, &rules,
+)?.quote_atoms;
+let required_balance = rust_decimal::Decimal::new(
+    i64::try_from(quote_atoms)?, u32::from(rules.quote_decimals),
+);
+let deposit_mint = orderbook.quote.deposit_asset.to_pubkey()?;
+let deposit_context = client.transaction_context().await?;
+let deposit_tx = client.positions().deposit().await
+    .user(payer)
     .mint(deposit_mint)
-    .amount(1_000_000)
-    .build_ix()
+    .amount(quote_atoms)
+    .build_tx(&deposit_context)
     .await?;
+client.sign_and_submit_tx_confirmed_with_slot(deposit_tx).await?;
+
+// Confirmation can precede indexing. Check the available global collateral.
+for attempt in 0..15 {
+    let snapshot = client.positions().deposit_token_balances(None).await?;
+    let idle = snapshot.balances.values()
+        .find(|balance| balance.mint == orderbook.quote.deposit_asset)
+        .map(|balance| balance.idle)
+        .unwrap_or_default();
+    if idle >= required_balance {
+        break;
+    }
+    if attempt == 14 {
+        return Err("Global collateral is not indexed yet; order was not submitted".into());
+    }
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+}
 ```
 
 ### Step 3: Place an Order
 
 ```rust
-let request = client.orders().limit_order().await
-    .maker(keypair.pubkey())
+let order = client.orders().limit_order().await
+    .maker(payer)
     .bid()
-    .price("0.55")
-    .size("1")
-    .sign(&keypair, &orderbook)?;
-let order = client.orders().submit(&request).await?;
+    .price(order_price)
+    .size(order_size)
+    .submit(&client, &orderbook).await?;
 ```
+
+Order submission uses immutable rules from
+`GET /api/orderbooks/{orderbook_id}/decimals`, cached per client. Decimal
+strings are converted with integer arithmetic and rejected rather than rounded.
+Direct `sign`/`finalize` calls require the fetched `OrderbookRules`; raw amount
+orders are preflighted against the same exact ratio and signed-64-bit limits.
+
+The envelope generates a salt when omitted. The price is quote tokens per base token, and the size is base tokens. Example values must satisfy the selected orderbook's trading rules and available collateral.
 
 ### Step 4: Monitor
 
@@ -173,25 +259,47 @@ let mut ws = client.ws_native();
 ws.connect().await?;
 ws.subscribe(SubscribeParams::Books {
     orderbook_ids: vec![orderbook.orderbook_id.clone()],
+    n_sig_figs: None,
+    mantissa: None,
 })?;
 ws.subscribe(SubscribeParams::User {
-    wallet_address: keypair.pubkey().into(),
+    wallet_address: payer.into(),
 })?;
 ```
+
+Book streams are snapshot-only: every accepted `book_update` replaces the full
+top-20 view. `OrderbookState` discards equal/older `seq` values within a
+subscription generation and accepts forward gaps. Call `begin_generation()` on
+reconnect/resubscribe; `resync: true` requires unsubscribe/resubscribe with the
+same aggregation. Each `(orderbook, aggregation)` pair needs its own state.
+Truncation flags are preserved and mean that side is not exhaustive.
+
+Each decoded bid and ask level includes exact `quote_notional: Decimal`.
+For grouped books, `price` is a display bucket boundary, so quote liquidity
+and totals must use `quote_notional` rather than `price * size`. The
+price-to-base-size `OrderbookState` maps do not retain quote notional; read it
+from the decoded `OrderBook` levels.
+
+Ticker consumers should use the supplied `mid`/`mid_price`; it is
+engine-authoritative and may use one-sided-book or last-trade fallback.
+REST depth is a coherent projection that may briefly lag a mutation. Use its
+`revision` and `captured_at_ms` metadata, and expect revision gaps.
 
 ### Step 5: Cancel an Order
 
 ```rust
-let cancel = CancelBody::signed(order.order_hash.clone(), keypair.pubkey().into(), &keypair);
+let cancel = CancelBody::signed(order.order_hash.clone(), payer.into(), keypair.as_ref());
 client.orders().cancel(&cancel).await?;
 ```
 
 ### Step 6: Exit a Position
 
+Merge only when the wallet holds a complete set of outcome tokens for this deposit mint. Cancelling an unfilled order does not create that set. To return unused global collateral, proceed to withdrawal.
+
 ```rust
 // sign_and_submit builds the tx, signs it using the client's signing strategy, and submits
 let tx_hash = client.positions().merge()
-    .user(keypair.pubkey())
+    .user(payer)
     .market(&market)
     .mint(deposit_mint)
     .amount(1_000_000)
@@ -203,7 +311,7 @@ let tx_hash = client.positions().merge()
 
 ```rust
 let withdraw_ix = client.positions().withdraw().await
-    .user(keypair.pubkey())
+    .user(payer)
     .mint(deposit_mint)
     .amount(1_000_000)
     .build_ix()
@@ -211,40 +319,69 @@ let withdraw_ix = client.positions().withdraw().await
 ```
 
 ## Authentication
-Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token.
+
+Native client session teardown and WebSocket recovery follow the [native client recovery guide](../docs/auth-session-recovery.md). It explains per-token logout, incomplete teardown, anonymous public continuity, and finite reconnect budgets.
+
+Authentication is required for user-specific endpoints. Native clients using Lightcone sessions fetch `/api/auth/nonce`. Sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `sign_login_message` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone. Browser clients authenticate through Privy.
+
+Authenticate before connecting a private WebSocket. Native clients send the Lightcone session cookie during the upgrade. Browser clients supply their Privy cookie automatically. Private user subscriptions require `wallet_address`. Derive the Trading Wallet from `session.user.trading_wallet(session.auth_method)`. Refer to the [authenticated streaming example](examples/ws_user_and_market.rs).
 
 ### Cookie handling
 
 After `client.auth().login_with_message(...)` succeeds, the SDK stores the session token internally and attaches it as `Cookie: lightcone-token=…` on every authenticated request. The behaviour depends on the build target:
 
-- **Native builds**: token lives in a process-wide `Arc<RwLock<Option<String>>>` on the `LightconeClient`. Every authed call reads from it.
+- **Native builds**: the client stores the token in an `Arc<RwLock<Option<String>>>`. Cloned clients share that store.
 - **WASM builds**: requests use `credentials: "include"` and the browser supplies the cookie automatically — the SDK's internal store is unused.
 
 ### Server-side cookie forwarding (`_with_cookies` variants)
 
-> **Naming note.** The `_with_cookies` suffix does **not** mean other methods are unauthed — most SDK methods that talk to authed endpoints (`Positions::positions`, `Metrics::user`, etc.) read auth from the SDK's process-wide token store / browser cookie automatically; that's the typical client-side path. The `_with_cookies(auth_token: &str)` siblings exist for **server-side rendering (SSR)** where the per-request browser cookie can't propagate to the shared client. Those callers extract the token from the incoming request and pass it explicitly. Same wire contract, different credentials path.
+Ordinary authenticated methods use the client's session or the browser cookie. Server-side rendering and route handlers must pass the incoming raw `Cookie` header to the corresponding `_with_cookies` method.
 
-When the SDK runs on a server (SSR, server functions, an axum handler, etc.) and the *user's* `auth_token` cookie arrives on an incoming HTTP request, the SDK's process-wide token store is the wrong place to route it through — the store is shared across all users of that server process.
+The cookie name is `lightcone-token`. Do not install a user's token on a client shared between requests from different users.
 
-For these cases, authed methods that need per-call forwarding ship a `_with_cookies(auth_token)` sibling that injects the cookie just for that one call:
+> **Behavior change (0.9.0).** `_with_cookies` responses no longer capture `Set-Cookie` into the process-wide user session (they previously did): a forwarded per-user request rotating its token must not leak that token to every later request from a shared server client. These requests also never consult the credential restorer.
+
+These methods forward the supplied header for one call:
 
 ```rust
-// Inside an axum / dioxus server function, after extracting the
-// auth_token cookie from the incoming request:
-let balances = client
+// cookie_header is the incoming raw Cookie header, including lightcone-token=...
+let snapshot = client
     .positions()
-    .deposit_token_balances_with_cookies(&auth_token)
+    .deposit_token_balances_with_cookies(None, &cookie_header)
     .await?;
+println!("snapshot slot {}: {} balances", snapshot.context_slot, snapshot.balances.len());
 
 let positions = client
     .positions()
-    .positions_with_cookies(&auth_token)
+    .positions_with_cookies(&cookie_header)
     .await?;
 ```
+
+`WalletDepositBalancesState` keeps its existing unconditional complete-snapshot
+replacement methods. Confirmation-aware consumers may instead use
+`apply_rest_snapshot_with_minimum_snapshot_slot` or
+`apply_event_with_minimum_snapshot_slot`; a complete snapshot below the optional
+floor is ignored without mutation, while equal slots and balance/status events
+keep their existing behavior.
 
 On WASM these methods are equivalent to their non-`_with_cookies` counterparts because the browser is already attaching the cookie via credentials mode.
 
 If you maintain a non-Rust SDK (TypeScript, Python) and need to support an SSR consumer, mirror the same pattern: the wire contract is unchanged — only the per-call `Cookie: lightcone-token=<token>` header attachment differs.
+
+## API Key
+
+Configure an API key for native or server-side submit, cancel, and cancel-all requests. Public reads and authentication need no API key. The key identifies an API Consumer; user authentication, wallet ownership, and signed-order validation still apply.
+
+```rust
+let client = LightconeClient::builder()
+    .env(LightconeEnv::Staging)
+    .api_key(&std::env::var("LIGHTCONE_API_KEY")?)
+    .build()?;
+```
+
+The SDK attaches `x-lightcone-api-key` only to POST `/api/orders/submit`, `/api/orders/cancel`, and `/api/orders/cancel-all` on the configured API origin. It never forwards the key to another origin or logs it. HTTPS is required except for loopback development. Keep keys out of source control and browsers. Browser builds reject API-key configuration; web users trade with their existing Privy session.
+
+Cloudflare limits these trading attempts by public source IP, not by API key: direct API callers share 500 attempts per 10-second window per IP. A 429 response does not revoke credentials. Public reads and WebSocket messages are outside this trading limit. Revocation reaches all backend process caches within 24 hours; new keys work immediately through a database lookup on cache miss.
 
 ## Environment Configuration
 
@@ -269,7 +406,7 @@ Each environment configures the API URL, WebSocket URL, Solana RPC URL, and on-c
 
 The Solana RPC URL can also be overridden via the `SDK_RPC_URL` environment variable, which takes precedence over the environment default. This is useful for pointing all examples at a private RPC to avoid public devnet rate limits.
 
-`LightconeEnv::Local` targets `https://api.local.lightcone.xyz` for REST and `wss://ws.local.lightcone.xyz/ws` for WebSocket connections.
+`LightconeEnv::Local` targets `https://api.local.internalcone.com` for REST and `wss://ws.local.internalcone.com/ws` for WebSocket connections.
 
 ### RPC Failover
 
@@ -299,19 +436,65 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 | Example | Description |
 |---------|-------------|
 | [`login`](examples/login.rs) | Full auth lifecycle: sign message, login, check session, logout |
-| [`with_auth`](examples/with_auth.rs) | Per-call auth-token forwarding for SSR / server-function consumers — logs in, captures the token via `client.auth_token()`, clears the SDK's internal store, and exercises every `_with_cookies` variant |
+| [`with_cookies`](examples/with_cookies.rs) | Per-call cookie forwarding for SSR / server-function consumers, including paginated favorite-market list/add/remove while restoring the original state |
 
 ### Market Discovery & Data
 
 | Example | Description |
 |---------|-------------|
-| [`markets`](examples/markets.rs) | Featured markets, paginated listing, fetch by pubkey, search, platform deposit assets via `global_deposit_assets()` |
+| [`markets`](examples/markets.rs) | Featured markets, paginated listing, fetch by pubkey, search, and platform deposit assets via `global_deposit_assets()`; authenticated favorite-market APIs are demonstrated by `with_cookies` |
 | [`market_deposit_assets`](examples/market_deposit_assets.rs) | List the deposit assets and conditional mints for a specific market |
 | [`orderbook`](examples/orderbook.rs) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
 | [`trades`](examples/trades.rs) | Recent trade history with cursor-based pagination (per-orderbook and market-wide) |
 | [`price_history`](examples/price_history.rs) | Historical candlestick data (OHLCV) at various resolutions |
 | [`positions`](examples/positions.rs) | User positions across all markets and per-market |
+| [`deposit_token_balances`](examples/deposit_token_balances.rs) | Authenticated WebSocket state and slot-confirmed 0.001 SOL native withdrawal without closing canonical WSOL in non-production |
+| [`wsol_conversion`](examples/wsol_conversion.rs) | Native-keypair exact wrap followed by canonical WSOL unwrap-all in non-production |
 | [`metrics_all`](examples/metrics_all.rs) | Exercise the `client.metrics()` endpoints — platform, markets, categories, orderbook, deposit-token history, open-interest history, unique-trader history, leaderboard, history |
+
+`deposit_token_balances` is manual-only and excluded from the aggregate example
+harness. Run it with `LIGHTCONE_ENV=local` or `staging` and all `SDK_API_URL`,
+`SDK_WS_URL`, `SDK_RPC_URL`, and `SDK_PROGRAM_ID` overrides unset so its
+built-in non-production routing cannot be repointed at production. It sends to
+the TypeScript SDK wallet configured by `LIGHTCONE_WALLET_PATH_TS`, keeping CI
+funds inside the SDK wallet pool.
+
+`wsol_conversion` runs automatically with the Rust wallet in local aggregate
+runs and is included when the globally gated stateful example workflow is
+enabled for staging CI; that workflow currently disables all stateful CI jobs.
+The local runner preserves an optional paid RPC while clearing API, WebSocket,
+and program overrides; an enabled staging-CI run may use its managed endpoints.
+Direct local runs permit only the RPC override, direct staging runs remain
+override-free, and all paths reject production and program-ID overrides.
+The example requires the authenticated
+Trading Wallet to be the configured native keypair. It wraps exactly 0.001 SOL,
+refreshes a complete slot-covering snapshot, then rebuilds and submits
+`plan_unwrap_wsol_all` without an interactive pause. Unwrap-all closes the
+canonical account and returns its full lamport balance, including rent and any
+excess. A later ordinary action may recreate it and require rent again. The
+example never retries an uncertain submission or confirmation result.
+
+SOL planners keep the canonical Tokenkeg WSOL account persistent: split wraps
+only a shortfall, merge and redeem retain proceeds there, and native withdrawal
+converts only the required shortfall through a temporary seeded account. The
+temporary account's create, initialize, WSOL transfer, close, and native transfer
+instructions are one Solana transaction, so an instruction failure rolls the
+entire conversion back atomically. These ordinary planners never close the
+canonical account. Native-keypair consumers may explicitly call
+`plan_wrap_sol(amount_lamports, state)` or no-amount
+`plan_unwrap_wsol_all(state)`. Both compare live canonical token amount with the
+complete wallet snapshot and return only prepared plans. Exact inspection exposes
+full account, decoded token-amount, and decoded native-reserve lamports. Wrap
+rejects unsynchronized donated excess because `SyncNative`, the Token Program
+instruction that recalculates the WSOL token amount from account lamports, would
+wrap it in addition to the requested amount. Otherwise wrap uses reserve floors and
+includes actual fee/new-account rent in its delta. Unwrap-all accepts excess,
+uses native fee-only availability, checks the final native `u64` balance, and
+returns the account's complete live lamports, so its delta includes rent and any
+donation while its `SolActionCosts` remain unsponsored with zero upfront rent and
+no account creation. A submission or confirmation error still has an uncertain landed
+status, so refresh authoritative balances before any retry. See the
+[persistent canonical WSOL ADR](../docs/adr/0001-persistent-canonical-wsol.md).
 
 ### Testnet
 
@@ -323,7 +506,7 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 
 | Example | Description |
 |---------|-------------|
-| [`submit_order`](examples/submit_order.rs) | Deposit the quote amount into the global pool, then place a limit order via `client.orders().limit_order()` with human-readable price/size, auto-scaling, and fill tracking. Companion `cancel_order` cancels it and withdraws to stay net-neutral |
+| [`submit_order`](examples/submit_order.rs) | Deposit collateral, then place an exactly validated limit order using cached trading rules. Companion `cancel_order` cancels it and withdraws to stay net-neutral |
 
 ### Cancelling Orders
 
@@ -338,7 +521,9 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 |---------|-------------|
 | [`read_onchain`](examples/read_onchain.rs) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.rs) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
-| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.rs) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, withdraw from global, and merge back to keep the run net-neutral |
+| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.rs) | Deposit to the global pool, move capital into a market, withdraw from global, and merge back to keep the run net-neutral |
+
+Every instruction builder appends the program's event transport trailer (the event-authority PDA and the program account, both read-only), and public Lightcone instructions require transaction-level invocation except for the governance CPI allowlist. See the [program module docs](src/program/README.md#event-transport-trailer).
 
 ### WebSocket Streaming
 
@@ -346,7 +531,7 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 |---------|-------------|
 | [`ws_book_and_trades`](examples/ws_book_and_trades.rs) | Live orderbook depth with `OrderbookState` state + rolling `TradeHistory` buffer |
 | [`ws_ticker_and_prices`](examples/ws_ticker_and_prices.rs) | Best bid/ask ticker + price history candles with `PriceHistoryState` |
-| [`ws_user_and_market`](examples/ws_user_and_market.rs) | Authenticated user stream (orders, balances) + market lifecycle events |
+| [`ws_user_and_market`](examples/ws_user_and_market.rs) | Read-only authenticated user/market subscriptions plus one reduced Trading Wallet balance snapshot |
 
 ## Error Handling
 
@@ -377,6 +562,7 @@ The backend reports rejections (insufficient balance, expired order, validation 
 | `error_code` | `Option<String>` | API-level error code (e.g. `"NOT_FOUND"`, `"INVALID_ARGUMENT"`) |
 | `error_log_id` | `Option<String>` | Backend support correlation ID (`LCERR_*`) |
 | `request_id` | `Option<String>` | SDK-generated `x-request-id` for cross-service tracing |
+| `existing_method` | `Option<String>` | Primary method of the conflicting Account when identity ownership has one deterministic owner |
 
 `Display` formats all present fields as a multi-line report. Use `.to_string()` for logging or clipboard.
 
@@ -441,16 +627,34 @@ The SDK generates a UUID v4 `x-request-id` header on every HTTP request. On reje
 | `NotFound(String)` | 404 - resource not found (body had no error envelope) |
 | `BadRequest(String)` | 400 - invalid request (body had no error envelope) |
 | `Timeout` | Request timed out |
-| `MaxRetriesExceeded { attempts, last_error }` | All retry attempts exhausted |
+| `MaxRetriesExceeded { attempts, last_error }` | Never produced by the SDK itself: the HTTP retry loop propagates the final underlying error on exhaustion (structured details intact — see the retry-exhaustion tests). Kept public for consumer-built retry loops |
 
 Status-to-error mapping order:
 
-1. While retry attempts remain, statuses configured as retryable by the active `RetryPolicy` are classified from their raw HTTP status before envelope parsing, so the retry loop can act on them. `429` is retried only when the active policy includes `429`.
+1. The exact `503 PRIVY_VERIFICATION_UNAVAILABLE` body is parsed before the retry decision and returned immediately. For other errors, while retry attempts remain, statuses configured as retryable by the active `RetryPolicy` are classified from their raw HTTP status before envelope parsing, so the retry loop can act on them. `429` is retried only when the active policy includes `429`.
 2. Once no retry will happen, any non-2xx response whose body parses as the structured rejection envelope surfaces as `SdkError::ApiRejected(details)`, preserving `error_code`, `rejection_code`, `error_log_id`, and the SDK request id. This includes envelope-bearing `429` or `5xx` responses after retry exhaustion or under a policy that does not retry them.
 3. Anything else, including envelope-less bodies and non-2xx success envelopes, falls back to the `HttpError` variants above.
 
 ## Retry Strategy
 
-- **GET requests**: `RetryPolicy::Idempotent` - retries on transport failures and 502/503/504, backs off on 429 with exponential backoff + jitter.
-- **POST requests** (order submit, cancel, auth): `RetryPolicy::None` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
+- **Replay-safe requests**: GETs and idempotent set operations such as favorite-market updates use `RetryPolicy::Idempotent`, which retries transport failures and 502/503/504 and backs off on 429 with exponential backoff + jitter. The exact `503 PRIVY_VERIFICATION_UNAVAILABLE` rejection returns immediately.
+- **Non-idempotent requests** (order submit, cancel, auth): `RetryPolicy::None` - no automatic retry, which prevents duplicate side effects.
 - Customizable per-call with `RetryPolicy::Custom(RetryConfig { .. })`.
+
+### Credential restoration (401 recovery)
+
+Sessions built on short-lived tokens expire mid-run: the backend starts answering 401 even though the app could mint a fresh token (e.g. a browser refreshing its Privy session, a bot re-running login). Rather than every caller hand-rolling "detect 401 → refresh → retry", the transport accepts a host-supplied hook:
+
+```rust
+use lightcone::http::CredentialRestorer;
+
+client.set_credential_restorer(std::sync::Arc::new(MyRestorer)).await;
+```
+
+When a request to the API origin fails with HTTP 401 and a restorer is registered, the transport consults it **at most once per logical request**, with concurrent 401s sharing one restoration (bounded by a 30-second timeout). A successful restoration replays the request once **only if it declared itself retry-safe** (an idempotent/custom retry policy); `RetryPolicy::None` requests — mutations like orders and cancels — are never auto-replayed: the restoration still heals the session for the caller's next attempt, but the original 401 propagates. Restoration is skipped for credential-management endpoints (login, logout) and for cookie-override/custom-session requests, redirects are never followed on the API transport (on wasm the browser follows them itself; the transport refuses such responses best-effort as `HttpError::RedirectedOffOrigin` when the final URL is readable — a CORS-blocked redirect target instead surfaces as a plain network error, which retry policy may re-send), and without a registered restorer 401s propagate unchanged. A timed-out restoration is dropped — true cancellation on native targets; on wasm, JS work already started behind the dropped future keeps running, so restorers whose work is non-idempotent (refresh-token rotation) must serialize internally.
+
+The SDK stays credential-agnostic: what "restore" means belongs to the host. For classifying auth failures in your own code, use `SdkError::is_unauthorized()` — it covers both bare 401s (`HttpError::Unauthorized`) and 401s carrying a structured rejection envelope (`ApiRejectedDetails.http_status`).
+
+### Temporary Privy verification failures
+
+Use `SdkError::is_privy_verification_unavailable()` to identify the manual-retry rejection. Its `ApiRejectedDetails::retry_after_ms` preserves optional response timing in milliseconds. See the [SDK recovery contract](../README.md#manual-recovery-from-temporary-authentication-failures), including the struct-literal migration.

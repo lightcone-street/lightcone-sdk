@@ -55,8 +55,9 @@ async function main(): Promise<void> {
                 LiveOrderbook.bestAsk(book),
               )} mid=${show(LiveOrderbook.midPrice(book))} spread=${show(LiveOrderbook.spread(book))}`,
             );
-          } else if (connection) {
-            // resync — re-subscribe to pull a fresh seq-0 snapshot.
+          } else if (connection && typeof result !== "string" && result.TAG === "RefreshRequired") {
+            // A new subscription resets admission while preserving visible levels.
+            LiveOrderbook.beginGeneration(book);
             WsClient.unsubscribe(connection, { TAG: "Books", _0: { orderbookIds: [orderbookId] } } as wsSubscription);
             WsClient.subscribe(connection, { TAG: "Books", _0: { orderbookIds: [orderbookId] } } as wsSubscription);
           }
@@ -77,7 +78,7 @@ async function main(): Promise<void> {
           break;
       }
     },
-    undefined,
+    () => LiveOrderbook.beginGeneration(book),
     undefined,
   );
 

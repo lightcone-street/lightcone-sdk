@@ -1,8 +1,53 @@
-import { SdkError } from "../error";
+import { isPrivyVerificationUnavailable, SdkError, isUnauthorized } from "../error";
 import { RetryPolicy, type LightconeHttp } from "../http";
 import { asPubkeyStr } from "../shared";
 import { tradingWallet } from "./index";
-import type { AuthCredentials, LoginRequest, NonceResponse, SessionResponse } from "./index";
+import type {
+  AuthCredentials,
+  LoginRequest,
+  MaxSlippagePreferenceBody,
+  NonceResponse,
+  LinkedIdentityType,
+  RegisterPrivyRequest,
+  SessionResponse,
+} from "./index";
+
+/** Bounded ownership conflicts safe for client recovery guidance. */
+export type RegisterPrivyConflict =
+  | {
+      code: "IDENTITY_OWNED_BY_ANOTHER_ACCOUNT";
+      existingMethod?: LinkedIdentityType;
+    }
+  | { code: "IDENTITIES_OWNED_BY_MULTIPLE_ACCOUNTS" }
+  | {
+      code: "WALLET_OWNED_BY_ANOTHER_ACCOUNT";
+      existingMethod?: LinkedIdentityType;
+    };
+
+/** Classify only stable register-or-sync ownership rejection codes. */
+export function classifyRegisterPrivyConflict(
+  error: unknown,
+): RegisterPrivyConflict | undefined {
+  if (!(error instanceof SdkError) || error.variant !== "ApiRejected")
+    return undefined;
+  const details = error.apiRejectedDetails;
+  switch (details?.errorCode) {
+    case "IDENTITY_OWNED_BY_ANOTHER_ACCOUNT":
+      return {
+        code: details.errorCode,
+        existingMethod: details.existingMethod,
+      };
+    case "IDENTITIES_OWNED_BY_MULTIPLE_ACCOUNTS":
+      return { code: details.errorCode };
+    case "WALLET_OWNED_BY_ANOTHER_ACCOUNT":
+      return {
+        code: details.errorCode,
+        existingMethod: details.existingMethod,
+      };
+    default:
+      return undefined;
+  }
+}
 
 interface AuthState {
   getCredentials(): AuthCredentials | undefined;
@@ -20,7 +65,10 @@ export class Auth {
 
   async getNonce(): Promise<string> {
     const url = `${this.client.http.baseUrl()}/api/auth/nonce`;
-    const response = await this.client.http.get<NonceResponse>(url, RetryPolicy.None);
+    const response = await this.client.http.get<NonceResponse>(
+      url,
+      RetryPolicy.None,
+    );
     return response.nonce;
   }
 
@@ -28,7 +76,7 @@ export class Auth {
     message: string,
     signatureBs58: string,
     pubkeyBytes: Uint8Array,
-    useEmbeddedWallet?: boolean
+    useEmbeddedWallet?: boolean,
   ): Promise<SessionResponse> {
     const url = `${this.client.http.baseUrl()}/api/auth/login_or_register_with_message`;
     const body: LoginRequest = {
@@ -38,11 +86,15 @@ export class Auth {
       use_embedded_wallet: useEmbeddedWallet,
     };
 
-    const session = await this.client.http.post<SessionResponse, LoginRequest>(
-      url,
-      body,
-      RetryPolicy.None
-    );
+    // Credential-management endpoint: opts out of the transport's 401
+    // restore-and-replay. The backend consumes the login nonce before
+    // verifying the signature, so a replayed login deterministically fails —
+    // and restoring credentials in order to log in is circular.
+    const session = await this.client.http.postWithoutCredentialRestore<
+      SessionResponse,
+      LoginRequest
+    >(url, body, RetryPolicy.None);
+    normalizeSessionUser(session);
 
     this.client.authState.setCredentials(credentialsFromSession(session));
 
@@ -54,9 +106,16 @@ export class Auth {
 
     let session: SessionResponse;
     try {
-      session = await this.client.http.get<SessionResponse>(url, RetryPolicy.Idempotent);
+      session = await this.client.http.get<SessionResponse>(
+        url,
+        RetryPolicy.Idempotent,
+      );
+      normalizeSessionUser(session);
     } catch (error) {
-      this.client.authState.setCredentials(undefined);
+      // Authority outages do not invalidate a previously established session.
+      if (!isPrivyVerificationUnavailable(error)) {
+        this.client.authState.setCredentials(undefined);
+      }
       throw SdkError.from(error);
     }
 
@@ -65,22 +124,95 @@ export class Auth {
     return session;
   }
 
+  /**
+   * Logout — clears the server-side cookie, internal token, and credentials.
+   *
+   * Server revocation targets native clients' `lightcone-token` credentials.
+   * Browser clients must end their Privy session through the Privy SDK.
+   *
+   * Local state is cleared even when the server call fails — the caller asked
+   * to be signed out locally regardless — but the failure is then rethrown:
+   * callers gating security decisions on teardown (e.g. whether an app may
+   * restart an authenticated transport) must be able to see that the
+   * revocation may be unconfirmed, or a revoked token may still await remote
+   * WebSocket teardown. Refer to the authentication guide in README.
+   * A 401 counts as success: it means
+   * "already logged out".
+   */
   async logout(): Promise<void> {
     const url = `${this.client.http.baseUrl()}/api/auth/logout`;
+    let logoutError: unknown = null;
     try {
-      await this.client.http.post<{ success: boolean }, Record<string, never>>(url, {}, RetryPolicy.None);
-    } catch {
-      // Backend cookie clear can fail in local/dev setups; still clear local state.
+      // Credential-management endpoint: opts out of the transport's 401
+      // restore-and-replay — a 401 here means "already logged out".
+      await this.client.http.postWithoutCredentialRestore<
+        { success: boolean },
+        Record<string, never>
+      >(url, {}, RetryPolicy.None);
+    } catch (error) {
+      if (!isUnauthorized(error)) {
+        logoutError = error;
+      }
     }
 
     await this.client.http.clearAuthToken();
     this.client.authState.setCredentials(undefined);
     await this.client.authState.clearCaches();
+
+    if (logoutError !== null) {
+      throw logoutError;
+    }
   }
 
   async disconnectX(): Promise<void> {
     const url = `${this.client.http.baseUrl()}/api/auth/disconnect_x`;
-    await this.client.http.post<{ success: boolean }, Record<string, never>>(url, {}, RetryPolicy.None);
+    await this.client.http.post<{ success: boolean }, Record<string, never>>(
+      url,
+      {},
+      RetryPolicy.None,
+    );
+  }
+
+  /** Create or synchronize a Privy Account and install the resulting session. */
+  async registerPrivy(request: RegisterPrivyRequest): Promise<SessionResponse> {
+    const url = `${this.client.http.baseUrl()}/api/auth/register-privy`;
+    const session = await this.client.http.post<
+      SessionResponse,
+      RegisterPrivyRequest
+    >(
+      url,
+      request,
+      RetryPolicy.Idempotent,
+    );
+    normalizeSessionUser(session);
+    this.client.authState.setCredentials(credentialsFromSession(session));
+    return session;
+  }
+
+  /** Persist an account-wide max-slippage preference strictly below 10%. */
+  async updateMaxSlippagePreference(
+    maxSlippagePreference: string,
+  ): Promise<string> {
+    const url = `${this.client.http.baseUrl()}/api/auth/max_slippage_preference`;
+    const response = await this.client.http.post<
+      MaxSlippagePreferenceBody,
+      MaxSlippagePreferenceBody
+    >(
+      url,
+      { max_slippage_preference: maxSlippagePreference },
+      RetryPolicy.Idempotent,
+    );
+    const preference = decodeMaxSlippagePreference(
+      response,
+      false,
+      "update response",
+    );
+    if (preference === null) {
+      throw SdkError.serde(
+        "Max-slippage update response must contain a decimal string",
+      );
+    }
+    return preference;
   }
 
   connectXUrl(): string {
@@ -101,13 +233,95 @@ export class Auth {
 }
 
 /**
+ * Enforces the session user's nullable-field contracts after every
+ * session-returning call. Login, session restoration, and Privy registration
+ * share it so that no entry point skips a field.
+ */
+function normalizeSessionUser(session: SessionResponse): void {
+  normalizeSessionMaxSlippagePreference(session);
+  session.user.telegram_invite_url = decodeTelegramInviteUrl(session.user);
+}
+
+/**
+ * Decodes the session user's Telegram invite URL. A missing key (older backend)
+ * and an explicit null (Account without an invite) both mean no invite. Any
+ * other non-string value is a contract violation. Error text never includes the
+ * value, because the URL is a secret of the Account.
+ */
+function decodeTelegramInviteUrl(user: unknown): string | null {
+  if (typeof user !== "object" || user === null) {
+    throw SdkError.serde("Session user is malformed");
+  }
+  // An own-property read keeps an inherited value from counting as an invite.
+  if (!Object.prototype.hasOwnProperty.call(user, "telegram_invite_url")) {
+    return null;
+  }
+  const inviteUrl = (user as Record<string, unknown>).telegram_invite_url;
+  if (inviteUrl === undefined || inviteUrl === null) {
+    return null;
+  }
+  if (typeof inviteUrl === "string") {
+    return inviteUrl;
+  }
+  throw SdkError.serde(
+    "Session user telegram_invite_url must contain a string or null",
+  );
+}
+
+function normalizeSessionMaxSlippagePreference(session: SessionResponse): void {
+  const preference = decodeMaxSlippagePreference(
+    session?.user,
+    true,
+    "session user",
+    true,
+  );
+  session.user.max_slippage_preference = preference;
+}
+
+/** Enforces the exact nullable/string JSON contract erased by TypeScript types. */
+function decodeMaxSlippagePreference(
+  payload: unknown,
+  allowNull: boolean,
+  context: string,
+  allowMissing = false,
+): string | null {
+  if (typeof payload !== "object" || payload === null) {
+    throw SdkError.serde(`Max-slippage ${context} is malformed`);
+  }
+  if (
+    !Object.prototype.hasOwnProperty.call(payload, "max_slippage_preference")
+  ) {
+    if (allowMissing) {
+      return null;
+    }
+    throw SdkError.serde(
+      `Max-slippage ${context} is missing max_slippage_preference`,
+    );
+  }
+
+  const preference = (payload as Record<string, unknown>)
+    .max_slippage_preference;
+  if (typeof preference === "string") {
+    return preference;
+  }
+  if (allowNull && preference === null) {
+    return null;
+  }
+  throw SdkError.serde(
+    `Max-slippage ${context} must contain ${allowNull ? "a string or null" : "a string"}`,
+  );
+}
+
+/**
  * Derive session credentials from the envelope. The trading wallet comes from
  * the identity + auth method.
  */
 function credentialsFromSession(session: SessionResponse): AuthCredentials {
   return {
     user_id: session.user.user_id,
-    wallet_address: asPubkeyStr(tradingWallet(session.user, session.auth_method)),
+    wallet_address: asPubkeyStr(
+      tradingWallet(session.user, session.auth_method),
+    ),
     expires_at: parseExpiry(session.expires_at),
   };
 }

@@ -1,23 +1,3 @@
-// The position domain's high-level transaction builders: build the instruction,
-// assemble a v0 transaction, sign it with the client's native signer, and
-// broadcast it.
-// Covers every position flow — depositToGlobal, withdrawFromGlobal,
-// globalToMarketDeposit, merge, redeemWinnings, the market-level deposit (mint
-// complete set), withdrawFromPosition, extendPositionTokens, and the close ops —
-// one labeled-argument function per flow (Global-vs-Market dispatch is realized
-// by picking the explicit function; `Client.depositSource` never gates here).
-//
-// Each function returns `promise<result<string, SdkError.t>>` where the Ok value
-// is the transaction signature. Signing uses the client's signing strategy
-// (`Client.useNativeSigner` or `Client.useExternalSigner`); with none configured
-// the call returns `Error(Signing(_))`. The single-instruction builders live in
-// `program/Instructions.res`; transaction assembly collapses to `unsignedTx`
-// below (any instruction + fee payer → unsigned message).
-//
-// NOTE: `~user` (or `~operator` on the operator-signed ops) is both the
-// instruction's signer account AND the fee payer, so it MUST be the address of
-// the client's configured signer for the resulting transaction to verify.
-
 // Sign + broadcast with the client's signing strategy (native keypair or
 // external wallet adapter) — see `Transactions.signAndSubmit`.
 let signAndSend = Transactions.signAndSubmit
@@ -124,74 +104,34 @@ let deposit = (
 
 // Withdraw conditional tokens from the position's ATA to the user's own ATA
 // (`~mint` is the conditional mint).
-let withdrawFromPosition = (
+// Validate against the current on-chain market before deriving or signing.
+let withdrawConditionalFromPosition = async (
   client: Client.t,
   ~user: SolanaKit.address,
   ~market: SolanaKit.address,
-  ~mint: SolanaKit.address,
+  ~depositMint: SolanaKit.address,
   ~amount: bigint,
   ~outcomeIndex: int,
-): promise<result<string, SdkError.t>> =>
-  signAndSend(client, () =>
-    Instructions.withdrawFromPosition(
-      ~programId=client.programId,
-      ~user,
-      ~market,
-      ~mint,
-      ~amount,
-      ~outcomeIndex,
-    )
-  )
-
-// Append newly-added deposit mints' ATAs to an existing position ALT (from
-// initPositionTokens). Operator-signed: `~operator` must be the native signer.
-let extendPositionTokens = (
-  client: Client.t,
-  ~operator: SolanaKit.address,
-  ~user: SolanaKit.address,
-  ~market: SolanaKit.address,
-  ~lookupTable: SolanaKit.address,
-  ~depositMints: array<SolanaKit.address>,
-  ~numOutcomes: int,
-): promise<result<string, SdkError.t>> =>
-  switch depositMints {
-  | [] => Promise.resolve(Error(SdkError.Validation("deposit_mints is required")))
-  | _ =>
-    signAndSend(client, () =>
-      Instructions.extendPositionTokens(
+): result<string, SdkError.t> => {
+  switch await Rpc.getMarket(client, market) {
+  | Error(error) => Error(error)
+  | Ok(info) if outcomeIndex < 0 || Int.toFloat(outcomeIndex) >= info.numOutcomes =>
+    Error(SdkError.Validation("outcome index is outside this market"))
+  | Ok(_) =>
+    await signAndSend(client, () =>
+      Instructions.withdrawConditionalFromPosition(
         ~programId=client.programId,
-        ~operator,
         ~user,
         ~market,
-        ~lookupTable,
-        ~depositMints,
-        ~numOutcomes,
+        ~depositMint,
+        ~amount,
+        ~outcomeIndex,
       )
     )
   }
+}
+let withdrawFromPosition = withdrawConditionalFromPosition
 
-// Deactivate an active position ALT, or close an already-deactivated one.
-// Operator-signed; `~position` is the position PDA address itself.
-let closePositionAlt = (
-  client: Client.t,
-  ~operator: SolanaKit.address,
-  ~position: SolanaKit.address,
-  ~market: SolanaKit.address,
-  ~lookupTable: SolanaKit.address,
-): promise<result<string, SdkError.t>> =>
-  signAndSend(client, () =>
-    Instructions.closePositionAlt(
-      ~programId=client.programId,
-      ~operator,
-      ~position,
-      ~market,
-      ~lookupTable,
-    )
-  )
-
-// Close empty SPL conditional ATAs owned by a position PDA after market
-// resolution (non-empty accounts are skipped by the program). Operator-signed;
-// `~position` is the position PDA address itself.
 let closePositionTokenAccounts = (
   client: Client.t,
   ~operator: SolanaKit.address,
@@ -219,14 +159,58 @@ let closePositionTokenAccounts = (
     )
   }
 
-// ── Unsigned transaction assembly ─────────────────────────────────────────────
-// Wrap one instruction in an unsigned v0 message with the fee payer set (no
-// lifetime). The caller appends further instructions if needed, sets the
-// blockhash lifetime, and signs with their own signer.
-let unsignedTx = (
-  ~feePayer: SolanaKit.address,
-  ~instruction: SolanaKit.instruction,
-): SolanaKitTx.message =>
-  SolanaKitTx.create({"version": 0})
-  ->SolanaKitTx.setFeePayer(feePayer, _)
-  ->SolanaKitTx.appendInstruction(instruction, _)
+let unsignedTx = (~feePayer, ~instruction, ~context) =>
+  V1Transaction.compile(~payer=feePayer, ~instructions=[instruction], ~context)
+
+// Read the market and registration entries once, then preserve ascending GDT
+// order. This is safe for initial, repeated, partial, and additional-group calls.
+let initPositionTokensIx = async (client: Client.t, ~payer, ~user, ~market, ~depositMints) => {
+  switch await Rpc.getMarket(client, market) {
+  | Error(error) => Error(error)
+  | Ok(info) =>
+    let entries = await Promise.all(
+      depositMints->Array.map(async mint =>
+        (await Rpc.getGlobalDepositToken(client, ~mint))->Result.map(entry => (mint, entry.index))
+      ),
+    )
+    switch entries->Array.findMap(result =>
+      switch result {
+      | Error(error) => Some(error)
+      | Ok(_) => None
+      }
+    ) {
+    | Some(error) => Error(error)
+    | None =>
+      let ordered =
+        entries
+        ->Array.filterMap(result => result->Result.mapOr(None, value => Some(value)))
+        ->Array.toSorted(((_, a), (_, b)) => Float.compare(a, b))
+      let indices = Dict.make()
+      ordered->Array.forEach(((_, index)) => Dict.set(indices, Float.toString(index), true))
+      if Dict.toArray(indices)->Array.length != Array.length(ordered) {
+        Error(SdkError.Program(ProgramError.InvalidDepositMintOrder))
+      } else {
+        let sorted = ordered->Array.map(((mint, _)) => mint)
+        await Instructions.initPositionTokens(
+          ~programId=client.programId,
+          ~payer,
+          ~user,
+          ~market,
+          ~depositMints=sorted,
+          ~numOutcomes=Float.toInt(info.numOutcomes),
+        )
+      }
+    }
+  }
+}
+
+let initPositionTokens = async (client: Client.t, ~payer, ~user, ~market, ~depositMints) => {
+  switch await initPositionTokensIx(client, ~payer, ~user, ~market, ~depositMints) {
+  | Error(error) => Error(error)
+  | Ok(instruction) =>
+    switch await Transactions.build(client, ~payer, ~instructions=[instruction]) {
+    | Error(error) => Error(error)
+    | Ok(transaction) => await Transactions.signAndSubmitPrepared(client, transaction)
+    }
+  }
+}

@@ -51,7 +51,6 @@ let main = async () => {
       let firstLimit = snapshot.orders->Array.findMap(order =>
         switch order {
         | Order.Raw.SnapshotOrder.Limit(limit) => Some(limit)
-        | Trigger(_) => None
         }
       )
       switch firstLimit {

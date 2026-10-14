@@ -30,10 +30,16 @@ let logout: Client.t => promise<result<unit, SdkError.t>>
 
 // Register a Privy-authenticated user in the backend DB (idempotent; called
 // after Privy login when `is_new_user: true`).
-let registerPrivy: Client.t => promise<result<unit, SdkError.t>>
+let registerPrivy: (
+  Client.t,
+  Auth__Model.RegisterPrivyRequest.t,
+) => promise<result<Auth__Model.Session.t, SdkError.t>>
 
 // Disconnect the user's linked X (Twitter) account.
 let disconnectX: Client.t => promise<result<unit, SdkError.t>>
 
 // The URL for linking an X (Twitter) account via OAuth.
 let connectXUrl: Client.t => string
+
+let credentials: Client.t => option<Auth__Model.Credentials.t>
+let updateMaxSlippagePreference: (Client.t, string) => promise<result<string, SdkError.t>>

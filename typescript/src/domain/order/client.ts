@@ -1,5 +1,6 @@
+import { V1Transaction, type V1TransactionContext } from "../../program/transaction";
 import bs58 from "bs58";
-import { Keypair, Transaction, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
+import { Keypair, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import type { ClientContext } from "../../context";
 import { requireConnection, requireSigningStrategy } from "../../context";
 import { SdkError } from "../../error";
@@ -21,10 +22,8 @@ import {
   createSignedBidOrder as programCreateSignedBidOrder,
   createSignedAskOrder as programCreateSignedAskOrder,
   signCancelOrder,
-  signCancelTriggerOrder,
   signCancelAll,
   cancelOrderMessage,
-  cancelTriggerOrderMessage,
   cancelAllMessage,
   generateCancelAllSalt as programGenerateCancelAllSalt,
 } from "../../program/orders";
@@ -43,8 +42,19 @@ import type {
   AskOrderParams,
   OrderStatus as ProgramOrderStatus,
 } from "../../program/types";
-import { asOrderBookId, asPubkeyStr, type OrderBookId, type PubkeyStr } from "../../shared";
-import { LimitOrderEnvelope, TriggerOrderEnvelope } from "../../program/envelope";
+import { OrderSide } from "../../program/types";
+import {
+  asOrderBookId,
+  asPubkeyStr,
+  validateRawAmounts,
+  validateSignedFields,
+  type OrderBookId,
+  type OrderbookRules,
+  type PubkeyStr,
+  type SubmitOrderRequest,
+} from "../../shared";
+import { LimitOrderEnvelope } from "../../program/envelope";
+import { Orderbooks } from "../orderbook/client";
 import {
   normalizeUserOrdersPayload,
   type UserMarketBalance,
@@ -116,33 +126,6 @@ export function cancelAllBodySigned(
   return { user_pubkey: userPubkey, orderbook_id: orderbookId, signature, timestamp, salt };
 }
 
-export interface CancelTriggerBody {
-  trigger_order_id: string;
-  maker: PubkeyStr;
-  signature: string;
-}
-
-export function cancelTriggerBodyFromBase58(
-  triggerOrderId: string,
-  maker: PubkeyStr,
-  signatureBase58: string
-): CancelTriggerBody {
-  return {
-    trigger_order_id: triggerOrderId,
-    maker,
-    signature: Buffer.from(bs58.decode(signatureBase58)).toString("hex"),
-  };
-}
-
-export function cancelTriggerBodySigned(
-  triggerOrderId: string,
-  maker: PubkeyStr,
-  keypair: Keypair
-): CancelTriggerBody {
-  const signature = signCancelTriggerOrder(triggerOrderId, keypair);
-  return { trigger_order_id: triggerOrderId, maker, signature };
-}
-
 // ─── Response types ──────────────────────────────────────────────────────────
 
 export interface FillInfo {
@@ -176,15 +159,6 @@ export interface CancelAllSuccess {
   message: string;
 }
 
-export interface TriggerOrderResponse {
-  trigger_order_id: string;
-  order_hash: string;
-}
-
-export interface CancelTriggerSuccess {
-  trigger_order_id: string;
-}
-
 export interface UserOrdersResponse {
   user_pubkey: PubkeyStr;
   orders: UserSnapshotOrder[];
@@ -214,10 +188,6 @@ export class Orders {
     return LimitOrderEnvelope.new().depositSource(this.client.depositSource);
   }
 
-  triggerOrder(): TriggerOrderEnvelope {
-    return TriggerOrderEnvelope.new().depositSource(this.client.depositSource);
-  }
-
   // ── Helpers ──────────────────────────────────────────────────────────
 
   generateCancelAllSalt(): string {
@@ -226,9 +196,14 @@ export class Orders {
 
   // ── HTTP methods ─────────────────────────────────────────────────────
 
-  async submit(request: object): Promise<SubmitOrderResponse> {
+  async submit(request: SubmitOrderRequest): Promise<SubmitOrderResponse> {
+    await this.preflightSubmit(request);
     const url = `${this.client.http.baseUrl()}/api/orders/submit`;
-    return this.client.http.post<SubmitOrderResponse, object>(url, request, RetryPolicy.None);
+    return this.client.http.post<SubmitOrderResponse, SubmitOrderRequest>(
+      url,
+      request,
+      RetryPolicy.None
+    );
   }
 
   async cancel(body: CancelBody): Promise<CancelSuccess> {
@@ -245,22 +220,14 @@ export class Orders {
     );
   }
 
-  async submitTrigger(request: object): Promise<TriggerOrderResponse> {
-    const url = `${this.client.http.baseUrl()}/api/orders/submit`;
-    return this.client.http.post<TriggerOrderResponse, object>(
-      url,
-      request,
-      RetryPolicy.None
-    );
-  }
-
-  async cancelTrigger(body: CancelTriggerBody): Promise<CancelTriggerSuccess> {
-    const url = `${this.client.http.baseUrl()}/api/orders/cancel`;
-    return this.client.http.post<CancelTriggerSuccess, CancelTriggerBody>(
-      url,
-      body,
-      RetryPolicy.None
-    );
+  /** Validates exact signed amounts against current book rules before submission. */
+  private async preflightSubmit(request: SubmitOrderRequest): Promise<void> {
+    const rules = await new Orderbooks(this.client).decimals(request.orderbook_id);
+    if (request.side !== OrderSide.BID && request.side !== OrderSide.ASK) {
+      throw ProgramSdkError.invalidSide(request.side);
+    }
+    validateRawAmounts(request.amount_in, request.amount_out, request.side, rules);
+    validateSignedFields(request.amount_in, request.amount_out, request.salt, request.nonce);
   }
 
   /**
@@ -463,42 +430,6 @@ export class Orders {
     }
   }
 
-  async cancelTriggerSigned(
-    triggerOrderId: string,
-    maker: PubkeyStr
-  ): Promise<CancelTriggerSuccess> {
-    const strategy = requireSigningStrategy(this.client);
-
-    switch (strategy.type) {
-      case "native": {
-        const body = cancelTriggerBodySigned(triggerOrderId, maker, strategy.keypair);
-        return this.cancelTrigger(body);
-      }
-      case "walletAdapter": {
-        const message = cancelTriggerOrderMessage(triggerOrderId);
-        const sigBytes = await strategy.signer
-          .signMessage(message)
-          .catch((err: unknown) => {
-            const msg = err instanceof Error ? err.message : String(err);
-            if (isUserCancellation(msg)) throw SdkError.userCancelled();
-            throw SdkError.signing(msg);
-          });
-        const sigBs58 = bs58.encode(sigBytes);
-        const body = cancelTriggerBodyFromBase58(triggerOrderId, maker, sigBs58);
-        return this.cancelTrigger(body);
-      }
-      case "privy": {
-        const privy = new Privy(this.client);
-        const result = await privy.signAndCancelTriggerOrder(
-          strategy.walletId,
-          triggerOrderId,
-          maker as string
-        );
-        return { trigger_order_id: result.trigger_order_id };
-      }
-    }
-  }
-
   // ── On-chain transaction builders ────────────────────────────────────
 
   cancelOrderIx(
@@ -522,20 +453,27 @@ export class Orders {
   cancelOrderTx(
     operator: PublicKey,
     market: PublicKey,
-    order: SignedOrder
-  ): Transaction {
+    order: SignedOrder,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.cancelOrderIx(operator, market, order);
-    return new Transaction({ feePayer: operator }).add(ix);
+    return V1Transaction.compile([ix], operator, context);
   }
 
-  incrementNonceTx(user: PublicKey): Transaction {
+  incrementNonceTx(
+    user: PublicKey,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.incrementNonceIx(user);
-    return new Transaction({ feePayer: user }).add(ix);
+    return V1Transaction.compile([ix], user, context);
   }
 
-  closeOrderStatusTx(params: CloseOrderStatusParams): Transaction {
+  closeOrderStatusTx(
+    params: CloseOrderStatusParams,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.closeOrderStatusIx(params);
-    return new Transaction({ feePayer: params.operator }).add(ix);
+    return V1Transaction.compile([ix], params.operator, context);
   }
 
   // ── Order helpers ────────────────────────────────────────────────────
@@ -548,27 +486,40 @@ export class Orders {
     return programCreateAskOrder(params);
   }
 
-  createSignedBidOrder(params: BidOrderParams, signer: Keypair): SignedOrder {
-    return programCreateSignedBidOrder(params, signer);
+  createSignedBidOrder(
+    params: BidOrderParams,
+    signer: Keypair,
+    rules: OrderbookRules
+  ): SignedOrder {
+    return programCreateSignedBidOrder(params, signer, rules);
   }
 
-  createSignedAskOrder(params: AskOrderParams, signer: Keypair): SignedOrder {
-    return programCreateSignedAskOrder(params, signer);
+  createSignedAskOrder(
+    params: AskOrderParams,
+    signer: Keypair,
+    rules: OrderbookRules
+  ): SignedOrder {
+    return programCreateSignedAskOrder(params, signer, rules);
   }
 
   hashOrder(order: SignedOrder): Buffer {
     return programHashOrder(order);
   }
 
-  signOrder(order: SignedOrder, signer: Keypair): Buffer {
-    return programSignOrder(order, signer);
+  signOrder(
+    order: SignedOrder,
+    signer: Keypair,
+    rules: OrderbookRules
+  ): Buffer {
+    return programSignOrder(order, signer, rules);
   }
 
   signFullOrder(
     order: Omit<SignedOrder, "signature">,
-    signer: Keypair
+    signer: Keypair,
+    rules: OrderbookRules
   ): SignedOrder {
-    return signOrderFull(order, signer);
+    return signOrderFull(order, signer, rules);
   }
 
   // ── On-chain account fetchers (require Connection) ──────────────────

@@ -29,3 +29,18 @@ module RedeemResult: {
     isBeta: bool,
   }
 }
+
+module RedeemErrorCode: {
+  @genType
+  type t =
+    | InvalidCode
+    | CodeFullyRedeemed
+    | AlreadyBeta
+    | SelfReferral
+    | AlreadyRedeemedByUser
+    | RateLimited
+    | InternalError
+    | Unknown(string)
+  @genType let fromWire: string => t
+  @genType let toWire: t => string
+}

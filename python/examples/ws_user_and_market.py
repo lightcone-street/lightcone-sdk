@@ -1,74 +1,79 @@
-"""Authenticated user stream (orders, balances) + market lifecycle events."""
+"""Read-only authenticated user, market, and Trading Wallet balance probe."""
 
 import asyncio
 
-from common import rest_client, get_keypair, login, market
-from lightcone_sdk.ws import WsEventType, MessageInType
-from lightcone_sdk.ws.subscriptions import UserParams, MarketParams
+from common import get_keypair, login, market, rest_client
+
+from lightcone_sdk.domain.position import (
+    WalletDepositBalancesApplyResult,
+    WalletDepositBalanceSnapshot,
+    WalletDepositBalancesState,
+)
+from lightcone_sdk.ws import MessageInType, WsEvent, WsEventType
+from lightcone_sdk.ws.subscriptions import (
+    MarketParams,
+    SubscribeParams,
+    UserParams,
+    WalletDepositBalancesParams,
+)
 
 
-async def main():
+async def main() -> None:
     client = rest_client()
     keypair = get_keypair()
-
-    # Login required for user stream
-    await login(client, keypair)
-    pubkey = str(keypair.pubkey())
-    print("logged in:", pubkey)
-
+    session = await login(client, keypair)
+    wallet = session.user.trading_wallet(session.auth_method)
     m = await market(client)
-
-    # Connect WebSocket (auth token passed automatically)
     ws = client.ws()
-    await ws.connect()
-    print("connected")
-
-    # Subscribe to user events and market events
-    await ws.subscribe(UserParams(wallet_address=pubkey))
-    await ws.subscribe(MarketParams(market_pubkey=m.pubkey))
-
-    saw_auth = False
-    saw_user = False
-    saw_market = False
+    state = WalletDepositBalancesState()
+    stream_error: RuntimeError | None = None
     done = asyncio.Event()
 
-    def on_event(event):
-        nonlocal saw_auth, saw_user, saw_market
+    def on_event(event: WsEvent) -> None:
+        nonlocal stream_error
         if event.type == WsEventType.MESSAGE and event.message:
             msg = event.message
-
-            if msg.type == MessageInType.AUTH.value:
-                print(f"auth: {msg.data}")
-                saw_auth = True
-
-            elif msg.type == MessageInType.USER.value:
-                print(f"user: {msg.data}")
-                saw_user = True
-
-            elif msg.type == MessageInType.MARKET.value:
-                print(f"market: {msg.data}")
-                saw_market = True
-
+            if msg.type == MessageInType.WALLET_DEPOSIT_BALANCES.value:
+                update = msg.data
+                if (
+                    isinstance(update, WalletDepositBalanceSnapshot)
+                    and state.apply_event(update)
+                    is WalletDepositBalancesApplyResult.APPLIED
+                ):
+                    done.set()
+            elif msg.type == MessageInType.ERROR.value:
+                stream_error = RuntimeError(str(msg.data))
+                done.set()
         elif event.type == WsEventType.ERROR:
-            print(f"ws error: {event.error}")
-        elif event.type == WsEventType.DISCONNECTED:
-            print("disconnected:", event.reason)
-
-        if saw_auth and saw_user:
+            stream_error = RuntimeError(event.error or "WebSocket transport error")
+            done.set()
+        elif event.type == WsEventType.MAX_RECONNECT_REACHED:
+            stream_error = RuntimeError("WebSocket reconnect attempts exhausted")
             done.set()
 
-    ws.on(on_event)
+    remove_listener = ws.on(on_event)
+    subscriptions: list[SubscribeParams] = [
+        UserParams(wallet_address=wallet),
+        MarketParams(market_pubkey=m.pubkey),
+        WalletDepositBalancesParams(wallet_address=wallet),
+    ]
 
     try:
+        await ws.connect()
+        for subscription in subscriptions:
+            await ws.subscribe(subscription)
         await asyncio.wait_for(done.wait(), timeout=30)
-    except asyncio.TimeoutError:
-        print("no more websocket data (timeout)")
-
-    await ws.disconnect()
-    if not saw_auth and not saw_user:
-        raise RuntimeError("received no websocket events — connection may be broken")
-    print(f"market event received: {saw_market}")
-    await client.close()
+        if stream_error is not None:
+            raise stream_error
+        if state.context_slot is None:
+            raise RuntimeError("complete snapshot did not establish a slot")
+        print(f"wallet={wallet} slot={state.context_slot} count={len(state.balances)}")
+    finally:
+        for subscription in subscriptions:
+            await ws.unsubscribe(subscription)
+        remove_listener()
+        await ws.disconnect()
+        await client.close()
 
 
 asyncio.run(main())

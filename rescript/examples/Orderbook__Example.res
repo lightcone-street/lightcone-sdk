@@ -21,7 +21,9 @@ let main = async () => {
           Console.log(`market: ${market.slug}`)
           Console.log(`orderbook: ${orderbookId}`)
           Console.log(
-            `best bid: ${depth.bestBid->Option.getOr("—")}, best ask: ${depth.bestAsk->Option.getOr("—")}`,
+            `best bid: ${depth.bestBid->Option.getOr(
+                "—",
+              )}, best ask: ${depth.bestAsk->Option.getOr("—")}`,
           )
           Console.log(
             `levels: ${Int.toString(Array.length(depth.bids))} bids / ${Int.toString(
@@ -33,14 +35,14 @@ let main = async () => {
                 pair.quote.decimals,
               )}`,
           )
-          switch depth.decimals {
-          | Some(depthDecimals) =>
+
+          {
+            let depthDecimals = depth.decimals
             Console.log(
               `depth decimals: price=${Float.toString(depthDecimals.price)}, size=${Float.toString(
                   depthDecimals.size,
                 )}`,
             )
-          | None => ()
           }
 
           // Hyperliquid-style aggregation: 5 significant figures, mantissa 2.

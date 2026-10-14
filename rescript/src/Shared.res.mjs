@@ -92,7 +92,9 @@ function applyImpactProtection(side, worstFillPrice, protectionPercent) {
   let factor = val$1.div(new DecimalJs(100));
   let one = new DecimalJs(1);
   let padded;
-  padded = side === "bid" ? val.times(one.plus(factor)) : val.times(one.minus(factor));
+  padded = side === "bid" ? val.times(one.plus(factor)) : (
+      factor.gte(one) ? zero : val.times(one.minus(factor))
+    );
   return padded.toString();
 }
 
@@ -272,81 +274,36 @@ let TimeInForce = {
 };
 
 function t_encode$3(v) {
-  if (v === "TP") {
-    return "TP";
-  } else {
-    return "SL";
+  switch (v) {
+    case "OPEN" :
+      return "OPEN";
+    case "MATCHING" :
+      return "MATCHING";
+    case "CANCELLED" :
+      return "CANCELLED";
+    case "FILLED" :
+      return "FILLED";
+    case "PENDING" :
+      return "PENDING";
   }
 }
 
 function t_encodeJson$3(v) {
-  if (v === "TP") {
-    return "TP";
-  } else {
-    return "SL";
+  switch (v) {
+    case "OPEN" :
+      return "OPEN";
+    case "MATCHING" :
+      return "MATCHING";
+    case "CANCELLED" :
+      return "CANCELLED";
+    case "FILLED" :
+      return "FILLED";
+    case "PENDING" :
+      return "PENDING";
   }
 }
 
 function t_decode$3(v) {
-  switch (typeof v) {
-    case "string" :
-      if ("TP" === v) {
-        return {
-          TAG: "Ok",
-          _0: "TP"
-        };
-      } else if ("SL" === v) {
-        return {
-          TAG: "Ok",
-          _0: "SL"
-        };
-      } else {
-        return Spice.error(undefined, "Not matched", v);
-      }
-    case "number" :
-      return Spice.error(undefined, "Not matched", v);
-    default:
-      return Spice.error(undefined, "Not a JSONString", v);
-  }
-}
-
-let TriggerType = {
-  t_encode: t_encode$3,
-  t_encodeJson: t_encodeJson$3,
-  t_decode: t_decode$3
-};
-
-function t_encode$4(v) {
-  switch (v) {
-    case "OPEN" :
-      return "OPEN";
-    case "MATCHING" :
-      return "MATCHING";
-    case "CANCELLED" :
-      return "CANCELLED";
-    case "FILLED" :
-      return "FILLED";
-    case "PENDING" :
-      return "PENDING";
-  }
-}
-
-function t_encodeJson$4(v) {
-  switch (v) {
-    case "OPEN" :
-      return "OPEN";
-    case "MATCHING" :
-      return "MATCHING";
-    case "CANCELLED" :
-      return "CANCELLED";
-    case "FILLED" :
-      return "FILLED";
-    case "PENDING" :
-      return "PENDING";
-  }
-}
-
-function t_decode$4(v) {
   switch (typeof v) {
     case "string" :
       if ("OPEN" === v) {
@@ -385,86 +342,12 @@ function t_decode$4(v) {
 }
 
 let OrderStatus = {
-  t_encode: t_encode$4,
-  t_encodeJson: t_encodeJson$4,
-  t_decode: t_decode$4
+  t_encode: t_encode$3,
+  t_encodeJson: t_encodeJson$3,
+  t_decode: t_decode$3
 };
 
-function t_encode$5(v) {
-  switch (v) {
-    case "created" :
-      return "created";
-    case "triggered" :
-      return "triggered";
-    case "failed" :
-      return "failed";
-    case "expired" :
-      return "expired";
-    case "invalidated" :
-      return "invalidated";
-  }
-}
-
-function t_encodeJson$5(v) {
-  switch (v) {
-    case "created" :
-      return "created";
-    case "triggered" :
-      return "triggered";
-    case "failed" :
-      return "failed";
-    case "expired" :
-      return "expired";
-    case "invalidated" :
-      return "invalidated";
-  }
-}
-
-function t_decode$5(v) {
-  switch (typeof v) {
-    case "string" :
-      if ("created" === v) {
-        return {
-          TAG: "Ok",
-          _0: "created"
-        };
-      } else if ("triggered" === v) {
-        return {
-          TAG: "Ok",
-          _0: "triggered"
-        };
-      } else if ("failed" === v) {
-        return {
-          TAG: "Ok",
-          _0: "failed"
-        };
-      } else if ("expired" === v) {
-        return {
-          TAG: "Ok",
-          _0: "expired"
-        };
-      } else if ("invalidated" === v) {
-        return {
-          TAG: "Ok",
-          _0: "invalidated"
-        };
-      } else {
-        return Spice.error(undefined, "Not matched", v);
-      }
-    case "number" :
-      return Spice.error(undefined, "Not matched", v);
-    default:
-      return Spice.error(undefined, "Not a JSONString", v);
-  }
-}
-
-let TriggerStatus = {
-  t_encode: t_encode$5,
-  t_encodeJson: t_encodeJson$5,
-  t_decode: t_decode$5
-};
-
-function t_encode$6(v) {
+function t_encode$4(v) {
   switch (v) {
     case "PLACEMENT" :
       return "PLACEMENT";
@@ -475,7 +358,7 @@ function t_encode$6(v) {
   }
 }
 
-function t_encodeJson$6(v) {
+function t_encodeJson$4(v) {
   switch (v) {
     case "PLACEMENT" :
       return "PLACEMENT";
@@ -486,7 +369,7 @@ function t_encodeJson$6(v) {
   }
 }
 
-function t_decode$6(v) {
+function t_decode$4(v) {
   switch (typeof v) {
     case "string" :
       if ("PLACEMENT" === v) {
@@ -515,142 +398,12 @@ function t_decode$6(v) {
 }
 
 let OrderUpdateType = {
-  t_encode: t_encode$6,
-  t_encodeJson: t_encodeJson$6,
-  t_decode: t_decode$6
+  t_encode: t_encode$4,
+  t_encodeJson: t_encodeJson$4,
+  t_decode: t_decode$4
 };
 
-function t_encode$7(v) {
-  switch (v) {
-    case "CREATED" :
-      return "CREATED";
-    case "TRIGGERED" :
-      return "TRIGGERED";
-    case "FAILED" :
-      return "FAILED";
-    case "EXPIRED" :
-      return "EXPIRED";
-    case "INVALIDATED" :
-      return "INVALIDATED";
-  }
-}
-
-function t_encodeJson$7(v) {
-  switch (v) {
-    case "CREATED" :
-      return "CREATED";
-    case "TRIGGERED" :
-      return "TRIGGERED";
-    case "FAILED" :
-      return "FAILED";
-    case "EXPIRED" :
-      return "EXPIRED";
-    case "INVALIDATED" :
-      return "INVALIDATED";
-  }
-}
-
-function t_decode$7(v) {
-  switch (typeof v) {
-    case "string" :
-      if ("CREATED" === v) {
-        return {
-          TAG: "Ok",
-          _0: "CREATED"
-        };
-      } else if ("TRIGGERED" === v) {
-        return {
-          TAG: "Ok",
-          _0: "TRIGGERED"
-        };
-      } else if ("FAILED" === v) {
-        return {
-          TAG: "Ok",
-          _0: "FAILED"
-        };
-      } else if ("EXPIRED" === v) {
-        return {
-          TAG: "Ok",
-          _0: "EXPIRED"
-        };
-      } else if ("INVALIDATED" === v) {
-        return {
-          TAG: "Ok",
-          _0: "INVALIDATED"
-        };
-      } else {
-        return Spice.error(undefined, "Not matched", v);
-      }
-    case "number" :
-      return Spice.error(undefined, "Not matched", v);
-    default:
-      return Spice.error(undefined, "Not a JSONString", v);
-  }
-}
-
-let TriggerUpdateType = {
-  t_encode: t_encode$7,
-  t_encodeJson: t_encodeJson$7,
-  t_decode: t_decode$7
-};
-
-function t_encode$8(v) {
-  switch (v) {
-    case "filled" :
-      return "filled";
-    case "accepted" :
-      return "accepted";
-    case "rejected" :
-      return "rejected";
-  }
-}
-
-function t_encodeJson$8(v) {
-  switch (v) {
-    case "filled" :
-      return "filled";
-    case "accepted" :
-      return "accepted";
-    case "rejected" :
-      return "rejected";
-  }
-}
-
-function t_decode$8(v) {
-  switch (typeof v) {
-    case "string" :
-      if ("filled" === v) {
-        return {
-          TAG: "Ok",
-          _0: "filled"
-        };
-      } else if ("accepted" === v) {
-        return {
-          TAG: "Ok",
-          _0: "accepted"
-        };
-      } else if ("rejected" === v) {
-        return {
-          TAG: "Ok",
-          _0: "rejected"
-        };
-      } else {
-        return Spice.error(undefined, "Not matched", v);
-      }
-    case "number" :
-      return Spice.error(undefined, "Not matched", v);
-    default:
-      return Spice.error(undefined, "Not a JSONString", v);
-  }
-}
-
-let TriggerResultStatus = {
-  t_encode: t_encode$8,
-  t_encodeJson: t_encodeJson$8,
-  t_decode: t_decode$8
-};
-
-function t_encode$9(v) {
+function t_encode$5(v) {
   if (v === "global") {
     return "global";
   } else {
@@ -658,7 +411,7 @@ function t_encode$9(v) {
   }
 }
 
-function t_encodeJson$9(v) {
+function t_encodeJson$5(v) {
   if (v === "global") {
     return "global";
   } else {
@@ -666,7 +419,7 @@ function t_encodeJson$9(v) {
   }
 }
 
-function t_decode$9(v) {
+function t_decode$5(v) {
   switch (typeof v) {
     case "string" :
       if ("global" === v) {
@@ -690,12 +443,12 @@ function t_decode$9(v) {
 }
 
 let DepositSource = {
-  t_encode: t_encode$9,
-  t_encodeJson: t_encodeJson$9,
-  t_decode: t_decode$9
+  t_encode: t_encode$5,
+  t_encodeJson: t_encodeJson$5,
+  t_decode: t_decode$5
 };
 
-function t_encode$10(v) {
+function t_encode$6(v) {
   switch (v) {
     case "1m" :
       return "1m";
@@ -712,7 +465,7 @@ function t_encode$10(v) {
   }
 }
 
-function t_encodeJson$10(v) {
+function t_encodeJson$6(v) {
   switch (v) {
     case "1m" :
       return "1m";
@@ -729,7 +482,7 @@ function t_encodeJson$10(v) {
   }
 }
 
-function t_decode$10(v) {
+function t_decode$6(v) {
   switch (typeof v) {
     case "string" :
       if ("1m" === v) {
@@ -826,9 +579,9 @@ function fromString(s) {
 }
 
 let Resolution = {
-  t_encode: t_encode$10,
-  t_encodeJson: t_encodeJson$10,
-  t_decode: t_decode$10,
+  t_encode: t_encode$6,
+  t_encodeJson: t_encodeJson$6,
+  t_decode: t_decode$6,
   toString: toString$1,
   seconds: seconds,
   fromString: fromString
@@ -851,12 +604,8 @@ export {
   spendDenominator,
   receiveDenominator,
   TimeInForce,
-  TriggerType,
   OrderStatus,
-  TriggerStatus,
   OrderUpdateType,
-  TriggerUpdateType,
-  TriggerResultStatus,
   DepositSource,
   Resolution,
   deriveOrderbookId,

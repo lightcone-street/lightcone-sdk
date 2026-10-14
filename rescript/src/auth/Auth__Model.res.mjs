@@ -3,6 +3,7 @@
 import * as Spice from "@mununki/ppx-spice/src/rescript/Spice.res.mjs";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
 import * as Stdlib_Result from "@rescript/runtime/lib/es6/Stdlib_Result.js";
+import * as Fmt__Str$LightconeSdk from "../fmt/Fmt__Str.res.mjs";
 
 function t_encode(v) {
   if (v === "privy") {
@@ -410,6 +411,53 @@ let GoogleAccount = {
   t_decode: t_decode$5
 };
 
+function t_encode$5(v) {
+  return Object.fromEntries(Spice.filterOptional([[
+      "email",
+      Spice.stringToJson(v.email)
+    ]]));
+}
+
+function t_encodeJson$6(v) {
+  return Object.fromEntries(Spice.filterOptional([[
+      "email",
+      Spice.stringToJson(v.email)
+    ]]));
+}
+
+function t_decode$6(v) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    return Spice.error(undefined, "Not an object", v);
+  }
+  let email = Stdlib_Option.getOr(Stdlib_Option.map(v["email"], Spice.stringFromJson), Spice.error(undefined, "email" + " missing", v));
+  if (email.TAG === "Ok") {
+    return {
+      TAG: "Ok",
+      _0: {
+        email: email._0
+      }
+    };
+  }
+  let e = email._0;
+  return Spice.error("." + ("email" + e.path), e.message, e.value);
+}
+
+let EmailAccount = {
+  t_encode: t_encode$5,
+  t_encodeJson: t_encodeJson$6,
+  t_decode: t_decode$6
+};
+
+let LinkedIdentity = {};
+
+let LinkedIdentitySelector = {};
+
+let RegisterPrivyRequest = {};
+
+let Credentials = {};
+
+let RegisterPrivyConflict = {};
+
 let Identity = {};
 
 let User = {};
@@ -417,6 +465,96 @@ let User = {};
 let Session = {};
 
 let SignedLogin = {};
+
+function tradingWallet(user, authMethod) {
+  let match = user.identity;
+  if (match.TAG !== "Wallet") {
+    return match.privy.wallet.address;
+  }
+  let privy = match.privy;
+  let address = match.address;
+  if (authMethod === "privy" && privy !== undefined) {
+    return privy.wallet.address;
+  } else {
+    return address;
+  }
+}
+
+function credentialsFromSession(session) {
+  return {
+    userId: session.user.userId,
+    walletAddress: tradingWallet(session.user, session.authMethod),
+    expiresAt: session.expiresAt
+  };
+}
+
+function walletDisplayName(user, method) {
+  return Fmt__Str$LightconeSdk.shorten(tradingWallet(user, method), 8);
+}
+
+function displayName(user) {
+  let match = user.identity;
+  switch (match.TAG) {
+    case "Email" :
+      let account = match.account;
+      if (account.email.length <= 20) {
+        return account.email;
+      } else {
+        return account.email.slice(0, 8) + "..." + account.email.slice(account.email.length - 9 | 0, account.email.length);
+      }
+    case "Google" :
+      let account$1 = match.account;
+      return Stdlib_Option.getOr(account$1.name, account$1.email);
+    case "X" :
+      let account$2 = match.account;
+      return Stdlib_Option.getOr(account$2.displayName, account$2.username);
+    case "Wallet" :
+      return Fmt__Str$LightconeSdk.shorten(match.address, 8);
+  }
+}
+
+function avatarUrl(user) {
+  let match = user.identity;
+  switch (match.TAG) {
+    case "Google" :
+      return match.account.avatarUrl;
+    case "X" :
+      return match.account.avatarUrl;
+    case "Email" :
+    case "Wallet" :
+      return;
+  }
+}
+
+function classifyRegisterPrivyConflict(error) {
+  if (typeof error !== "object") {
+    return;
+  }
+  if (error.TAG !== "ApiRejected") {
+    return;
+  }
+  let details = error._0;
+  let match = details.errorCode;
+  if (match === undefined) {
+    return;
+  }
+  switch (match) {
+    case "IDENTITIES_OWNED_BY_MULTIPLE_ACCOUNTS" :
+      return "MultipleAccounts";
+    case "IDENTITY_OWNED_BY_ANOTHER_ACCOUNT" :
+      return {
+        TAG: "IdentityOwned",
+        _0: details.existingMethod
+      };
+    case "WALLET_OWNED_BY_ANOTHER_ACCOUNT" :
+      return {
+        TAG: "WalletOwned",
+        _0: details.existingMethod
+      };
+    default:
+      return;
+  }
+}
 
 let PrivyEmbeddedWallet = {};
 
@@ -427,9 +565,21 @@ export {
   PrivyData,
   XAccount,
   GoogleAccount,
+  EmailAccount,
+  LinkedIdentity,
+  LinkedIdentitySelector,
+  RegisterPrivyRequest,
+  Credentials,
+  RegisterPrivyConflict,
   Identity,
   User,
   Session,
   SignedLogin,
+  tradingWallet,
+  credentialsFromSession,
+  walletDisplayName,
+  displayName,
+  avatarUrl,
+  classifyRegisterPrivyConflict,
 }
 /* No side effect */

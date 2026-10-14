@@ -11,6 +11,7 @@ import {
   WS_DEFAULT_CONFIG,
 } from "./index";
 import {
+  isAuthedSubscriptionParams,
   subscriptionKey,
   unsubscribeMatches,
   type SubscribeParams,
@@ -112,10 +113,25 @@ export class WsClient implements IWsClient {
     await this.connectInternal();
   }
 
+  /**
+   * Purge local authenticated replay state and queued messages.
+   * Does not send wire unsubscriptions on the current socket.
+   */
   clearAuthedSubscriptions(): void {
-    const next = this.activeSubscriptions.filter((params) => params.type !== "user");
+    const next = this.activeSubscriptions.filter(
+      (params) => !isAuthedSubscriptionParams(params)
+    );
     this.activeSubscriptions.length = 0;
     this.activeSubscriptions.push(...next);
+    // Queued auth messages must not survive logout and flush into a later
+    // connection after active replay tracking has already been cleared.
+    const pending = this.pendingMessages.filter(
+      (message) =>
+        message.method === "ping" ||
+        !isAuthedSubscriptionParams(message.params)
+    );
+    this.pendingMessages.length = 0;
+    this.pendingMessages.push(...pending);
   }
 
   on(callback: (event: WsEvent) => void): () => void {
@@ -194,6 +210,8 @@ export class WsClient implements IWsClient {
     try {
       message = parseMessageIn(raw);
     } catch (error) {
+      // A malformed frame is observable but isolated: keep the socket alive and
+      // never emit the invalid payload as a normal Message event.
       this.emit({
         type: "Error",
         error: `Deserialization error: ${error instanceof Error ? error.message : String(error)}`,

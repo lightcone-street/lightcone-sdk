@@ -50,3 +50,48 @@ let getWithCookies = (
   ~aggregation: Orderbook__Model.Aggregation.t=Orderbook__Model.Aggregation.full,
 ): promise<result<Orderbook__Raw.DepthResponse.t, SdkError.t>> =>
   get(client, ~orderbookId, ~depth?, ~aggregation, ~cookieHeader=?Some(cookieHeader))
+
+// One promise owns each cached request. Invalidation removes that ownership,
+// so a late completion cannot repopulate an invalidated entry.
+let decimals = (client: Client.t, ~orderbookId: string): promise<
+  result<Scaling.OrderbookRules.t, SdkError.t>,
+> =>
+  switch Dict.get(client.orderbookRules, orderbookId) {
+  | Some(pending) => pending
+  | None =>
+    let fetchRules = async () => {
+      switch await Http.get(
+        client.http,
+        ~path=`/api/orderbooks/${encodeURIComponent(orderbookId)}/decimals`,
+        ~decode=Scaling.OrderbookRules.t_decode,
+      ) {
+      | Error(error) => Error(error)
+      | Ok(rules) =>
+        switch Scaling.validateForOrderbook(rules, orderbookId)->Result.flatMap(() =>
+          Scaling.validateRules(rules)
+        ) {
+        | Ok() => Ok(rules)
+        | Error(error) => Error(SdkError.Scaling(error))
+        }
+      }
+    }
+    let pending = fetchRules()
+    Dict.set(client.orderbookRules, orderbookId, pending)
+    let cleanup = async () => {
+      let result = await pending
+      if Result.isError(result) {
+        switch Dict.get(client.orderbookRules, orderbookId) {
+        | Some(current) if current === pending => Dict.delete(client.orderbookRules, orderbookId)
+        | _ => ()
+        }
+      }
+      result
+    }
+    cleanup()
+  }
+let invalidateDecimals = (client: Client.t, ~orderbookId: string): unit =>
+  Dict.delete(client.orderbookRules, orderbookId)
+let clearDecimalsCache = (client: Client.t): unit =>
+  Dict.toArray(client.orderbookRules)->Array.forEach(((key, _)) =>
+    Dict.delete(client.orderbookRules, key)
+  )

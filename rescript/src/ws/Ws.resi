@@ -27,6 +27,7 @@ type t
 // default to no-ops; pass a `~config` to tune reconnect/heartbeat behavior.
 let connect: (
   ~url: string,
+  ~socketFactory: string => WebSocketClient.t=?,
   ~onMessage: Messages.t => unit,
   ~onConnected: unit => unit=?,
   ~onDisconnected: (option<int>, string) => unit=?,
@@ -63,3 +64,7 @@ let readyState: t => ReadyState.t
 // are not re-sent on the next reconnect — call after logout.
 @genType
 let clearAuthedSubscriptions: t => unit
+
+let stop: t => unit
+let isStopped: t => bool
+let restartConnection: t => unit

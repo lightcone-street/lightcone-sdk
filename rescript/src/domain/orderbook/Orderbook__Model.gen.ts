@@ -3,13 +3,13 @@
 /* eslint-disable */
 /* tslint:disable */
 
-import type {orderBookId as Shared_orderBookId} from '../../../src/Shared.gen.ts';
+import type {Shared_orderBookId as LightconeSdk_Shared_orderBookId} from './LightconeSdk.gen.ts';
 
 export type Aggregation_t = { readonly nSigFigs?: number; readonly mantissa?: number };
 
 export type Ticker_t = {
-  readonly orderbookId: Shared_orderBookId; 
-  readonly bestBid?: string; 
-  readonly bestAsk?: string; 
+  readonly orderbookId: LightconeSdk_Shared_orderBookId;
+  readonly bestBid?: string;
+  readonly bestAsk?: string;
   readonly midPrice?: string
 };

@@ -1,10 +1,3 @@
-// WebSocket (authenticated): a user's private stream (auth handshake, snapshot,
-// balance, order, deposit, and nonce events) alongside a market's lifecycle
-// stream. The user channel requires login first — the cookie set by `Auth.Client.login`
-// authenticates the socket. The typed `snapshot` payload seeds the `Order.State`
-// containers (open limit orders + resting triggers); `order` events arrive as
-// `Order.Raw.Event` (limit or trigger).
-
 // Push messages arrive via callbacks; keep the event loop alive for a window, then
 // disconnect. (A setTimeout-backed promise — the only bit of glue an example needs.)
 let delay: int => promise<unit> = %raw(`(ms) => new Promise((resolve) => setTimeout(resolve, ms))`)
@@ -31,8 +24,8 @@ let main = async () => {
           let sawUser = ref(false)
           let sawMarket = ref(false)
 
-          let connection = Ws.connect(
-            ~url=client.wsUrl,
+          let connection = ServerApi.connect(
+            client,
             ~onConnected=() => Console.log("connected — subscribing to user + market streams"),
             ~onError=error => Console.error(SdkError.toMessage(error)),
             ~onMessage=msg =>
@@ -48,15 +41,12 @@ let main = async () => {
                 sawUser := true
                 let label = switch update {
                 | Snapshot(snapshot) =>
-                  let (_openOrders, triggerOrders) = Order.State.fromSnapshotOrders(snapshot.orders)
+                  let _openOrders = Order.State.fromSnapshotOrders(snapshot.orders)
                   let orders = Int.toString(Array.length(snapshot.orders))
-                  let triggers = Int.toString(Order.State.Triggers.size(triggerOrders))
                   let balances = Int.toString(Array.length(snapshot.marketBalances))
-                  `snapshot: ${orders} orders (${triggers} trigger), ${balances} market balances`
+                  `snapshot: ${orders} orders, ${balances} market balances`
                 | Order(Limit(update)) =>
                   `limit order ${update.order.orderHash} remaining=${update.order.remaining}`
-                | Order(Trigger(update)) =>
-                  `trigger order ${update.triggerOrderId} @ ${update.triggerPrice}`
                 | BalanceUpdate(balance) => `balance update for ${balance.marketPubkey}`
                 | GlobalDepositUpdate(deposit) =>
                   `global deposit ${deposit.balance} (${deposit.mint})`
@@ -77,7 +67,6 @@ let main = async () => {
                 Console.log(`market: ${label}`)
               | _ => ()
               },
-            (),
           )
 
           Ws.subscribe(connection, Subscriptions.SubscribeParams.User(walletAddress))->ignore

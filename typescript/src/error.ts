@@ -85,6 +85,15 @@ export class HttpError extends Error {
     });
   }
 
+  /**
+   * NOT produced by the SDK's HTTP retry loop. On retry exhaustion the FINAL
+   * attempt's error propagates unchanged — structured rejection details,
+   * status classification (isUnauthorized etc.), and request id intact —
+   * because flattening it into this wrapper's message string would destroy
+   * everything callers switch on (see the retry-exhaustion tests). The
+   * factory stays public for consumers that build their own retry loops on
+   * the raw/no-restore primitives and want a conventional exhaustion error.
+   */
   static maxRetriesExceeded(attempts: number, lastError: string): HttpError {
     return new HttpError({
       variant: "MaxRetriesExceeded",
@@ -135,10 +144,16 @@ export type SdkErrorVariant =
   | "Ws"
   | "Auth"
   | "Validation"
+  | "InsufficientSolForTransactionFees"
   | "Serde"
   | "MissingMarketContext"
   | "Signing"
   | "UserCancelled"
+  | "TransactionFailed"
+  | "TransactionExpired"
+  | "SubmissionUnknown"
+  | "SubmissionRejected"
+  | "ConfirmationTimeout"
   | "ApiRejected"
   | "Program"
   | "Other";
@@ -147,18 +162,55 @@ export class SdkError extends Error {
   readonly variant: SdkErrorVariant;
   readonly causeError?: Error;
   readonly apiRejectedDetails?: ApiRejectedDetails;
+  /** Transaction signature, set on submission and confirmation errors. */
+  readonly signature?: string;
+  readonly lastValidBlockHeight?: number;
+  /** JSON-RPC rejection code, when the node rejected this send before queuing it. */
+  readonly rpcCode?: number;
+  /** Confirmed Native SOL Balance in the declared fee payer, in lamports. */
+  readonly availableLamports?: bigint;
+  /** Exact transaction fee or planner-owned reserve required, in lamports. */
+  readonly requiredLamports?: bigint;
 
   constructor(
     variant: SdkErrorVariant,
     message: string,
     causeError?: Error,
-    apiRejectedDetails?: ApiRejectedDetails
+    apiRejectedDetails?: ApiRejectedDetails,
+    signature?: string,
+    availableLamports?: bigint,
+    requiredLamports?: bigint,
+    lastValidBlockHeight?: number,
+    rpcCode?: number
   ) {
     super(message);
     this.name = "SdkError";
     this.variant = variant;
     this.causeError = causeError;
     this.apiRejectedDetails = apiRejectedDetails;
+    this.signature = signature;
+    this.availableLamports = availableLamports;
+    this.requiredLamports = requiredLamports;
+    this.lastValidBlockHeight = lastValidBlockHeight;
+    this.rpcCode = rpcCode;
+  }
+
+  /** Submission may have reached the cluster; reconcile before rebuilding. */
+  static submissionUnknown(signature: string, lastValidBlockHeight: number, reason: string): SdkError {
+    return new SdkError("SubmissionUnknown", `Transaction ${signature} submission is unknown: ${reason}`, undefined, undefined, signature, undefined, undefined, lastValidBlockHeight);
+  }
+
+  /** A definite RPC rejection before queuing this send; never retried automatically. */
+  static submissionRejected(
+    signature: string,
+    code: number,
+    reason: string
+  ): SdkError {
+    return new SdkError(
+      "SubmissionRejected",
+      `RPC rejected transaction ${signature} (${code}): ${reason}`,
+      undefined, undefined, signature, undefined, undefined, undefined, code
+    );
   }
 
   static from(error: unknown): SdkError {
@@ -198,6 +250,27 @@ export class SdkError extends Error {
     return new SdkError("Validation", message);
   }
 
+  /** Return the typed contract for a proven transaction-fee funding shortfall. */
+  static insufficientSolForTransactionFees(
+    availableLamports: bigint,
+    requiredLamports: bigint
+  ): SdkError {
+    if (availableLamports < 0n || requiredLamports < 0n) {
+      return SdkError.validation(
+        "transaction fee funding values must be non-negative lamports"
+      );
+    }
+    return new SdkError(
+      "InsufficientSolForTransactionFees",
+      "Insufficient SOL for transaction fees. Deposit SOL to your wallet and try again.",
+      undefined,
+      undefined,
+      undefined,
+      availableLamports,
+      requiredLamports
+    );
+  }
+
   static serde(message: string): SdkError {
     return new SdkError("Serde", message);
   }
@@ -214,7 +287,66 @@ export class SdkError extends Error {
     return new SdkError("UserCancelled", "User cancelled signing");
   }
 
+  static transactionFailed(signature: string, error: string): SdkError {
+    return new SdkError(
+      "TransactionFailed",
+      `Transaction ${signature} failed on-chain: ${error}`,
+      undefined,
+      undefined,
+      signature
+    );
+  }
+
+  static transactionExpired(signature: string): SdkError {
+    return new SdkError(
+      "TransactionExpired",
+      `Transaction ${signature} expired before confirmation; reconcile its signature and authoritative state before rebuilding`,
+      undefined,
+      undefined,
+      signature
+    );
+  }
+
+  static confirmationTimeout(signature: string): SdkError {
+    return new SdkError(
+      "ConfirmationTimeout",
+      `Timed out confirming transaction ${signature} — status unknown; check the signature on-chain before resubmitting`,
+      undefined,
+      undefined,
+      signature
+    );
+  }
+
   static apiRejected(details: ApiRejectedDetails): SdkError {
     return new SdkError("ApiRejected", details.toString(), undefined, details);
   }
+}
+
+/**
+ * True when the backend rejected a request as unauthenticated (HTTP 401) —
+ * either a bare 401 (`HttpError` with variant `Unauthorized`) or a 401 that
+ * carried a structured rejection envelope (`SdkError` `ApiRejected` with an
+ * `httpStatus` of 401). Lets callers decide whether refreshing credentials
+ * and retrying makes sense without matching on backend error strings.
+ * Accepts `unknown` because the transport surfaces both `HttpError` and
+ * `SdkError` to callers.
+ */
+export function isUnauthorized(error: unknown): boolean {
+  if (error instanceof HttpError) {
+    return error.variant === "Unauthorized";
+  }
+  if (error instanceof SdkError) {
+    if (error.variant === "ApiRejected") {
+      return error.apiRejectedDetails?.httpStatus === 401;
+    }
+    if (error.variant === "Http" && error.causeError instanceof HttpError) {
+      return error.causeError.variant === "Unauthorized";
+    }
+  }
+  return false;
+}
+
+/** Identify the exact temporary-authority rejection without matching display text. */
+export function isPrivyVerificationUnavailable(error: unknown): boolean {
+  return error instanceof SdkError && error.apiRejectedDetails?.isPrivyVerificationUnavailable() === true;
 }

@@ -3,34 +3,64 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Generic, Optional, TypeVar
+from typing import Generic, Literal, TypeVar, cast
 
 from .rejection import RejectionCode
 
 T = TypeVar("T")
+# Public login-method names exposed in bounded identity conflicts.
+LinkedIdentityType = Literal["email", "google", "x", "wallet"]
 
 
 @dataclass(frozen=True)
 class ApiRejectedDetails:
-    """Structured rejection details returned by the backend."""
+    """Structured backend rejection with bounded method and transport context.
+
+    Unknown future ``existing_method`` values become ``None`` so callers retain
+    the stable rejection code and can fall back to generic guidance.
+    """
 
     reason: str
-    rejection_code: Optional[RejectionCode] = None
-    error_code: Optional[str] = None
-    error_log_id: Optional[str] = None
-    request_id: Optional[str] = None
+    rejection_code: RejectionCode | None = None
+    error_code: str | None = None
+    existing_method: LinkedIdentityType | None = None
+    error_log_id: str | None = None
+    request_id: str | None = None
+    # HTTP status of the response that carried this rejection. Set by the HTTP
+    # client when the rejection rode a non-2xx response; not present in the
+    # backend JSON. Lets callers classify rejections at the transport level
+    # (e.g. ``lightcone_sdk.error.is_unauthorized``) without matching on
+    # backend error strings.
+    http_status: int | None = None
+    # Server delay in milliseconds from response receipt, not a backend JSON field.
+    retry_after_ms: int | None = None
+
+    def is_privy_verification_unavailable(self) -> bool:
+        """Exact pre-execution authority failure requiring a manual retry decision."""
+        return (
+            self.http_status == 503
+            and self.error_code == "PRIVY_VERIFICATION_UNAVAILABLE"
+        )
+
+    def with_retry_after_ms(self, delay: int | None) -> ApiRejectedDetails:
+        """Attach parsed transport guidance without inventing a missing delay."""
+        return replace(self, retry_after_ms=delay)
 
     @staticmethod
-    def from_dict(data: dict) -> "ApiRejectedDetails":
+    def from_dict(data: dict) -> ApiRejectedDetails:
         return ApiRejectedDetails(
             reason=str(data.get("reason", "")),
             rejection_code=RejectionCode.from_wire(data.get("rejection_code")),
             error_code=data.get("error_code"),
+            existing_method=_linked_identity_type(data.get("existing_method")),
             error_log_id=data.get("error_log_id"),
         )
 
-    def with_request_id(self, request_id: Optional[str]) -> "ApiRejectedDetails":
+    def with_request_id(self, request_id: str | None) -> ApiRejectedDetails:
         return replace(self, request_id=request_id)
+
+    def with_http_status(self, http_status: int | None) -> ApiRejectedDetails:
+        return replace(self, http_status=http_status)
 
     def __str__(self) -> str:
         lines = [f"Reason: {self.reason}"]
@@ -38,11 +68,20 @@ class ApiRejectedDetails:
             lines.append(f"Rejection Code: {self.rejection_code}")
         if self.error_code is not None:
             lines.append(f"Error Code: {self.error_code}")
+        if self.existing_method is not None:
+            lines.append(f"Existing Method: {self.existing_method}")
         if self.error_log_id is not None:
             lines.append(f"Error Log ID: {self.error_log_id}")
         if self.request_id is not None:
             lines.append(f"Request ID: {self.request_id}")
         return "\n".join(lines)
+
+
+def _linked_identity_type(value: object) -> LinkedIdentityType | None:
+    """Keep known public method guidance and ignore future backend variants."""
+    if value in ("email", "google", "x", "wallet"):
+        return cast(LinkedIdentityType, value)
+    return None
 
 
 @dataclass(frozen=True)
@@ -57,11 +96,11 @@ class ApiResponse(Generic[T]):
     """
 
     status: str
-    body: Optional[T] = None
-    details: Optional[ApiRejectedDetails] = None
+    body: T | None = None
+    details: ApiRejectedDetails | None = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ApiResponse[T]":
+    def from_dict(cls, data: dict) -> ApiResponse[T]:
         status = str(data.get("status", ""))
         if status == "success":
             return cls(status=status, body=data.get("body"))

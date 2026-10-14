@@ -11,11 +11,14 @@ let Raw;
 
 let Client;
 
+let RedeemErrorCode;
+
 export {
   Code,
   Status,
   RedeemResult,
   Raw,
   Client,
+  RedeemErrorCode,
 }
 /* No side effect */

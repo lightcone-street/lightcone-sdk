@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   MarketResolutionKind,
+  OutcomeValidationError,
   hasSingleWinningOutcome,
   isMarketResolved,
   marketFromWire,
@@ -62,10 +63,12 @@ function marketResponse(
     icon_url_low: "https://example.com/icon-low.png",
     market_pubkey: "market_1",
     market_id: 1,
+    num_outcomes: 2,
     oracle: "oracle",
     question_id: "question",
     condition_id: "condition",
     market_status: "Resolved",
+    resolution_by: null,
     resolution,
     created_at: NOW,
     settled_at: NOW,
@@ -122,6 +125,129 @@ function marketResponse(
     ],
   };
 }
+
+describe("market metadata", () => {
+  it("keeps outcomes valid when artwork is absent, null, or blank", () => {
+    const response = marketResponse();
+    response.outcomes[0] = {
+      index: 0,
+      name: "Yes",
+      icon_url_low: null,
+      icon_url_medium: null,
+      icon_url_high: null,
+    };
+    response.outcomes[1] = {
+      index: 1,
+      name: "No",
+      icon_url_low: " ",
+      icon_url_medium: "https://example.com/no.png",
+      icon_url_high: "",
+    };
+
+    const market = marketFromWire(response);
+    assert.deepEqual(market.outcomes[0], {
+      index: 0,
+      name: "Yes",
+      nameLong: undefined,
+      iconUrlLow: undefined,
+      iconUrlMedium: undefined,
+      iconUrlHigh: undefined,
+    });
+    assert.equal(market.outcomes[1]?.iconUrlLow, "https://example.com/no.png");
+    assert.equal(market.outcomes[1]?.iconUrlMedium, "https://example.com/no.png");
+    assert.equal(market.outcomes[1]?.iconUrlHigh, "https://example.com/no.png");
+
+    const preserved = marketFromWire(marketResponse()).outcomes[0];
+    assert.equal(preserved?.iconUrlLow, "https://example.com/yes-low.png");
+    assert.equal(preserved?.iconUrlMedium, "https://example.com/yes-low.png");
+    assert.equal(preserved?.iconUrlHigh, "https://example.com/yes-low.png");
+
+    const retainedError = new OutcomeValidationError("Yes", ["legacy"]);
+    assert.equal(retainedError.name, "OutcomeValidationError");
+    assert.deepEqual(retainedError.details, ["legacy"]);
+  });
+
+  it("converts markets without description, banners, subcategory, or tags", () => {
+    const response = marketResponse();
+    delete response.description;
+    delete response.banner_image_url_low;
+
+    const market = marketFromWire(response);
+    assert.equal(market.description, undefined);
+    assert.equal(market.definition, "Definition");
+    assert.equal(market.bannerImageUrlLow, undefined);
+    assert.equal(market.bannerImageUrlMedium, undefined);
+    assert.equal(market.bannerImageUrlHigh, undefined);
+    assert.equal(market.subcategory, undefined);
+    assert.deepEqual(market.tags, []);
+  });
+
+  it("passes optional metadata through when present", () => {
+    const response = marketResponse();
+    response.subcategory = "Bitcoin";
+    response.tags = ["btc"];
+    response.resolution_by = 1_760_000_000_000;
+
+    const market = marketFromWire(response);
+    assert.equal(market.description, "Description");
+    assert.equal(market.definition, "Definition");
+    assert.equal(market.subcategory, "Bitcoin");
+    assert.deepEqual(market.tags, ["btc"]);
+    assert.equal(market.resolutionBy, 1_760_000_000_000);
+  });
+
+  it("maps a null resolution deadline to an absent domain value", () => {
+    const market = marketFromWire(marketResponse());
+
+    assert.equal(market.resolutionBy, undefined);
+  });
+
+  it("takes the authoritative outcome count from the market response", () => {
+    const response = marketResponse();
+    response.outcomes = [];
+
+    const market = marketFromWire(response);
+
+    assert.equal(market.numOutcomes, 2);
+    assert.deepEqual(market.outcomes, []);
+  });
+
+  it("falls back to the deposit asset outcome count", () => {
+    const response = marketResponse();
+    delete response.num_outcomes;
+
+    const market = marketFromWire(response);
+
+    assert.equal(market.numOutcomes, 2);
+  });
+
+  it("rejects inconsistent deposit asset outcome counts", () => {
+    const response = marketResponse();
+    response.deposit_assets[0]!.num_outcomes = 3;
+
+    assert.throws(() => marketFromWire(response), /do not match market/);
+  });
+
+  it("rejects markets without a non-empty string definition", () => {
+    for (const definition of [undefined, "", 1]) {
+      const response = marketResponse();
+      (response as { definition?: unknown }).definition = definition;
+
+      assert.throws(() => marketFromWire(response), /Missing definition/);
+    }
+  });
+
+  it("cross-falls-back banner URLs when partially set", () => {
+    const response = marketResponse();
+    delete response.banner_image_url_low;
+    response.banner_image_url_high = "https://example.com/banner-high.png";
+
+    const market = marketFromWire(response);
+    assert.equal(market.bannerImageUrlLow, "https://example.com/banner-high.png");
+    assert.equal(market.bannerImageUrlMedium, "https://example.com/banner-high.png");
+    assert.equal(market.bannerImageUrlHigh, "https://example.com/banner-high.png");
+  });
+});
 
 describe("market resolution", () => {
   it("treats scalar resolution as resolved without a single winner", () => {

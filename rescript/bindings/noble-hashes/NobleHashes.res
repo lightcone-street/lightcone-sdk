@@ -8,3 +8,4 @@
 
 @module("@noble/hashes/sha3.js")
 external keccak256: Uint8Array.t => Uint8Array.t = "keccak_256"
+@module("@noble/hashes/sha2.js") external sha256: Uint8Array.t => Uint8Array.t = "sha256"

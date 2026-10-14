@@ -13,32 +13,14 @@ export type Denominator_t = "Base" | "Quote";
 
 export type TimeInForce_t = "GTC" | "IOC" | "FOK" | "ALO";
 
-export type TriggerType_t = "TP" | "SL";
-
-export type OrderStatus_t = 
+export type OrderStatus_t =
     "OPEN"
   | "MATCHING"
   | "CANCELLED"
   | "FILLED"
   | "PENDING";
 
-export type TriggerStatus_t = 
-    "created"
-  | "triggered"
-  | "failed"
-  | "expired"
-  | "invalidated";
-
 export type OrderUpdateType_t = "PLACEMENT" | "UPDATE" | "CANCELLATION";
-
-export type TriggerUpdateType_t = 
-    "CREATED"
-  | "TRIGGERED"
-  | "FAILED"
-  | "EXPIRED"
-  | "INVALIDATED";
-
-export type TriggerResultStatus_t = "filled" | "accepted" | "rejected";
 
 export type DepositSource_t = "global" | "market";
 

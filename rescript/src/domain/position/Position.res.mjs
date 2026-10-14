@@ -21,6 +21,14 @@ let State;
 
 let Client;
 
+let WalletState;
+
+let DepositTokenBalancesSnapshot;
+
+let WalletDepositBalancesEvent;
+
+let Sol;
+
 export {
   Outcome,
   WalletHolding,
@@ -32,5 +40,9 @@ export {
   Raw,
   State,
   Client,
+  WalletState,
+  DepositTokenBalancesSnapshot,
+  WalletDepositBalancesEvent,
+  Sol,
 }
 /* No side effect */

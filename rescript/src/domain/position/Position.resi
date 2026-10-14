@@ -15,3 +15,9 @@ module Builders = Position__Builders
 module Raw = Position__Raw
 module State = Position__State
 module Client = Position__Client
+
+module WalletState = Position__WalletState
+module DepositTokenBalancesSnapshot = Position__Raw.DepositTokenBalancesSnapshot
+module WalletDepositBalancesEvent = Position__Raw.WalletDepositBalancesEvent
+
+module Sol = Position__Sol

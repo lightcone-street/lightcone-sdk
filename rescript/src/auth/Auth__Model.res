@@ -66,8 +66,41 @@ module GoogleAccount = {
 
 // ── Identity / user / session (hand-decoded in Auth__Raw) ─────────────────────
 // The login identity, internally tagged on the wire (`type`: google | x | wallet).
+module EmailAccount = {
+  @genType @spice type t = {email: string}
+}
+module LinkedIdentity = {
+  @genType
+  type t =
+    | Email(EmailAccount.t)
+    | Google(GoogleAccount.t)
+    | X(XAccount.t)
+    | Wallet({address: string, chain: ChainType.t})
+}
+module LinkedIdentitySelector = {
+  @genType
+  type t =
+    | Email(string)
+    | Google(string)
+    | X(string)
+    | Wallet({address: string, chain: ChainType.t})
+}
+module RegisterPrivyRequest = {
+  @genType type t = {attemptedIdentity: LinkedIdentitySelector.t}
+}
+module Credentials = {
+  @genType type t = {userId: string, walletAddress: string, expiresAt: float}
+}
+module RegisterPrivyConflict = {
+  @genType
+  type t =
+    | IdentityOwned(option<SdkError.LinkedIdentityType.t>)
+    | MultipleAccounts
+    | WalletOwned(option<SdkError.LinkedIdentityType.t>)
+}
 module Identity = {
   type t =
+    | Email({account: EmailAccount.t, privy: PrivyData.t})
     | Google({account: GoogleAccount.t, privy: PrivyData.t})
     | X({account: XAccount.t, privy: PrivyData.t})
     | Wallet({address: string, chain: ChainType.t, privy?: PrivyData.t})
@@ -79,6 +112,9 @@ module User = {
     userId: string,
     identity: Identity.t,
     connectedX?: XAccount.t,
+    linkedIdentities: array<LinkedIdentity.t>,
+    maxSlippagePreference?: string,
+    telegramInviteUrl?: string,
   }
 }
 
@@ -102,3 +138,54 @@ module SignedLogin = {
     pubkeyBytes: array<int>,
   }
 }
+
+let tradingWallet = (user: User.t, authMethod: Method.t) =>
+  switch user.identity {
+  | Email({privy}) | Google({privy}) | X({privy}) => privy.wallet.address
+  | Wallet({address, ?privy}) =>
+    switch (authMethod, privy) {
+    | (Privy, Some(privy)) => privy.wallet.address
+    | _ => address
+    }
+  }
+let credentialsFromSession = (session: Session.t): Credentials.t => {
+  userId: session.user.userId,
+  walletAddress: tradingWallet(session.user, session.authMethod),
+  expiresAt: session.expiresAt,
+}
+let walletDisplayName = (user, method) => Fmt__Str.shorten(tradingWallet(user, method), ~qty=8)
+let displayName = (user: User.t) =>
+  switch user.identity {
+  | Email({account}) =>
+    if String.length(account.email) <= 20 {
+      account.email
+    } else {
+      String.slice(account.email, ~start=0, ~end=8) ++
+      "..." ++
+      String.slice(
+        account.email,
+        ~start=String.length(account.email) - 9,
+        ~end=String.length(account.email),
+      )
+    }
+  | Google({account}) => account.name->Option.getOr(account.email)
+  | X({account}) => account.displayName->Option.getOr(account.username)
+  | Wallet({address}) => Fmt__Str.shorten(address, ~qty=8)
+  }
+let avatarUrl = (user: User.t) =>
+  switch user.identity {
+  | Google({account}) => account.avatarUrl
+  | X({account}) => account.avatarUrl
+  | _ => None
+  }
+let classifyRegisterPrivyConflict = (error: SdkError.t): option<RegisterPrivyConflict.t> =>
+  switch error {
+  | ApiRejected(details) =>
+    switch details.errorCode {
+    | Some("IDENTITY_OWNED_BY_ANOTHER_ACCOUNT") => Some(IdentityOwned(details.existingMethod))
+    | Some("IDENTITIES_OWNED_BY_MULTIPLE_ACCOUNTS") => Some(MultipleAccounts)
+    | Some("WALLET_OWNED_BY_ANOTHER_ACCOUNT") => Some(WalletOwned(details.existingMethod))
+    | _ => None
+    }
+  | _ => None
+  }

@@ -9,6 +9,7 @@ import * as Stdlib_Ordering from "@rescript/runtime/lib/es6/Stdlib_Ordering.js";
 import * as Primitive_option from "@rescript/runtime/lib/es6/Primitive_option.js";
 import * as Primitive_string from "@rescript/runtime/lib/es6/Primitive_string.js";
 import * as Primitive_exceptions from "@rescript/runtime/lib/es6/Primitive_exceptions.js";
+import * as ProtocolInt$LightconeSdk from "../../ProtocolInt.res.mjs";
 
 function t_encode(v) {
   switch (v) {
@@ -398,17 +399,6 @@ let GlobalDepositAsset = {
   currencySymbol: currencySymbol$3
 };
 
-function decimals(pair) {
-  let baseDecimals = pair.base.decimals | 0;
-  let quoteDecimals = pair.quote.decimals | 0;
-  return {
-    baseDecimals: baseDecimals,
-    quoteDecimals: quoteDecimals,
-    priceDecimals: Primitive_int.max((6 + quoteDecimals | 0) - baseDecimals | 0, 0),
-    tickSize: Math.max(pair.tickSize, 0.0)
-  };
-}
-
 function denominatorToken(denominator, pair) {
   if (denominator === "Base") {
     return pair.base;
@@ -426,7 +416,6 @@ function denominatorDepositSymbol(denominator, pair) {
 }
 
 let OrderBookPair = {
-  decimals: decimals,
   denominatorToken: denominatorToken,
   denominatorSymbol: denominatorSymbol,
   denominatorDepositSymbol: denominatorDepositSymbol
@@ -522,6 +511,145 @@ let MarketsResult = {};
 
 let GlobalDepositAssetsResult = {};
 
+function t_encode$3(v) {
+  let extra = v.marketPubkeys;
+  let extra$1 = v.nextCursor;
+  return Object.fromEntries(Spice.filterOptional([
+    [
+      "market_pubkeys",
+      Spice.arrayToJson(Spice.stringToJson, extra)
+    ],
+    [
+      "next_cursor",
+      Spice.optionToJson(ProtocolInt$LightconeSdk.U64.t_encodeJson, extra$1)
+    ],
+    [
+      "has_more",
+      Spice.boolToJson(v.hasMore)
+    ]
+  ]));
+}
+
+function t_encodeJson$3(v) {
+  let extra = v.marketPubkeys;
+  let extra$1 = v.nextCursor;
+  return Object.fromEntries(Spice.filterOptional([
+    [
+      "market_pubkeys",
+      Spice.arrayToJson(Spice.stringToJson, extra)
+    ],
+    [
+      "next_cursor",
+      Spice.optionToJson(ProtocolInt$LightconeSdk.U64.t_encodeJson, extra$1)
+    ],
+    [
+      "has_more",
+      Spice.boolToJson(v.hasMore)
+    ]
+  ]));
+}
+
+function t_decode$3(v) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    return Spice.error(undefined, "Not an object", v);
+  }
+  let marketPubkeys = Stdlib_Option.getOr(Stdlib_Option.map(v["market_pubkeys"], extra => Spice.arrayFromJson(Spice.stringFromJson, extra)), Spice.error(undefined, "market_pubkeys" + " missing", v));
+  if (marketPubkeys.TAG === "Ok") {
+    let nextCursor = Stdlib_Option.getOr(Stdlib_Option.map(v["next_cursor"], json => Stdlib_Result.map(ProtocolInt$LightconeSdk.U64.t_decode(json), v => v)), {
+      TAG: "Ok",
+      _0: undefined
+    });
+    if (nextCursor.TAG === "Ok") {
+      let hasMore = Stdlib_Option.getOr(Stdlib_Option.map(v["has_more"], Spice.boolFromJson), Spice.error(undefined, "has_more" + " missing", v));
+      if (hasMore.TAG === "Ok") {
+        return {
+          TAG: "Ok",
+          _0: {
+            marketPubkeys: marketPubkeys._0,
+            nextCursor: nextCursor._0,
+            hasMore: hasMore._0
+          }
+        };
+      }
+      let e = hasMore._0;
+      return Spice.error("." + ("has_more" + e.path), e.message, e.value);
+    }
+    let e$1 = nextCursor._0;
+    return Spice.error("." + ("next_cursor" + e$1.path), e$1.message, e$1.value);
+  }
+  let e$2 = marketPubkeys._0;
+  return Spice.error("." + ("market_pubkeys" + e$2.path), e$2.message, e$2.value);
+}
+
+let FavoriteMarkets = {
+  t_encode: t_encode$3,
+  t_encodeJson: t_encodeJson$3,
+  t_decode: t_decode$3
+};
+
+function t_encode$4(v) {
+  return Object.fromEntries(Spice.filterOptional([
+    [
+      "market_pubkey",
+      Spice.stringToJson(v.marketPubkey)
+    ],
+    [
+      "favorited",
+      Spice.boolToJson(v.favorited)
+    ]
+  ]));
+}
+
+function t_encodeJson$4(v) {
+  return Object.fromEntries(Spice.filterOptional([
+    [
+      "market_pubkey",
+      Spice.stringToJson(v.marketPubkey)
+    ],
+    [
+      "favorited",
+      Spice.boolToJson(v.favorited)
+    ]
+  ]));
+}
+
+function t_decode$4(v) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    return Spice.error(undefined, "Not an object", v);
+  }
+  let marketPubkey = Stdlib_Option.getOr(Stdlib_Option.map(v["market_pubkey"], Spice.stringFromJson), Spice.error(undefined, "market_pubkey" + " missing", v));
+  if (marketPubkey.TAG === "Ok") {
+    let favorited = Stdlib_Option.getOr(Stdlib_Option.map(v["favorited"], Spice.boolFromJson), Spice.error(undefined, "favorited" + " missing", v));
+    if (favorited.TAG === "Ok") {
+      return {
+        TAG: "Ok",
+        _0: {
+          marketPubkey: marketPubkey._0,
+          favorited: favorited._0
+        }
+      };
+    }
+    let e = favorited._0;
+    return Spice.error("." + ("favorited" + e.path), e.message, e.value);
+  }
+  let e$1 = marketPubkey._0;
+  return Spice.error("." + ("market_pubkey" + e$1.path), e$1.message, e$1.value);
+}
+
+let FavoriteMarketUpdate = {
+  t_encode: t_encode$4,
+  t_encodeJson: t_encodeJson$4,
+  t_decode: t_decode$4
+};
+
+function depositSymbol(mint, symbol) {
+  if (mint === "So11111111111111111111111111111111111111112") {
+    return "SOL";
+  } else {
+    return symbol;
+  }
+}
+
 let Impact = {
   zero: zero,
   pct: pct,
@@ -551,5 +679,8 @@ export {
   hasSingleWinningOutcome,
   MarketsResult,
   GlobalDepositAssetsResult,
+  FavoriteMarkets,
+  FavoriteMarketUpdate,
+  depositSymbol,
 }
 /* decimal.js Not a pure module */

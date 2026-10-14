@@ -4,7 +4,9 @@ use crate::shared::OrderBookId;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-/// Best bid/ask/mid for a ticker.
+/// Best bid/ask and engine-authoritative mid for a ticker. The supplied mid
+/// may reflect one-sided-book or last-trade fallback and must not be replaced
+/// by a client-only BBO calculation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TickerData {
     pub orderbook_id: OrderBookId,

@@ -1,6 +1,6 @@
-import { PublicKey, Transaction } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
+import { V1Transaction } from "../src";
 import {
-  confirmTransactionOrThrow,
   login,
   marketAndOrderbook,
   quoteDepositMint,
@@ -11,7 +11,6 @@ import {
 
 async function main() {
   const client = rpcClient();
-  const connection = client.rpc().inner();
   const keypair = getKeypair();
   await login(client, keypair);
 
@@ -41,7 +40,7 @@ async function main() {
       .market(marketPubkey)
       .mint(dMint)
       .amount(amount)
-      .numOutcomes(m.outcomes.length)
+      .numOutcomes(m.numOutcomes)
       .buildIx(),
   ]);
 
@@ -71,14 +70,11 @@ async function main() {
   ]);
 
   for (const [name, ix] of instructions) {
-    const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
-    const tx = new Transaction({ feePayer: keypair.publicKey, blockhash, lastValidBlockHeight }).add(ix);
-    tx.sign(keypair);
-    const signature = await connection.sendRawTransaction(tx.serialize());
-    await confirmTransactionOrThrow(connection, signature, {
-      blockhash,
-      lastValidBlockHeight,
-    });
+    const context = await client.transactionContext();
+    const tx = V1Transaction.compile([ix], keypair.publicKey, context);
+    const signed = tx.sign([keypair]);
+    const signature = await client.rpc().submitSignedTransaction(signed);
+    await client.rpc().confirmSignature(signature, context.lastValidBlockHeight);
     console.log(`${name}: confirmed ${signature}`);
   }
 
@@ -120,7 +116,7 @@ async function main() {
     .buildIx();
   console.log(`builder global withdraw ix: ${globalWithdrawIx.keys.length} accounts`);
 
-  // Withdraw — Market mode (position ATA -> user's wallet)
+  // Withdraw — Market mode (conditional-token ATA -> user's wallet)
   const marketWithdrawIx = client
     .positions()
     .withdraw()

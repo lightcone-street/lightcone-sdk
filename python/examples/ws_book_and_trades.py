@@ -26,7 +26,9 @@ async def main():
     grouped_aggregation = BookAggregation.validate(n_sig_figs=5, mantissa=2)
     books = {
         BookAggregation(): OrderbookState(orderbook_id=orderbook_id),
-        grouped_aggregation: OrderbookState(orderbook_id=orderbook_id),
+        grouped_aggregation: OrderbookState(
+            orderbook_id=orderbook_id, aggregation=grouped_aggregation
+        ),
     }
     trades = TradeHistory(orderbook_id=orderbook_id, max_size=20)
 
@@ -60,20 +62,20 @@ async def main():
                 # Untagged frames are the full-precision view; frames from
                 # the grouped subscription carry n_sig_figs/mantissa.
                 aggregation = update.aggregation()
+                book = books.get(aggregation)
+                if book is None:
+                    return
                 if update.resync:
                     # Refresh exactly the affected view: re-subscribe with
-                    # the SAME aggregation. The fresh snapshot arrives with
-                    # seq 0 and replaces the book (last-write-wins).
+                    # the SAME aggregation and reset its revision gate.
                     params = BookUpdateParams(
                         orderbook_ids=[update.orderbook_id],
                         n_sig_figs=aggregation.n_sig_figs,
                         mantissa=aggregation.mantissa,
                     )
                     await ws.unsubscribe(params)
+                    book.begin_generation()
                     await ws.subscribe(params)
-                    return
-                book = books.get(aggregation)
-                if book is None:
                     return
                 book.apply(update)
                 print(
@@ -97,6 +99,9 @@ async def main():
                 print(f"trade: {ws_trade.size} {ws_trade.side} @ {ws_trade.price} seq={ws_trade.sequence}")
                 hits += 1
 
+        elif event.type == WsEventType.CONNECTED:
+            for book in books.values():
+                book.begin_generation()
         elif event.type == WsEventType.ERROR:
             print(f"ws error: {event.error}")
 

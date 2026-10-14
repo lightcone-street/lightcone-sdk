@@ -5,11 +5,11 @@
 import { make, RpcClient } from "../src/TypeScriptApi.gen.ts";
 
 const deadPrimary = "https://dead-primary.invalid";
-const backupRpc = "https://devnet.helius-rpc.com/?api-key=55558885-9601-4d35-a25a-55af783fce2b";
+const backupRpc = process.env.SDK_BACKUP_RPC_URL ?? "https://api.devnet.solana.com";
 
 async function main(): Promise<void> {
   // make(env, baseUrl, wsUrl, rpcUrl, backupRpcUrl, programId, depositSource, unit)
-  const client = make(undefined, undefined, undefined, deadPrimary, backupRpc, undefined, undefined, undefined);
+  const client = make(undefined, undefined, undefined, deadPrimary, backupRpc, undefined, undefined, undefined, undefined, undefined);
   console.log(`primary : ${deadPrimary}`);
   console.log(`backup  : ${backupRpc}`);
   console.log(`active  : ${RpcClient.activeRpc(client)}`);

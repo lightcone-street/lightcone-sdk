@@ -3,3 +3,8 @@ lib/
 .bsb.lock
 *.log
 .DS_Store
+
+/types/
+
+/test-results/
+/playwright-report/

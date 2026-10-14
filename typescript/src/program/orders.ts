@@ -3,9 +3,9 @@ import { sign } from "tweetnacl";
 import bs58 from "bs58";
 import type {
   DepositSource,
+  OrderbookRules,
   SubmitOrderRequest,
   TimeInForce,
-  TriggerType,
 } from "../shared";
 import {
   SignedOrder,
@@ -26,25 +26,17 @@ import {
   deriveConditionId,
 } from "./utils";
 import { ProgramSdkError } from "./error";
-
-function bigintToSafeNumber(value: bigint, field: string): number {
-  const max = BigInt(Number.MAX_SAFE_INTEGER);
-  if (value > max || value < -max) {
-    throw ProgramSdkError.overflow(`${field} exceeds Number.MAX_SAFE_INTEGER`);
-  }
-  return Number(value);
-}
+import { I64_MAX, validateRawAmounts, validateSignedFields } from "../shared/scaling";
 
 /**
  * Generate a random salt for order uniqueness.
- * Capped to Number.MAX_SAFE_INTEGER (2^53 - 1) so the value round-trips
- * through JSON without precision loss.
+ * Uniform over the durable signed-64-bit persistence range.
  */
 export function generateSalt(): bigint {
   const buf = new Uint8Array(8);
   globalThis.crypto.getRandomValues(buf);
   const raw = fromLeBytes(Buffer.from(buf));
-  return raw % (BigInt(Number.MAX_SAFE_INTEGER) + 1n);
+  return raw & I64_MAX;
 }
 
 
@@ -100,7 +92,13 @@ export function getOrderMessage(order: SignedOrder): Buffer {
  * Signs the hex-encoded keccak hash (64-char ASCII string) for cross-compatibility with Rust.
  * Returns 64-byte Ed25519 signature.
  */
-export function signOrder(order: SignedOrder, signer: Keypair): Buffer {
+export function signOrder(
+  order: SignedOrder,
+  signer: Keypair,
+  rules: OrderbookRules
+): Buffer {
+  validateSignedFields(order.amountIn, order.amountOut, order.salt, order.nonce);
+  validateRawAmounts(order.amountIn, order.amountOut, order.side, rules);
   const hash = hashOrder(order);
   const hexString = hash.toString("hex");
   const messageBytes = Buffer.from(hexString, "ascii");
@@ -113,13 +111,14 @@ export function signOrder(order: SignedOrder, signer: Keypair): Buffer {
  */
 export function signOrderFull(
   order: Omit<SignedOrder, "signature">,
-  signer: Keypair
+  signer: Keypair,
+  rules: OrderbookRules
 ): SignedOrder {
   const orderWithEmptySig: SignedOrder = {
     ...order,
     signature: Buffer.alloc(64),
   };
-  const signature = signOrder(orderWithEmptySig, signer);
+  const signature = signOrder(orderWithEmptySig, signer, rules);
   return {
     ...order,
     signature,
@@ -427,10 +426,11 @@ export function createAskOrder(
  */
 export function createSignedBidOrder(
   params: BidOrderParams,
-  signer: Keypair
+  signer: Keypair,
+  rules: OrderbookRules
 ): SignedOrder {
   const order = createBidOrder(params);
-  return signOrderFull(order, signer);
+  return signOrderFull(order, signer, rules);
 }
 
 /**
@@ -438,10 +438,11 @@ export function createSignedBidOrder(
  */
 export function createSignedAskOrder(
   params: AskOrderParams,
-  signer: Keypair
+  signer: Keypair,
+  rules: OrderbookRules
 ): SignedOrder {
   const order = createAskOrder(params);
-  return signOrderFull(order, signer);
+  return signOrderFull(order, signer, rules);
 }
 
 // ============================================================================
@@ -532,8 +533,11 @@ export function isSigned(order: SignedOrder): boolean {
  */
 export function applySignature(
   order: Omit<SignedOrder, "signature">,
-  signatureBs58: string
+  signatureBs58: string,
+  rules: OrderbookRules
 ): SignedOrder {
+  validateSignedFields(order.amountIn, order.amountOut, order.salt, order.nonce);
+  validateRawAmounts(order.amountIn, order.amountOut, order.side, rules);
   const sigBytes = bs58.decode(signatureBs58);
   if (sigBytes.length !== 64) {
     throw ProgramSdkError.invalidSignature();
@@ -560,29 +564,11 @@ export function cancelOrderMessage(orderHash: string): Uint8Array {
 }
 
 /**
- * Build the message bytes for cancelling a trigger order.
- * The message is the trigger order ID as UTF-8 bytes.
- */
-export function cancelTriggerOrderMessage(triggerOrderId: string): Uint8Array {
-  return Buffer.from(triggerOrderId, "ascii");
-}
-
-/**
  * Sign a cancel order request.
  * Returns the signature as a 128-char hex string.
  */
 export function signCancelOrder(orderHash: string, signer: Keypair): string {
   const message = cancelOrderMessage(orderHash);
-  const signature = sign.detached(message, signer.secretKey);
-  return Buffer.from(signature).toString("hex");
-}
-
-/**
- * Sign a cancel trigger-order request.
- * Returns the signature as a 128-char hex string.
- */
-export function signCancelTriggerOrder(triggerOrderId: string, signer: Keypair): string {
-  const message = cancelTriggerOrderMessage(triggerOrderId);
   const signature = sign.detached(message, signer.secretKey);
   return Buffer.from(signature).toString("hex");
 }
@@ -630,36 +616,34 @@ export function signCancelAll(
 // ============================================================================
 
 /**
- * Convert a SignedOrder to a SubmitOrderRequest-compatible object
+ * Execution policy and collateral source for an ordinary signed order.
  */
 export interface SubmitRequestOptions {
   timeInForce?: TimeInForce;
-  triggerPrice?: number;
-  triggerType?: TriggerType;
   depositSource?: DepositSource;
 }
 
+/** Encodes an ordinary signed order without changing its exact integer fields. */
 export function toSubmitRequest(
   order: SignedOrder,
   orderbookId: string,
   options: SubmitRequestOptions = {}
 ): SubmitOrderRequest {
+  validateSignedFields(order.amountIn, order.amountOut, order.salt, order.nonce);
   return {
     maker: order.maker.toBase58(),
     nonce: order.nonce,
-    salt: bigintToSafeNumber(order.salt, "salt"),
+    salt: order.salt,
     market_pubkey: order.market.toBase58(),
     base_token: order.baseMint.toBase58(),
     quote_token: order.quoteMint.toBase58(),
     side: order.side,
-    amount_in: bigintToSafeNumber(order.amountIn, "amount_in"),
-    amount_out: bigintToSafeNumber(order.amountOut, "amount_out"),
-    expiration: bigintToSafeNumber(order.expiration, "expiration"),
+    amount_in: order.amountIn,
+    amount_out: order.amountOut,
+    expiration: order.expiration,
     signature: signatureHex(order),
     orderbook_id: orderbookId,
     tif: options.timeInForce,
-    trigger_price: options.triggerPrice,
-    trigger_type: options.triggerType,
     deposit_source: options.depositSource,
   };
 }
@@ -669,7 +653,6 @@ export const is_order_expired = isOrderExpired;
 export const orders_can_cross = ordersCanCross;
 export const calculate_taker_fill = calculateTakerFill;
 export const cancel_order_message = cancelOrderMessage;
-export const cancel_trigger_order_message = cancelTriggerOrderMessage;
 export const cancel_all_message = cancelAllMessage;
 export const generate_cancel_all_salt = generateCancelAllSalt;
 export const derive_condition_id = deriveConditionId;

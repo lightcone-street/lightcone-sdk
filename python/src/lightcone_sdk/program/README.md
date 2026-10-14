@@ -91,6 +91,7 @@ from lightcone_sdk.program import (
 | `condition_id` | bytes | Computed condition ID |
 | `payout_numerators` | tuple[int, int, int, int, int, int] | Resolution vector; first `num_outcomes` entries are meaningful |
 | `payout_denominator` | int | Sum of meaningful payout numerators |
+| `deposit_mint_count` | int | Deposit mints registered through `add_deposit_mint` (byte 148; capped at `MAX_DEPOSIT_MINTS_PER_MARKET`) |
 
 #### GlobalDepositToken
 
@@ -99,7 +100,7 @@ from lightcone_sdk.program import (
 | `mint` | Pubkey | Whitelisted deposit mint |
 | `bump` | int | PDA bump seed |
 | `index` | int | Deposit token ordering index |
-| `active` | bool | Backend-visible status flag |
+| `active` | bool | Whether the collateral may back an executed trade; inactivity leaves deposit, preparation, split, merge, and exit rules unchanged |
 
 #### Position
 
@@ -162,10 +163,9 @@ from lightcone_sdk.program import (
     InitializeParams,
     CreateMarketParams,
     AddDepositMintParams,
-    MintCompleteSetParams,
-    MergeCompleteSetParams,
     SettleMarketParams,
     RedeemWinningsParams,
+    WithdrawConditionalFromPositionParams,
     WithdrawFromPositionParams,
     ActivateMarketParams,
     MatchOrdersMultiParams,
@@ -199,7 +199,7 @@ from lightcone_sdk.program import (
 | `SYSTEM_PROGRAM_ID` | `11111111111111111111111111111111` | System program |
 | `RENT_SYSVAR_ID` | `SysvarRent111111111111111111111111111111111` | Rent sysvar |
 | `INSTRUCTIONS_SYSVAR_ID` | `Sysvar1nstructions1111111111111111111111111` | Instructions sysvar |
-| `INITIALIZE_AUTHORITY` | `2m6iAtMVmd3jE2BpNxoa9E79Kj7NeE6UxBFNyCBp6QEb` | Program initialization authority |
+| `INITIALIZE_AUTHORITY` | `3vYRAzr5X41hrmKMnDCoQJJmPH89S4LLwmFpk8UtwCqr` | Program initialization authority |
 
 ### Current Program Alignment Notes
 
@@ -208,8 +208,17 @@ from lightcone_sdk.program import (
 - `set_authority`, `set_manager`, and `set_operator` now propose role transfers. The matching `accept_authority`, `accept_manager`, or `accept_operator` instruction performs the effective role change.
 - `match_orders_multi` and `deposit_and_swap` include the fee receiver and associated token program in their fixed account lists.
 - `set_fee_receiver_with_atas` can append quote mint / fee receiver ATA pairs for idempotent ATA creation.
-- `refresh_orderbook_alt` appends the current fee receiver quote ATA when missing, but does not fully reshape older orderbook ALTs.
-- Instruction discriminators are current through `SET_DEPOSIT_TOKEN_STATUS = 38`.
+- Instruction discriminators are current through `SET_DEPOSIT_TOKEN_STATUS = 38`; `INSTRUCTION_EVENT_BATCH = 255` is reserved for the program's private event self-CPI and is never built by the SDK.
+- Every public instruction ends with the event transport trailer (event-authority PDA, then the program account; both read-only, non-signer). Every `build_*_instruction` appends it automatically; see [Event Transport Trailer](#event-transport-trailer).
+- `add_deposit_mint` writes the market account and increments `Market.deposit_mint_count`, capped at `MAX_DEPOSIT_MINTS_PER_MARKET`.
+- `init_position_tokens` prepares the position and conditional ATAs without a recent slot. Repeat calls and additional collateral groups use the same instruction. Supply unique collateral mints in strictly increasing GDT registration index order.
+- `Orderbook` is exactly 176 bytes and stores both collateral mints and one shared outcome. Its former lookup-table field is removed.
+- Both matching builders require `base_deposit_mint` and `quote_deposit_mint`. They derive two fixed GDTs in canonical conditional-mint order. Both live registrations must be active when the program executes a trade.
+- Trading supports at most eleven makers in the instruction parser. Full-fill and funding masks use little-endian u16 values, maker bits 0 through 10, and taker bit 15. Reserved bits and absent-maker bits are invalid.
+- A selected global funding deposit must use the participant's signed give-side collateral: quote collateral for BUY and base collateral for SELL.
+- `deposit_to_global` accepts eight business accounts and emits one GlobalDeposit event. It does not initialize a user nonce.
+- `close_orderbook` closes a resolved book directly. Instruction IDs 21, 23, 26, and 34 and their ALT helpers are removed.
+- Event completion uses schema 2. The SDK keeps the authenticated trailer and does not encode or decode completion batches.
 
 ### PDA Seeds
 
@@ -223,6 +232,7 @@ from lightcone_sdk.program import (
     SEED_ORDER_STATUS,
     SEED_USER_NONCE,
     SEED_POSITION,
+    SEED_EVENT_AUTHORITY,
 )
 ```
 
@@ -259,8 +269,34 @@ from lightcone_sdk.program import (
     # Limits
     MAX_OUTCOMES,       # 6
     MIN_OUTCOMES,       # 2
-    MAX_MAKERS,         # 5
+    MAX_MAKERS,         # 11 (instruction parser ceiling)
+    MAX_DEPOSIT_MINTS_PER_MARKET,  # 8
+    MAX_DEPOSIT_MINTS_PER_IX,      # 8
 )
+```
+
+### Event Transport Trailer
+
+Every `build_*_instruction` appends the event-authority PDA and executable program
+account as read-only, non-signer accounts, in that order. These are always the
+last two accounts; callers must not append another trailer.
+
+See the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules and the governance CPI allowlist. The [program source at `db552338`](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src) defines the current binary interfaces, preparation behavior, limits, and errors.
+
+The SDK neither builds nor decodes event batches; `INSTRUCTION_EVENT_BATCH` is
+reserved. Builders do not add a compute-budget instruction. Callers must include
+the program's final self-CPI when estimating transaction compute.
+
+`build_init_position_tokens_instruction`
+raises `InvalidPubkeyError` for zero or off-curve beneficiaries, `MissingFieldError` for
+empty mint lists, and `TooManyDepositMintsError` for lists exceeding
+`MAX_DEPOSIT_MINTS_PER_IX`. Market creation and oracle rotation builders raise
+`InvalidOracleError` for zero or off-curve oracle keys.
+
+```python
+from lightcone_sdk.program import PROGRAM_ID, get_event_authority_pda
+
+event_authority, bump = get_event_authority_pda(PROGRAM_ID)
 ```
 
 ## Errors
@@ -272,6 +308,7 @@ from lightcone_sdk.program import (
     AccountNotFoundError,      # Account does not exist
     InvalidAccountDataError,   # Account data malformed
     InvalidOrderError,         # Order validation failed
+    InvalidConditionalMintError, # On-chain error 18: invalid conditional-mint provenance or properties
     InvalidSignatureError,     # Signature verification failed
     OrderExpiredError,         # Order has expired
     InsufficientBalanceError,  # Insufficient funds
@@ -280,6 +317,15 @@ from lightcone_sdk.program import (
     InvalidOutcomeError,       # Invalid outcome index
     TooManyMakersError,        # Exceeds MAX_MAKERS
     OrdersDoNotCrossError,     # Orders don't match
+    TooManyDepositMintsError,  # Exceeds MAX_DEPOSIT_MINTS_PER_IX (on-chain error 75)
+    InvalidEventAuthorityError,  # On-chain error 68: bad event transport trailer
+    EventBatchOverflowError,     # On-chain error 69: batch capacity exceeded
+    InvalidEventBatchError,      # On-chain error 70: malformed batch
+    InvalidEventContractError,   # On-chain error 71: instruction/event mismatch
+    UnsupportedEventSchemaError, # On-chain error 72: unsupported schema
+    InactiveDepositTokenError,  # On-chain error 76: trading collateral is inactive
+    DepositMintMismatchError,  # On-chain error 77: collateral provenance mismatch
+    PublicInstructionMustBeTopLevelError,  # On-chain error 73: unsupported CPI invocation
 )
 ```
 
@@ -329,6 +375,7 @@ crosses = orders_cross(
 ```python
 from lightcone_sdk.program import (
     get_exchange_pda,
+    get_event_authority_pda,
     get_market_pda,
     get_vault_pda,
     get_mint_authority_pda,
@@ -342,6 +389,9 @@ from lightcone_sdk.program import (
 
 # Exchange PDA
 exchange_pda, bump = get_exchange_pda(PROGRAM_ID)
+
+# Event-authority PDA (appended to every public instruction by the builders)
+event_authority, bump = get_event_authority_pda(PROGRAM_ID)
 
 # Market PDA
 market_pda, bump = get_market_pda(market_id, PROGRAM_ID)
@@ -407,7 +457,11 @@ bid_order = create_bid_order(BidOrderParams(
 
 # Create and sign in one step
 keypair = Keypair()
-signed_bid = create_signed_bid_order(bid_params, keypair)
+rules = await client.orderbooks().decimals(orderbook_id)
+signed_bid = create_signed_bid_order(bid_params, keypair, rules)
+
+# Signing helpers require fetched OrderbookRules and preflight the exact price
+# ratio, size quantum, and durable field ranges before producing a signature.
 
 # Hash order (keccak256)
 order_hash = hash_order(order)  # 32 bytes
@@ -426,7 +480,7 @@ validate_signed_order(order)  # Also verifies signature
 
 ## Transaction Builders
 
-All transaction builders return a `Transaction` ready for signing.
+All transaction builders require an explicit `V1TransactionContext` and return an immutable `V1Transaction`. See [Solana v1 transactions](../../../README.md#solana-v1-transactions) for resource limits, signing, and submission.
 
 ### Exchange Administration & Market Lifecycle
 
@@ -456,84 +510,56 @@ payout_numerators = scalar_to_payout_numerators(ScalarResolutionParams(
 
 ```python
 from lightcone_sdk.program import (
-    MintCompleteSetParams,
-    MergeCompleteSetParams,
     RedeemWinningsParams,
+    WithdrawConditionalFromPositionParams,
     WithdrawFromPositionParams,
 )
 
-# Mint complete set (deposit collateral, receive outcome tokens)
-tx = await client.mint_complete_set(
-    MintCompleteSetParams(
-        user=user_pubkey,
-        market=market_pubkey,
-        deposit_mint=usdc_mint,
-        amount=1_000_000,
-    ),
-    num_outcomes=2,
+context = await client.transaction_context()
+# Use the fluent deposit/merge APIs for a complete Market object.
+tx = (client.positions().deposit().user(user_pubkey).mint(usdc_mint)
+      .amount(1_000_000).with_market_deposit_source(market).build_tx(context))
+tx = (client.positions().merge().user(user_pubkey).market(market).mint(usdc_mint)
+      .amount(1_000_000).build_tx(context))
+tx = client.positions().redeem_winnings_tx(
+    RedeemWinningsParams(user=user_pubkey, market=market_pubkey,
+                        deposit_mint=usdc_mint, amount=1_000_000),
+    outcome_index=0, context=context,
 )
-
-# Merge complete set (burn outcome tokens, receive collateral)
-tx = await client.merge_complete_set(
-    MergeCompleteSetParams(
-        user=user_pubkey,
-        market=market_pubkey,
-        deposit_mint=usdc_mint,
-        amount=1_000_000,
-    ),
-    num_outcomes=2,
-)
-
-# Redeem winnings (after settlement)
-tx = await client.redeem_winnings(
-    RedeemWinningsParams(
-        user=user_pubkey,
-        market=market_pubkey,
-        deposit_mint=usdc_mint,
-        amount=1_000_000,
-    ),
-    outcome_index=0,
-)
-
-# Withdraw tokens from position account
-tx = await client.withdraw_from_position(
-    WithdrawFromPositionParams(
-        user=user_pubkey,
-        position=position_pubkey,
-        mint=conditional_mint,
-        amount=500_000,
-    ),
-    is_token_2022=True,  # Set to False for SPL Token
+tx = client.positions().withdraw_conditional_from_position_tx(
+    WithdrawConditionalFromPositionParams(user=user_pubkey, market=market_pubkey,
+        deposit_mint=usdc_mint, amount=500_000, outcome_index=0),
+    context,
 )
 ```
 
 ### Order Matching
 
-Three strategies with different transaction size/verification tradeoffs:
+Compile the instruction encoder's result with an explicit v1 context. This async
+excerpt assumes the client, participant orders, token mints, and fill amounts have
+already been selected; fill amounts use each order's integer units.
 
 ```python
-from lightcone_sdk.program import MakerFill
+from lightcone_sdk import V1Transaction
+from lightcone_sdk.program import build_match_orders_multi_instruction
 
-maker_fills = [
-    MakerFill(order=maker_order_1, fill_amount=100_000),
-    MakerFill(order=maker_order_2, fill_amount=200_000),
-]
-
-# 1. Without Ed25519 verification (signatures verified off-chain)
-tx = await client.match_orders_multi(
+instruction = build_match_orders_multi_instruction(
     operator=operator_pubkey,
     market=market_pubkey,
     base_mint=base_mint,
     quote_mint=quote_mint,
+    base_deposit_mint=base_deposit_mint,
+    quote_deposit_mint=quote_deposit_mint,
+    fee_receiver=fee_receiver_pubkey,
     taker_order=taker_order,
-    maker_fills=maker_fills,
+    maker_orders=[maker_order_1, maker_order_2],
+    maker_fill_amounts=[100_000, 200_000],
+    taker_fill_amounts=[50_000, 100_000],
+    full_fill_bitmask=0,
+    program_id=client.program_id,
 )
-
-# 2. With batch Ed25519 verification (signatures in instruction data)
-tx = await client.match_orders_multi_with_verify(...)
-
-# 3. With cross-reference Ed25519 (smallest transaction size)
-tx = await client.match_orders_multi_cross_ref(...)
+context = await client.transaction_context()
+tx = V1Transaction.compile([instruction], operator_pubkey, context)
 ```
 
 ## Client Utility Methods
@@ -565,33 +591,37 @@ market = await client.get_market_by_address(market_pubkey)
 
 ### Order Helpers
 
+These are low-level wire/signature helpers. Every signing operation requires
+fetched rules and applies the same exact preflight as the envelope path.
+
 ```python
 from lightcone_sdk.program import BidOrderParams, AskOrderParams
 from solders.keypair import Keypair
 
 keypair = Keypair()
+rules = await client.orderbooks().decimals(orderbook_id)
 
 # Create unsigned orders
 bid = client.create_bid_order(BidOrderParams(...))
 ask = client.create_ask_order(AskOrderParams(...))
 
 # Create and sign in one step
-signed_bid = client.create_signed_bid_order(BidOrderParams(...), keypair)
-signed_ask = client.create_signed_ask_order(AskOrderParams(...), keypair)
+signed_bid = client.create_signed_bid_order(BidOrderParams(...), keypair, rules)
+signed_ask = client.create_signed_ask_order(AskOrderParams(...), keypair, rules)
 
 # Manual hash and sign
 order_hash = client.hash_order(order)  # Returns 32 bytes
-signature = client.sign_order(order, keypair)  # Returns 64 bytes
+signature = client.sign_order(order, keypair, rules)  # Returns 64 bytes
 ```
 
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `create_bid_order(params)` | FullOrder | Create unsigned bid |
 | `create_ask_order(params)` | FullOrder | Create unsigned ask |
-| `create_signed_bid_order(params, keypair)` | FullOrder | Create and sign bid |
-| `create_signed_ask_order(params, keypair)` | FullOrder | Create and sign ask |
+| `create_signed_bid_order(params, keypair, rules)` | FullOrder | Preflight and sign bid |
+| `create_signed_ask_order(params, keypair, rules)` | FullOrder | Preflight and sign ask |
 | `hash_order(order)` | bytes | Keccak256 hash (32 bytes) |
-| `sign_order(order, keypair)` | bytes | Ed25519 signature (64 bytes) |
+| `sign_order(order, keypair, rules)` | bytes | Exact-preflight Ed25519 signature (64 bytes) |
 
 ### Condition Helpers
 
@@ -699,11 +729,11 @@ from lightcone_sdk.program import (
     build_redeem_winnings_instruction,
     build_set_paused_instruction,
     build_set_operator_instruction,
+    build_withdraw_conditional_from_position_instruction,
     build_withdraw_from_position_instruction,
     build_activate_market_instruction,
     build_match_orders_multi_instruction,
     build_create_orderbook_instruction,
-    build_refresh_orderbook_alt_instruction,
     build_set_authority_instruction,
     build_set_manager_instruction,
     build_accept_authority_instruction,
@@ -718,12 +748,30 @@ from lightcone_sdk.program import (
     build_global_to_market_deposit_instruction,
     build_init_position_tokens_instruction,
     build_deposit_and_swap_instruction,
-    build_extend_position_tokens_instruction,
     build_withdraw_from_global_instruction,
-    build_close_position_alt_instruction,
     build_close_order_status_instruction,
     build_close_position_token_accounts_instruction,
-    build_close_orderbook_alt_instruction,
     build_close_orderbook_instruction,
 )
 ```
+
+
+### Preparation and transaction capacity
+
+Synchronous preparation builders preserve the supplied mint order. Fetch global registration records when that order is unknown:
+
+```python
+records = [await client.rpc().get_global_deposit_token(mint) for mint in deposit_mints]
+ordered_mints = [record.mint for record in sorted(records, key=lambda record: record.index)]
+ix = (client.positions().init_position_tokens()
+      .payer(payer).user(user).market(market)
+      .deposit_mints(ordered_mints).num_outcomes(num_outcomes).build_ix())
+```
+
+The same call prepares missing ATAs, validates existing accounts, and can prepare newly registered collateral groups. A successful retry reports all requested groups. Preparation does not create global custody or mint balances. Inactive registration blocks trading, but does not independently block preparation, deposits, splits, merges, or exits.
+
+Python uses the same Solana v1 outer transaction contract as Rust and TypeScript.
+Compilation and import enforce 4096 bytes including all signatures and 64 distinct
+inline account keys. Eleven-maker instructions are supported when the entire
+transaction fits these limits. Split larger account groups or instruction batches
+before compilation; there is no ALT, legacy, or v0 fallback.

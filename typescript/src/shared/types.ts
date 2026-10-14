@@ -54,20 +54,30 @@ export function receiveDenominator(side: Side): Denominator {
  * padded by the impact-protection percentage in the direction that lets the
  * order fill.
  *
- * Returns null unless both inputs are positive.
+ * Returns null unless the fill price and protection are finite and positive.
+ * Protection has no policy maximum; Ask protection at or above 100% saturates
+ * at zero.
  */
 export function applyImpactProtection(
   side: Side,
   worstFillPrice: Decimal,
   protectionPercent: Decimal
 ): Decimal | null {
-  if (worstFillPrice.lte(0) || protectionPercent.lte(0)) {
+  if (
+    !worstFillPrice.isFinite() ||
+    !protectionPercent.isFinite() ||
+    worstFillPrice.lte(0) ||
+    protectionPercent.lte(0)
+  ) {
     return null;
   }
   const factor = protectionPercent.div(100);
-  return side === Side.Bid
+  const price = side === Side.Bid
     ? worstFillPrice.mul(factor.add(1)) // buying: willing to pay more
-    : worstFillPrice.mul(new Decimal(1).sub(factor)); // selling: willing to receive less
+    : protectionPercent.gte(100)
+      ? new Decimal(0)
+      : worstFillPrice.mul(new Decimal(1).sub(factor)); // selling: willing to receive less
+  return price.isFinite() ? price : null;
 }
 
 /** Map a wire/domain `Side` onto the on-chain `OrderSide`. */
@@ -128,37 +138,10 @@ export enum TimeInForce {
   Alo = "ALO",
 }
 
-export enum TriggerType {
-  TakeProfit = "TP",
-  StopLoss = "SL",
-}
-
-export enum TriggerStatus {
-  Created = "created",
-  Triggered = "triggered",
-  Failed = "failed",
-  Expired = "expired",
-  Invalidated = "invalidated",
-}
-
 export enum OrderUpdateType {
   Placement = "PLACEMENT",
   Update = "UPDATE",
   Cancellation = "CANCELLATION",
-}
-
-export enum TriggerUpdateType {
-  Created = "CREATED",
-  Triggered = "TRIGGERED",
-  Failed = "FAILED",
-  Expired = "EXPIRED",
-  Invalidated = "INVALIDATED",
-}
-
-export enum TriggerResultStatus {
-  Filled = "filled",
-  Accepted = "accepted",
-  Rejected = "rejected",
 }
 
 export enum DepositSource {
@@ -215,23 +198,22 @@ export function deriveOrderbookId(baseToken: string, quoteToken: string): OrderB
   return `${baseToken.slice(0, 8)}_${quoteToken.slice(0, 8)}` as OrderBookId;
 }
 
+/** Signed ordinary order submitted with exact integer amounts and an optional execution policy. */
 export interface SubmitOrderRequest {
   maker: string;
   nonce: number;
-  salt: number;
+  salt: bigint;
   market_pubkey: string;
   base_token: string;
   quote_token: string;
   side: number;
-  /** u64 amount — validated to fit in Number.MAX_SAFE_INTEGER at construction time */
-  amount_in: number;
-  /** u64 amount — validated to fit in Number.MAX_SAFE_INTEGER at construction time */
-  amount_out: number;
-  expiration: number;
+  /** Positive durable signed-64-bit amount. */
+  amount_in: bigint;
+  /** Positive durable signed-64-bit amount. */
+  amount_out: bigint;
+  expiration: bigint;
   signature: string;
   orderbook_id: string;
   tif?: TimeInForce;
-  trigger_price?: number;
-  trigger_type?: TriggerType;
   deposit_source?: DepositSource;
 }

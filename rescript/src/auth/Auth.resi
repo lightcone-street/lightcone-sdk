@@ -15,3 +15,22 @@ module SignedLogin = Auth__Model.SignedLogin
 module Raw = Auth__Raw
 module Native = Auth__Native
 module Client = Auth__Client
+
+module EmailAccount = Auth__Model.EmailAccount
+
+module LinkedIdentity = Auth__Model.LinkedIdentity
+
+module LinkedIdentitySelector = Auth__Model.LinkedIdentitySelector
+
+module RegisterPrivyRequest = Auth__Model.RegisterPrivyRequest
+
+module Credentials = Auth__Model.Credentials
+
+module RegisterPrivyConflict = Auth__Model.RegisterPrivyConflict
+
+let tradingWallet: (User.t, Method.t) => string
+let credentialsFromSession: Session.t => Credentials.t
+let walletDisplayName: (User.t, Method.t) => string
+let displayName: User.t => string
+let avatarUrl: User.t => option<string>
+let classifyRegisterPrivyConflict: SdkError.t => option<RegisterPrivyConflict.t>

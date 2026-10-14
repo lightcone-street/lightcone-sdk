@@ -6,6 +6,22 @@ use thiserror::Error;
 /// Top-level SDK error.
 #[derive(Error, Debug)]
 pub enum SdkError {
+    /// The endpoint may have accepted these exact signed bytes. Do not rebuild automatically.
+    #[error("Submission outcome unknown for {signature} (last valid block height {last_valid_block_height}): {reason}")]
+    SubmissionUnknown {
+        signature: String,
+        last_valid_block_height: u64,
+        reason: String,
+    },
+
+    /// The RPC rejected this send before queuing it. No automatic retry is performed.
+    #[error("RPC rejected transaction {signature} ({code}): {reason}")]
+    SubmissionRejected {
+        signature: String,
+        code: i64,
+        reason: String,
+    },
+
     #[error("HTTP error: {0}")]
     Http(#[from] HttpError),
 
@@ -17,6 +33,15 @@ pub enum SdkError {
 
     #[error("Validation error: {0}")]
     Validation(String),
+
+    /// The declared fee payer cannot cover the required network fee or planner reserve.
+    #[error("Insufficient SOL for transaction fees. Deposit SOL to your wallet and try again.")]
+    InsufficientSolForTransactionFees {
+        /// Confirmed Native SOL Balance in the declared fee payer, in lamports.
+        available_lamports: u64,
+        /// Exact transaction fee or planner-owned reserve required, in lamports.
+        required_lamports: u64,
+    },
 
     #[error("Serialization error: {0}")]
     Serde(#[from] serde_json::Error),
@@ -33,11 +58,45 @@ pub enum SdkError {
     #[error("User cancelled signing")]
     UserCancelled,
 
+    #[error("Transaction {signature} failed on-chain: {error}")]
+    TransactionFailed { signature: String, error: String },
+
+    #[error(
+        "Transaction {signature} expired before confirmation — reconcile this signature before rebuilding"
+    )]
+    TransactionExpired { signature: String },
+
+    #[error(
+        "Timed out confirming transaction {signature} — status unknown; check the signature on-chain before resubmitting"
+    )]
+    ConfirmationTimeout { signature: String },
+
     #[error("{0}")]
     ApiRejected(ApiRejectedDetails),
 
     #[error("{0}")]
     Other(String),
+}
+
+impl SdkError {
+    /// Temporary Privy authority failure. Keep credentials and let the user retry.
+    pub fn is_privy_verification_unavailable(&self) -> bool {
+        matches!(self, Self::ApiRejected(details) if details.is_privy_verification_unavailable())
+    }
+
+    /// True when the backend rejected the request as unauthenticated (HTTP
+    /// 401) — either a bare 401 ([`HttpError::Unauthorized`]) or a 401 that
+    /// carried a structured rejection envelope ([`SdkError::ApiRejected`]
+    /// with an `http_status` of 401). Lets callers decide whether refreshing
+    /// credentials and retrying makes sense without matching on backend
+    /// error strings.
+    pub fn is_unauthorized(&self) -> bool {
+        match self {
+            SdkError::Http(HttpError::Unauthorized) => true,
+            SdkError::ApiRejected(details) => details.http_status == Some(401),
+            _ => false,
+        }
+    }
 }
 
 /// HTTP-layer errors.
@@ -65,6 +124,21 @@ pub enum HttpError {
     #[error("Timeout")]
     Timeout,
 
+    /// The browser followed a redirect off the configured API origin (WASM
+    /// only — native transports never follow redirects; a 3xx surfaces as a
+    /// status error instead). The response is refused so the redirect target
+    /// cannot impersonate the API.
+    #[error("Redirected off the API origin: {0}")]
+    RedirectedOffOrigin(String),
+
+    /// NOT produced by the SDK's HTTP retry loop. On retry exhaustion the
+    /// FINAL attempt's error propagates unchanged — structured rejection
+    /// details, status classification (`is_unauthorized` etc.), and request
+    /// id intact — because flattening it into this wrapper's `last_error`
+    /// string would destroy everything callers switch on (see the
+    /// retry-exhaustion tests). The variant stays public for consumers that
+    /// build their own retry loops on the raw/no-restore primitives and want
+    /// a conventional exhaustion error to construct.
     #[error("Max retries exceeded after {attempts} attempts: {last_error:?}")]
     MaxRetriesExceeded {
         attempts: u32,
@@ -108,4 +182,29 @@ pub enum AuthError {
 
     #[error("Token expired")]
     TokenExpired,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn insufficient_transaction_fee_error_exposes_exact_contract() {
+        let error = SdkError::InsufficientSolForTransactionFees {
+            available_lamports: 4_999,
+            required_lamports: 5_000,
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "Insufficient SOL for transaction fees. Deposit SOL to your wallet and try again."
+        );
+        assert!(matches!(
+            error,
+            SdkError::InsufficientSolForTransactionFees {
+                available_lamports: 4_999,
+                required_lamports: 5_000,
+            }
+        ));
+    }
 }

@@ -5,20 +5,20 @@ use crate::client::LightconeClient;
 use crate::domain::order::UserOrderFillsResponse;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
-#[cfg(feature = "trigger_orders")]
-use crate::program::envelope::TriggerOrderEnvelope;
 use crate::program::envelope::{LimitOrderEnvelope, OrderEnvelope};
 use crate::program::error::{SdkError as ProgramSdkError, SdkResult};
 use crate::program::instructions;
 use crate::program::orders::OrderPayload;
-use crate::program::types::CloseOrderStatusParams;
-use crate::shared::{OrderBookId, PubkeyStr};
+use crate::program::transaction::{V1Transaction, V1TransactionContext};
+use crate::program::types::{CloseOrderStatusParams, OrderSide};
+use crate::shared::{
+    validate_raw_amounts, validate_signed_fields, OrderBookId, PubkeyStr, SubmitOrderRequest,
+};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use solana_transaction::Transaction;
 
 #[cfg(feature = "native-auth")]
 use solana_keypair::Keypair;
@@ -121,47 +121,6 @@ impl CancelAllBody {
     }
 }
 
-#[cfg(feature = "trigger_orders")]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CancelTriggerBody {
-    pub trigger_order_id: String,
-    pub maker: PubkeyStr,
-    pub signature: String,
-}
-
-#[cfg(feature = "trigger_orders")]
-impl CancelTriggerBody {
-    /// Build a cancel-trigger request with a base58-encoded signature (from a wallet adapter).
-    /// Converts base58 to the hex encoding the backend expects.
-    pub fn from_base58(
-        trigger_order_id: String,
-        maker: PubkeyStr,
-        sig_bs58: &str,
-    ) -> SdkResult<Self> {
-        let sig = sig_bs58
-            .parse::<Signature>()
-            .map_err(|_| ProgramSdkError::InvalidSignature)?;
-        Ok(Self {
-            trigger_order_id,
-            maker,
-            signature: hex::encode(sig.as_ref()),
-        })
-    }
-
-    /// Build a signed cancel-trigger request using a native keypair.
-    /// Signs `cancel_trigger_order_message(trigger_order_id)` and hex-encodes the result.
-    #[cfg(feature = "native-auth")]
-    pub fn signed(trigger_order_id: String, maker: PubkeyStr, keypair: &Keypair) -> Self {
-        let message = crate::program::orders::cancel_trigger_order_message(&trigger_order_id);
-        let sig = keypair.sign_message(&message);
-        Self {
-            trigger_order_id,
-            maker,
-            signature: hex::encode(sig.as_ref()),
-        }
-    }
-}
-
 // ─── Response types ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -205,24 +164,10 @@ pub struct CancelAllSuccess {
     pub message: String,
 }
 
-#[cfg(feature = "trigger_orders")]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TriggerOrderResponse {
-    pub trigger_order_id: String,
-    pub order_hash: String,
-}
-
-#[cfg(feature = "trigger_orders")]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CancelTriggerSuccess {
-    pub trigger_order_id: String,
-}
-
+/// Limit orders and account metadata from a paginated REST response.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UserOrdersResponse {
     pub user_pubkey: PubkeyStr,
-    /// All orders (both limit and trigger) in a single array.
-    /// Discriminated by `order_type` field on each order.
     pub orders: Vec<UserSnapshotOrder>,
     pub market_balances: Vec<UserMarketBalance>,
     pub next_cursor: Option<String>,
@@ -259,16 +204,6 @@ impl<'a> Orders<'a> {
         LimitOrderEnvelope::new().deposit_source(deposit_source)
     }
 
-    /// Create a `TriggerOrderEnvelope` pre-seeded with the client's deposit source.
-    ///
-    /// Users can still override the deposit source on the returned envelope
-    /// by calling `.deposit_source()` before signing.
-    #[cfg(feature = "trigger_orders")]
-    pub async fn trigger_order(&self) -> TriggerOrderEnvelope {
-        let deposit_source = self.client.deposit_source().await;
-        TriggerOrderEnvelope::new().deposit_source(deposit_source)
-    }
-
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /// Generate a random salt for cancel-all replay protection.
@@ -278,8 +213,9 @@ impl<'a> Orders<'a> {
 
     pub async fn submit(
         &self,
-        request: &impl serde::Serialize,
+        request: &SubmitOrderRequest,
     ) -> Result<SubmitOrderResponse, SdkError> {
+        self.preflight_submit(request).await?;
         let url = format!("{}/api/orders/submit", self.client.http.base_url());
         self.client
             .http
@@ -297,25 +233,28 @@ impl<'a> Orders<'a> {
         self.client.http.post(&url, body, RetryPolicy::None).await
     }
 
-    #[cfg(feature = "trigger_orders")]
-    pub async fn submit_trigger(
-        &self,
-        request: &impl serde::Serialize,
-    ) -> Result<TriggerOrderResponse, SdkError> {
-        let url = format!("{}/api/orders/submit", self.client.http.base_url());
-        self.client
-            .http
-            .post(&url, request, RetryPolicy::None)
-            .await
-    }
-
-    #[cfg(feature = "trigger_orders")]
-    pub async fn cancel_trigger(
-        &self,
-        body: &CancelTriggerBody,
-    ) -> Result<CancelTriggerSuccess, SdkError> {
-        let url = format!("{}/api/orders/cancel", self.client.http.base_url());
-        self.client.http.post(&url, body, RetryPolicy::None).await
+    /// Checks exact signed amounts against the current orderbook rules before submission.
+    async fn preflight_submit(&self, request: &SubmitOrderRequest) -> Result<(), SdkError> {
+        let rules = self
+            .client
+            .orderbooks()
+            .decimals(&request.orderbook_id)
+            .await?;
+        let side = match request.side {
+            0 => OrderSide::Bid,
+            1 => OrderSide::Ask,
+            value => return Err(ProgramSdkError::InvalidSide(value as u8).into()),
+        };
+        validate_raw_amounts(request.amount_in, request.amount_out, side, &rules)
+            .map_err(ProgramSdkError::from)?;
+        validate_signed_fields(
+            request.amount_in,
+            request.amount_out,
+            request.salt,
+            request.nonce,
+        )
+        .map_err(ProgramSdkError::from)?;
+        Ok(())
     }
 
     /// Fetch the authenticated user's open orders. Wallet is resolved
@@ -546,50 +485,6 @@ impl<'a> Orders<'a> {
         }
     }
 
-    /// Cancel a trigger order using the client's signing strategy.
-    ///
-    /// Signs the cancel message and submits the cancellation request.
-    #[cfg(feature = "trigger_orders")]
-    pub async fn cancel_trigger_signed(
-        &self,
-        trigger_order_id: &str,
-        maker: &PubkeyStr,
-    ) -> Result<CancelTriggerSuccess, SdkError> {
-        use crate::shared::signing::SigningStrategy;
-
-        let strategy = self.client.signing_strategy().await.ok_or_else(|| {
-            SdkError::Validation("signing strategy is not set on the client".into())
-        })?;
-
-        match strategy {
-            #[cfg(feature = "native-auth")]
-            SigningStrategy::Native(keypair) => {
-                let body = CancelTriggerBody::signed(
-                    trigger_order_id.to_string(),
-                    maker.clone(),
-                    &keypair,
-                );
-                self.cancel_trigger(&body).await
-            }
-            SigningStrategy::WalletAdapter(signer) => {
-                let message =
-                    crate::program::orders::cancel_trigger_order_message(trigger_order_id);
-                let sig_bytes = signer
-                    .sign_message(&message)
-                    .await
-                    .map_err(crate::shared::signing::classify_signer_error)?;
-                let sig_bs58 = bs58::encode(&sig_bytes).into_string();
-                let body = CancelTriggerBody::from_base58(
-                    trigger_order_id.to_string(),
-                    maker.clone(),
-                    &sig_bs58,
-                )
-                .map_err(|error| SdkError::Program(error))?;
-                self.cancel_trigger(&body).await
-            }
-        }
-    }
-
     // ── On-chain instruction builders ───────────────────────────────────
 
     /// Build CancelOrder instruction (on-chain cancellation).
@@ -609,9 +504,10 @@ impl<'a> Orders<'a> {
         operator: &Pubkey,
         market: &Pubkey,
         order: &OrderPayload,
-    ) -> Result<Transaction, SdkError> {
+        context: &V1TransactionContext,
+    ) -> Result<V1Transaction, SdkError> {
         let ix = self.cancel_order_ix(operator, market, order);
-        Ok(Transaction::new_with_payer(&[ix], Some(operator)))
+        Ok(V1Transaction::compile(&[ix], operator, context)?)
     }
 
     /// Build IncrementNonce instruction.
@@ -621,9 +517,13 @@ impl<'a> Orders<'a> {
     }
 
     /// Build IncrementNonce transaction.
-    pub fn increment_nonce_tx(&self, user: &Pubkey) -> Result<Transaction, SdkError> {
+    pub fn increment_nonce_tx(
+        &self,
+        user: &Pubkey,
+        context: &V1TransactionContext,
+    ) -> Result<V1Transaction, SdkError> {
         let ix = self.increment_nonce_ix(user);
-        Ok(Transaction::new_with_payer(&[ix], Some(user)))
+        Ok(V1Transaction::compile(&[ix], user, context)?)
     }
 
     /// Build CloseOrderStatus instruction.
@@ -636,9 +536,10 @@ impl<'a> Orders<'a> {
     pub fn close_order_status_tx(
         &self,
         params: CloseOrderStatusParams,
-    ) -> Result<Transaction, SdkError> {
+        context: &V1TransactionContext,
+    ) -> Result<V1Transaction, SdkError> {
         let ix = self.close_order_status_ix(&params);
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
+        Ok(V1Transaction::compile(&[ix], &params.operator, context)?)
     }
 
     // ── Order helpers ────────────────────────────────────────────────────
@@ -659,8 +560,9 @@ impl<'a> Orders<'a> {
         &self,
         params: crate::program::types::BidOrderParams,
         keypair: &Keypair,
-    ) -> OrderPayload {
-        OrderPayload::new_bid_signed(params, keypair)
+        rules: &crate::shared::OrderbookRules,
+    ) -> SdkResult<OrderPayload> {
+        OrderPayload::new_bid_signed(params, keypair, rules)
     }
 
     /// Create and sign an ask order.
@@ -669,8 +571,9 @@ impl<'a> Orders<'a> {
         &self,
         params: crate::program::types::AskOrderParams,
         keypair: &Keypair,
-    ) -> OrderPayload {
-        OrderPayload::new_ask_signed(params, keypair)
+        rules: &crate::shared::OrderbookRules,
+    ) -> SdkResult<OrderPayload> {
+        OrderPayload::new_ask_signed(params, keypair, rules)
     }
 
     /// Compute the hash of an order.
@@ -680,8 +583,13 @@ impl<'a> Orders<'a> {
 
     /// Sign an order with the given keypair.
     #[cfg(feature = "native-auth")]
-    pub fn sign_order(&self, order: &mut OrderPayload, keypair: &Keypair) {
-        order.sign(keypair);
+    pub fn sign_order(
+        &self,
+        order: &mut OrderPayload,
+        keypair: &Keypair,
+        rules: &crate::shared::OrderbookRules,
+    ) -> SdkResult<()> {
+        order.sign(keypair, rules)
     }
 }
 

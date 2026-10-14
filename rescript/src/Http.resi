@@ -3,11 +3,23 @@
 // x-request-id generation, cookie capture, retry/backoff loop, and `ApiResponse`
 // unwrapping are all internal.
 
+module RetryConfig: {
+  @genType
+  type t = {
+    maxRetries: int,
+    initialDelayMs: float,
+    maxDelayMs: float,
+    backoffFactor: float,
+    jitter: bool,
+    retryableStatuses: array<int>,
+  }
+}
 module RetryPolicy: {
   @genType
   type t =
     | NoRetry
     | Idempotent
+    | Custom(RetryConfig.t)
 }
 
 // Opaque to TypeScript: the configured HTTP transport is a capability (base URL + a mutable
@@ -17,6 +29,10 @@ module RetryPolicy: {
 @genType.opaque
 type t
 
+type restorer = unit => promise<bool>
+let setCredentialRestorer: (t, option<restorer>) => unit
+let setServerApiKey: (t, string) => result<unit, SdkError.t>
+let isBrowser: unit => bool
 let make: string => t
 let baseUrl: t => string
 let authToken: t => option<string>
@@ -32,6 +48,7 @@ let get: (
   ~query: array<(string, string)>=?,
   ~retry: RetryPolicy.t=?,
   ~cookieHeader: string=?,
+  ~restoreCredentials: bool=?,
   ~decode: JSON.t => result<'a, Spice.decodeError>,
 ) => promise<result<'a, SdkError.t>>
 
@@ -39,6 +56,14 @@ let post: (
   t,
   ~path: string,
   ~body: JSON.t,
+  ~retry: RetryPolicy.t=?,
+  ~cookieHeader: string=?,
+  ~restoreCredentials: bool=?,
+  ~decode: JSON.t => result<'a, Spice.decodeError>,
+) => promise<result<'a, SdkError.t>>
+let delete: (
+  t,
+  ~path: string,
   ~retry: RetryPolicy.t=?,
   ~cookieHeader: string=?,
   ~decode: JSON.t => result<'a, Spice.decodeError>,

@@ -61,7 +61,8 @@ let getLatestBlockhashOn = async (rpc: SolanaKitRpc.t): result<string, SdkError.
     | Some(blockhash) => Ok(blockhash)
     | None => Error(SdkError.Other("getLatestBlockhash: response missing blockhash"))
     }
-  | exception JsExn(error) => Error(SdkError.Other(`getLatestBlockhash failed: ${exnMessage(error)}`))
+  | exception JsExn(error) =>
+    Error(SdkError.Other(`getLatestBlockhash failed: ${exnMessage(error)}`))
   }
 
 let getLatestBlockhash = (client: Client.t): promise<result<string, SdkError.t>> =>
@@ -73,11 +74,15 @@ let getLatestBlockhash = (client: Client.t): promise<result<string, SdkError.t>>
 
 // ── Raw account data ────────────────────────────────────────────────────────────
 // Account DATA bytes, or `None` when the account doesn't exist (with failover).
-let getAccountDataOn = async (
-  rpc: SolanaKitRpc.t,
-  address: SolanaKit.address,
-): result<option<Uint8Array.t>, SdkError.t> =>
-  switch await SolanaKitRpc.getAccountInfo(rpc, address, {"encoding": "base64"})->SolanaKitRpc.send {
+let getAccountDataOn = async (rpc: SolanaKitRpc.t, address: SolanaKit.address): result<
+  option<Uint8Array.t>,
+  SdkError.t,
+> =>
+  switch await SolanaKitRpc.getAccountInfo(
+    rpc,
+    address,
+    {"encoding": "base64"},
+  )->SolanaKitRpc.send {
   | response =>
     switch accountDataBase64(response) {
     | Some(base64) => Ok(Some(base64ToBytes(base64)))
@@ -86,10 +91,9 @@ let getAccountDataOn = async (
   | exception JsExn(error) => Error(SdkError.Other(`getAccountInfo failed: ${exnMessage(error)}`))
   }
 
-let getAccountData = (
-  client: Client.t,
-  address: SolanaKit.address,
-): promise<result<option<Uint8Array.t>, SdkError.t>> =>
+let getAccountData = (client: Client.t, address: SolanaKit.address): promise<
+  result<option<Uint8Array.t>, SdkError.t>,
+> =>
   RpcFailover.withFailover(
     client.rpcFailover,
     ~hasBackup=client.backupRpcUrl->Option.isSome,
@@ -132,7 +136,10 @@ let orderbookPda = async (
   address
 }
 
-let globalDepositTokenPda = async (client: Client.t, ~mint: SolanaKit.address): SolanaKit.address => {
+let globalDepositTokenPda = async (
+  client: Client.t,
+  ~mint: SolanaKit.address,
+): SolanaKit.address => {
   let (address, _bump) = await Pda.globalDepositToken(client.programId, ~mint)
   address
 }
@@ -152,44 +159,50 @@ let getExchange = async (client: Client.t): result<Accounts.Exchange.t, SdkError
   let pda = await exchangePda(client)
   switch await getAccountData(client, pda) {
   | Error(error) => Error(error)
-  | Ok(None) => Error(SdkError.Program("Exchange: account not found"))
+  | Ok(None) => Error(SdkError.Program(ProgramError.Other("Exchange: account not found")))
   | Ok(Some(bytes)) => Accounts.Exchange.decode(bytes)
   }
 }
 
 // Fetch + decode a Market by its on-chain pubkey.
-let getMarket = async (client: Client.t, market: SolanaKit.address): result<Accounts.Market.t, SdkError.t> =>
+let getMarket = async (client: Client.t, market: SolanaKit.address): result<
+  Accounts.Market.t,
+  SdkError.t,
+> =>
   switch await getAccountData(client, market) {
   | Error(error) => Error(error)
-  | Ok(None) => Error(SdkError.Program("Market: account not found"))
+  | Ok(None) => Error(SdkError.Program(ProgramError.Other("Market: account not found")))
   | Ok(Some(bytes)) => Accounts.Market.decode(bytes)
   }
 
 // Fetch + decode a Market by its numeric id (derives the PDA first).
-let getMarketById = async (client: Client.t, ~marketId: bigint): result<Accounts.Market.t, SdkError.t> => {
+let getMarketById = async (client: Client.t, ~marketId: bigint): result<
+  Accounts.Market.t,
+  SdkError.t,
+> => {
   let (market, _) = await Pda.market(client.programId, ~marketId)
   await getMarket(client, market)
 }
 
 // Fetch + decode a whitelisted GlobalDepositToken entry for a mint.
-let getGlobalDepositToken = async (
-  client: Client.t,
-  ~mint: SolanaKit.address,
-): result<Accounts.GlobalDepositToken.t, SdkError.t> => {
+let getGlobalDepositToken = async (client: Client.t, ~mint: SolanaKit.address): result<
+  Accounts.GlobalDepositToken.t,
+  SdkError.t,
+> => {
   let (pda, _) = await Pda.globalDepositToken(client.programId, ~mint)
   switch await getAccountData(client, pda) {
   | Error(error) => Error(error)
-  | Ok(None) => Error(SdkError.Program("GlobalDepositToken: account not found"))
+  | Ok(None) => Error(SdkError.Program(ProgramError.Other("GlobalDepositToken: account not found")))
   | Ok(Some(bytes)) => Accounts.GlobalDepositToken.decode(bytes)
   }
 }
 
 // Fetch + decode an order's on-chain OrderStatus PDA; `None` when the account
 // does not exist (fully filled + closed, or never created).
-let getOrderStatus = async (
-  client: Client.t,
-  ~orderHash: Uint8Array.t,
-): result<option<Accounts.OrderStatus.t>, SdkError.t> => {
+let getOrderStatus = async (client: Client.t, ~orderHash: Uint8Array.t): result<
+  option<Accounts.OrderStatus.t>,
+  SdkError.t,
+> => {
   let (pda, _) = await Pda.orderStatus(client.programId, ~orderHash)
   switch await getAccountData(client, pda) {
   | Error(error) => Error(error)
@@ -211,7 +224,7 @@ let getOrderbook = async (
   let pda = await orderbookPda(client, ~mintA, ~mintB)
   switch await getAccountData(client, pda) {
   | Error(error) => Error(error)
-  | Ok(None) => Error(SdkError.Program("Orderbook: account not found"))
+  | Ok(None) => Error(SdkError.Program(ProgramError.Other("Orderbook: account not found")))
   | Ok(Some(bytes)) => Accounts.Orderbook.decode(bytes)
   }
 }

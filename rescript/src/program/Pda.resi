@@ -32,15 +32,9 @@ let conditionalMint: (
   ~outcomeIndex: int,
 ) => promise<(SolanaKit.address, int)>
 
-let condition: (
-  SolanaKit.address,
-  ~conditionId: Uint8Array.t,
-) => promise<(SolanaKit.address, int)>
+let condition: (SolanaKit.address, ~conditionId: Uint8Array.t) => promise<(SolanaKit.address, int)>
 
-let orderStatus: (
-  SolanaKit.address,
-  ~orderHash: Uint8Array.t,
-) => promise<(SolanaKit.address, int)>
+let orderStatus: (SolanaKit.address, ~orderHash: Uint8Array.t) => promise<(SolanaKit.address, int)>
 
 let globalDepositToken: (
   SolanaKit.address,
@@ -62,19 +56,11 @@ let orderbook: (
 // @ MPL metadata program.
 let mplMetadata: (~conditionalMint: SolanaKit.address) => promise<(SolanaKit.address, int)>
 
-// @ ALT program.
-let alt: (~orderbook: SolanaKit.address, ~recentSlot: bigint) => promise<(SolanaKit.address, int)>
-
-// @ ALT program.
-let positionAlt: (
-  ~position: SolanaKit.address,
-  ~recentSlot: bigint,
-) => promise<(SolanaKit.address, int)>
-
-// Every outcome's conditional mint for (market, deposit_mint), in outcome order.
 let allConditionalMints: (
   SolanaKit.address,
   ~market: SolanaKit.address,
   ~depositMint: SolanaKit.address,
   ~numOutcomes: int,
 ) => promise<array<SolanaKit.address>>
+
+let eventAuthority: SolanaKit.address => promise<(SolanaKit.address, int)>

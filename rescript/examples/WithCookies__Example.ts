@@ -33,7 +33,7 @@ async function main(): Promise<void> {
   await AuthClient.login(client, undefined);
 
   const balances = await PositionClient.depositTokenBalances(client);
-  console.log(`tracked deposit balances: ${Object.keys(balances).length}`);
+  console.log(`tracked deposit balances: ${Object.keys(balances.balances).length}`);
 
   const orders = await OrderClient.forUser(client, 50, undefined);
   console.log(`open orders: ${orders.orders.length}`);

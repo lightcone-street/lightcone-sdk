@@ -18,7 +18,8 @@ async fn main() -> ExampleResult {
     let grouped_aggregation =
         BookAggregation::validate(Some(5), Some(2)).map_err(|message| other(message))?;
     let mut full_book = OrderbookState::new(orderbook_id.clone());
-    let mut grouped_book = OrderbookState::new(orderbook_id.clone());
+    let mut grouped_book =
+        OrderbookState::with_aggregation(orderbook_id.clone(), grouped_aggregation);
     let mut trades = TradeHistory::new(orderbook_id.clone(), 20);
 
     ws.connect().await?;
@@ -51,25 +52,25 @@ async fn main() -> ExampleResult {
                     // Untagged frames are the full-precision view; frames from
                     // the grouped subscription carry n_sig_figs/mantissa.
                     let aggregation = update.aggregation();
+                    let book = if aggregation == grouped_aggregation {
+                        &mut grouped_book
+                    } else {
+                        &mut full_book
+                    };
                     if update.resync {
                         // Refresh exactly the affected view: re-subscribe with
-                        // the SAME aggregation. The fresh snapshot arrives with
-                        // seq 0 and replaces the book (last-write-wins).
+                        // the SAME aggregation and reset its revision gate.
                         ws.send(MessageOut::unsubscribe_books(
                             vec![update.id.clone()],
                             aggregation,
                         ))?;
+                        book.begin_generation();
                         ws.send(MessageOut::subscribe_books(
                             vec![update.id.clone()],
                             aggregation,
                         ))?;
                         continue;
                     }
-                    let book = if aggregation == grouped_aggregation {
-                        &mut grouped_book
-                    } else {
-                        &mut full_book
-                    };
                     book.apply(&update);
                     println!(
                         "book[{}]: seq={} bid={:?} ask={:?}",
@@ -87,6 +88,10 @@ async fn main() -> ExampleResult {
                     );
                     trades.push(trade.into());
                     hits += 1;
+                }
+                WsEvent::Connected => {
+                    full_book.begin_generation();
+                    grouped_book.begin_generation();
                 }
                 WsEvent::Error(err) => eprintln!("ws error: {err}"),
                 _ => {}

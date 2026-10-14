@@ -5,13 +5,9 @@ use common::{
     ExampleResult,
 };
 use lightcone::prelude::*;
+use lightcone::program::V1Transaction;
+use lightcone::{program::types::OrderSide, shared::scale_price_size};
 use solana_signer::Signer;
-use solana_transaction::Transaction;
-
-// Mirrors the constant in `submit_order.rs`. When we cancel the order that
-// example left open, we withdraw the same quote amount back from the global
-// pool so the deposit/submit/cancel/withdraw cycle is net-neutral.
-const ORDER_QUOTE_AMOUNT: u64 = 1_100_000; // 0.55 * 2 USDC, 6 decimals
 
 #[tokio::main]
 async fn main() -> ExampleResult {
@@ -21,15 +17,12 @@ async fn main() -> ExampleResult {
 
     let snapshot = client.orders().get_user_orders(Some(50), None).await?;
 
-    let Some((order_hash, orderbook_id)) = snapshot.orders.iter().find_map(|order| match order {
-        UserSnapshotOrder::Limit { common, .. } => {
-            Some((common.order_hash.clone(), common.orderbook_id.clone()))
-        }
-        UserSnapshotOrder::Trigger { .. } => None,
-    }) else {
+    let Some(UserSnapshotOrder::Limit { common, .. }) = snapshot.orders.first() else {
         println!("No open limit orders to cancel.");
         return Ok(());
     };
+    let order_hash = common.order_hash.clone();
+    let orderbook_id = common.orderbook_id.clone();
 
     let cancel = CancelBody::signed(order_hash, keypair.pubkey().into(), &keypair);
     let salt = generate_cancel_all_salt();
@@ -58,20 +51,35 @@ async fn main() -> ExampleResult {
     // companion `submit_order` → `cancel_order` cycle is net-neutral on the
     // wallet's balance and the global pool.
     let (_market, orderbook) = market_and_orderbook(&client).await?;
+    let rules = client
+        .orderbooks()
+        .decimals(orderbook.orderbook_id.as_str())
+        .await?;
+    let order_quote_amount = scale_price_size(
+        &rules.trading_rules.price_quantum,
+        "1",
+        OrderSide::Bid,
+        &rules,
+    )?
+    .quote_atoms;
     let mint = quote_deposit_mint(&orderbook)?;
-    let rpc_sub = client.rpc();
-    let rpc = rpc_sub.inner().await?;
     let withdraw_ix = client
         .positions()
         .withdraw_from_global()
         .user(keypair.pubkey())
         .mint(mint)
-        .amount(ORDER_QUOTE_AMOUNT)
+        .amount(order_quote_amount)
         .build_ix()?;
-    let blockhash = rpc_sub.get_latest_blockhash().await?;
-    let mut withdraw_tx = Transaction::new_with_payer(&[withdraw_ix], Some(&keypair.pubkey()));
-    withdraw_tx.try_sign(&[&keypair], blockhash)?;
-    let withdraw_sig = rpc.send_and_confirm_transaction(&withdraw_tx).await?;
+    let context = client.transaction_context().await?;
+    let withdraw_tx = V1Transaction::compile(&[withdraw_ix], &keypair.pubkey(), &context)?;
+    let withdraw_tx = withdraw_tx.sign(&[&keypair])?;
+    let withdraw_sig = client.submit_signed_transaction(&withdraw_tx).await?;
+    client
+        .confirm_signature(
+            &withdraw_sig,
+            Some(withdraw_tx.context().last_valid_block_height),
+        )
+        .await?;
     println!("withdraw_from_global: confirmed {withdraw_sig}");
 
     Ok(())

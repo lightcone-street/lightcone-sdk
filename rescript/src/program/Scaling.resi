@@ -1,41 +1,73 @@
-// Price/size → raw u64 maker/taker amounts.
-// Public surface: the decimals config, the scaled-amounts result, the error
-// enum, and the two pure transforms. The decimal.js %raw helpers are internal.
-
-// The orderbook pair's decimals config.
-module OrderbookDecimals: {
-  @genType
+// Exact decimal and signed-ratio admission against server-owned rules.
+module TradingRules: {
+  @genType @spice @genType
   type t = {
-    baseDecimals: int,
-    quoteDecimals: int,
-    priceDecimals: int,
-    // Minimum price increment in quote lamports; 0 or 1 disables tick alignment.
-    tickSize: float,
+    @spice.key("base_size_decimals") baseSizeDecimals: int,
+    @spice.key("max_price_decimals") maxPriceDecimals: int,
+    @spice.key("max_price_significant_figures") maxPriceSignificantFigures: int,
+    @spice.key("integer_prices_always_allowed") integerPricesAlwaysAllowed: bool,
+    @spice.key("price_quantum") priceQuantum: string,
+    @spice.key("price_quantum_raw") priceQuantumRaw: string,
+    @spice.key("base_size_quantum") baseSizeQuantum: string,
+    @spice.key("base_size_quantum_raw") baseSizeQuantumRaw: string,
   }
 }
-
-// The scaled maker/taker amounts.
+module OrderbookRules: {
+  @genType @spice @genType
+  type t = {
+    @spice.key("orderbook_id") orderbookId: string,
+    @spice.key("base_decimals") baseDecimals: int,
+    @spice.key("quote_decimals") quoteDecimals: int,
+    @spice.key("price_decimals") priceDecimals: int,
+    @spice.key("trading_rules") tradingRules: TradingRules.t,
+  }
+}
 module Amounts: {
   @genType
-  type t = {amountIn: bigint, amountOut: bigint}
+  type t = {
+    amountIn: bigint,
+    amountOut: bigint,
+    priceRaw: bigint,
+    baseAtoms: bigint,
+    quoteAtoms: bigint,
+  }
 }
-
 module Error: {
   @genType
   type t =
+    | InvalidDecimal({input: string, reason: string})
     | NonPositivePrice(string)
     | NonPositiveSize(string)
-    | Overflow(string)
-    | ZeroAmount
+    | InvalidSizeDecimals
+    | InvalidPriceDecimals
+    | InvalidPriceSignificantFigures
+    | PriceNotExactlyRepresentable
+    | PriceOutOfRange
+    | OrderFieldOutOfRange(string)
+    | OrderbookMismatch({expected: string, actual: string})
 }
-
-// side: 0 = Bid, 1 = Ask.
+let priceScale: bigint
+let i64Max: bigint
+let nonceMax: bigint
+let toMessage: Error.t => string
+let exactScaledInteger: (string, int) => result<bigint, Error.t>
+let validateForOrderbook: (OrderbookRules.t, string) => result<unit, Error.t>
+let validateRules: OrderbookRules.t => result<unit, Error.t>
 let scalePriceSize: (
   ~price: string,
   ~size: string,
   ~side: int,
-  ~decimals: OrderbookDecimals.t,
+  ~rules: OrderbookRules.t,
 ) => result<Amounts.t, Error.t>
-
-// Snap a price to the nearest valid tick (quote-lamport multiple of tick_size).
-let alignPriceToTick: (string, OrderbookDecimals.t) => string
+let validateRawAmounts: (
+  ~amountIn: bigint,
+  ~amountOut: bigint,
+  ~side: int,
+  ~rules: OrderbookRules.t,
+) => result<Amounts.t, Error.t>
+let validateSignedFields: (
+  ~amountIn: bigint,
+  ~amountOut: bigint,
+  ~salt: bigint,
+  ~nonce: bigint,
+) => result<unit, Error.t>

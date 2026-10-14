@@ -5,7 +5,6 @@
 // discriminator we compare on read.
 
 // ── Well-known program addresses ──────────────────────────────────────────────
-let altProgram = SolanaKit.address("AddressLookupTab1e1111111111111111111111111")
 let systemProgram = SolanaKit.address("11111111111111111111111111111111")
 let rentSysvar = SolanaKit.address("SysvarRent111111111111111111111111111111111")
 let mplTokenMetadataProgram = SolanaKit.address("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s")
@@ -39,12 +38,9 @@ module Instruction = {
   let globalToMarketDeposit = 18
   let initPositionTokens = 19
   let depositAndSwap = 20
-  let extendPositionTokens = 21
   let withdrawFromGlobal = 22
-  let closePositionAlt = 23
   let closeOrderStatus = 24
   let closePositionTokenAccounts = 25
-  let closeOrderbookAlt = 26
   let closeOrderbook = 27
   let setManager = 28
   let setMarketFees = 29
@@ -52,7 +48,6 @@ module Instruction = {
   let createConditionalMetadata = 31
   let updateConditionalMetadata = 32
   let setOracle = 33
-  let refreshOrderbookAlt = 34
   let acceptAuthority = 35
   let acceptManager = 36
   let acceptOperator = 37
@@ -76,4 +71,7 @@ let orderSize = 37
 let signatureSize = 64
 let maxOutcomes = 6
 let minOutcomes = 2
-let maxMakers = 5
+let maxMakers = 11
+
+let maxDepositMints = 8
+let initializeAuthority = SolanaKit.address("3vYRAzr5X41hrmKMnDCoQJJmPH89S4LLwmFpk8UtwCqr")

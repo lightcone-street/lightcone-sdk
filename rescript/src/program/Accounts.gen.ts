@@ -3,9 +3,9 @@
 /* eslint-disable */
 /* tslint:disable */
 
-import type {pubkeyStr as Shared_pubkeyStr} from '../../src/Shared.gen.ts';
+import type {Shared_pubkeyStr as LightconeSdk_Shared_pubkeyStr} from './LightconeSdk.gen.ts';
 
-export type MarketStatus_t = 
+export type MarketStatus_t =
     "Pending"
   | "Active"
   | "Resolved"
@@ -14,58 +14,61 @@ export type MarketStatus_t =
 export type PendingRoleKind_t = "None" | "Authority" | "Manager" | "Operator";
 
 export type Exchange_t = {
-  readonly authority: Shared_pubkeyStr; 
-  readonly operator: Shared_pubkeyStr; 
-  readonly manager: Shared_pubkeyStr; 
-  readonly marketCount: bigint; 
-  readonly paused: boolean; 
-  readonly bump: number; 
-  readonly depositTokenCount: number; 
-  readonly feeReceiver: Shared_pubkeyStr; 
-  readonly pendingRole: Shared_pubkeyStr; 
+  readonly authority: LightconeSdk_Shared_pubkeyStr;
+  readonly operator: LightconeSdk_Shared_pubkeyStr;
+  readonly manager: LightconeSdk_Shared_pubkeyStr;
+  readonly marketCount: bigint;
+  readonly paused: boolean;
+  readonly bump: number;
+  readonly depositTokenCount: number;
+  readonly feeReceiver: LightconeSdk_Shared_pubkeyStr;
+  readonly pendingRole: LightconeSdk_Shared_pubkeyStr;
   readonly pendingRoleKind: PendingRoleKind_t
 };
 
 export type Market_t = {
-  readonly marketId: bigint; 
-  readonly numOutcomes: number; 
-  readonly status: MarketStatus_t; 
-  readonly bump: number; 
-  readonly makerFeeBps: number; 
-  readonly takerFeeBps: number; 
-  readonly oracle: Shared_pubkeyStr; 
-  readonly questionId: string; 
-  readonly conditionId: string; 
-  readonly payoutNumerators: number[]; 
-  readonly payoutDenominator: number
+  readonly marketId: bigint;
+  readonly numOutcomes: number;
+  readonly status: MarketStatus_t;
+  readonly bump: number;
+  readonly makerFeeBps: number;
+  readonly takerFeeBps: number;
+  readonly oracle: LightconeSdk_Shared_pubkeyStr;
+  readonly questionId: string;
+  readonly conditionId: string;
+  readonly payoutNumerators: number[];
+  readonly payoutDenominator: number;
+  readonly depositMintCount: number
 };
 
 export type Orderbook_t = {
-  readonly market: Shared_pubkeyStr; 
-  readonly mintA: Shared_pubkeyStr; 
-  readonly mintB: Shared_pubkeyStr; 
-  readonly lookupTable: Shared_pubkeyStr; 
-  readonly baseIndex: number; 
+  readonly market: LightconeSdk_Shared_pubkeyStr;
+  readonly mintA: LightconeSdk_Shared_pubkeyStr;
+  readonly mintB: LightconeSdk_Shared_pubkeyStr;
+  readonly depositMintA: LightconeSdk_Shared_pubkeyStr;
+  readonly depositMintB: LightconeSdk_Shared_pubkeyStr;
+  readonly outcomeIndex: number;
+  readonly baseIndex: number;
   readonly bump: number
 };
 
 export type Position_t = {
-  readonly owner: Shared_pubkeyStr; 
-  readonly market: Shared_pubkeyStr; 
+  readonly owner: LightconeSdk_Shared_pubkeyStr;
+  readonly market: LightconeSdk_Shared_pubkeyStr;
   readonly bump: number
 };
 
 export type UserNonce_t = { readonly nonce: bigint };
 
 export type OrderStatus_t = {
-  readonly remaining: bigint; 
-  readonly baseRemaining: bigint; 
+  readonly remaining: bigint;
+  readonly baseRemaining: bigint;
   readonly isCancelled: boolean
 };
 
 export type GlobalDepositToken_t = {
-  readonly mint: Shared_pubkeyStr; 
-  readonly bump: number; 
-  readonly index: number; 
+  readonly mint: LightconeSdk_Shared_pubkeyStr;
+  readonly bump: number;
+  readonly index: number;
   readonly active: boolean
 };

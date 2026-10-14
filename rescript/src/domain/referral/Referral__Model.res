@@ -27,3 +27,38 @@ module RedeemResult = {
     isBeta: bool,
   }
 }
+
+module RedeemErrorCode = {
+  @genType
+  type t =
+    | InvalidCode
+    | CodeFullyRedeemed
+    | AlreadyBeta
+    | SelfReferral
+    | AlreadyRedeemedByUser
+    | RateLimited
+    | InternalError
+    | Unknown(string)
+  let fromWire = raw =>
+    switch raw {
+    | "INVALID_CODE" => InvalidCode
+    | "CODE_FULLY_REDEEMED" => CodeFullyRedeemed
+    | "ALREADY_BETA" => AlreadyBeta
+    | "SELF_REFERRAL" => SelfReferral
+    | "ALREADY_REDEEMED_BY_USER" => AlreadyRedeemedByUser
+    | "RATE_LIMITED" => RateLimited
+    | "INTERNAL_ERROR" => InternalError
+    | _ => Unknown(raw)
+    }
+  let toWire = code =>
+    switch code {
+    | InvalidCode => "INVALID_CODE"
+    | CodeFullyRedeemed => "CODE_FULLY_REDEEMED"
+    | AlreadyBeta => "ALREADY_BETA"
+    | SelfReferral => "SELF_REFERRAL"
+    | AlreadyRedeemedByUser => "ALREADY_REDEEMED_BY_USER"
+    | RateLimited => "RATE_LIMITED"
+    | InternalError => "INTERNAL_ERROR"
+    | Unknown(raw) => raw
+    }
+}

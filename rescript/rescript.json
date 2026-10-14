@@ -1,21 +1,108 @@
 {
   "name": "@lightconexyz/lightcone-sdk-rescript",
   "sources": [
-    { "dir": "src", "subdirs": true },
-    { "dir": "bindings", "subdirs": true },
-    { "dir": "examples", "subdirs": false, "type": "dev" },
-    { "dir": "tests", "subdirs": true, "type": "dev" }
+    {
+      "dir": "src",
+      "subdirs": true
+    },
+    {
+      "dir": "examples",
+      "subdirs": false,
+      "type": "dev"
+    },
+    {
+      "dir": "tests",
+      "subdirs": true,
+      "type": "dev"
+    },
+    {
+      "dir": "bindings/decimal",
+      "subdirs": false
+    },
+    {
+      "dir": "bindings/decimal/tests",
+      "type": "dev"
+    },
+    {
+      "dir": "bindings/fetch",
+      "subdirs": false
+    },
+    {
+      "dir": "bindings/fetch/tests",
+      "type": "dev"
+    },
+    {
+      "dir": "bindings/noble-hashes",
+      "subdirs": false
+    },
+    {
+      "dir": "bindings/noble-hashes/tests",
+      "type": "dev"
+    },
+    {
+      "dir": "bindings/solana-kit",
+      "subdirs": false
+    },
+    {
+      "dir": "bindings/solana-kit/tests",
+      "type": "dev"
+    },
+    {
+      "dir": "bindings/solana-program-token",
+      "subdirs": false
+    },
+    {
+      "dir": "bindings/solana-program-token/tests",
+      "type": "dev"
+    },
+    {
+      "dir": "bindings/sorted-btree",
+      "subdirs": false
+    },
+    {
+      "dir": "bindings/sorted-btree/tests",
+      "type": "dev"
+    },
+    {
+      "dir": "bindings/web-crypto",
+      "subdirs": false
+    },
+    {
+      "dir": "bindings/web-crypto/tests",
+      "type": "dev"
+    },
+    {
+      "dir": "bindings/websocket",
+      "subdirs": false
+    },
+    {
+      "dir": "bindings/websocket/tests",
+      "type": "dev"
+    }
   ],
-  "package-specs": { "module": "esmodule", "in-source": true },
+  "package-specs": {
+    "module": "esmodule",
+    "in-source": true
+  },
   "suffix": ".res.mjs",
-  "dependencies": ["@mununki/ppx-spice", "rescript-bun"],
-  "ppx-flags": ["@mununki/ppx-spice/ppx"],
-  "warnings": { "number": "-32" },
+  "dependencies": [
+    "@mununki/ppx-spice"
+  ],
+  "ppx-flags": [
+    "@mununki/ppx-spice/ppx"
+  ],
+  "warnings": {
+    "number": "-32"
+  },
   "gentypeconfig": {
     "module": "esmodule",
     "moduleResolution": "bundler",
     "generatedFileExtension": ".gen.ts",
     "shims": {}
   },
-  "compiler-flags": []
+  "compiler-flags": [],
+  "dev-dependencies": [
+    "rescript-bun"
+  ],
+  "namespace": "LightconeSdk"
 }

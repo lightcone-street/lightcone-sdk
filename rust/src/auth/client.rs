@@ -2,11 +2,15 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 
-use crate::auth::{AuthCredentials, LoginRequest, NonceResponse, SessionResponse};
+use crate::auth::{
+    AuthCredentials, LoginRequest, MaxSlippagePreferenceBody, NonceResponse, RegisterPrivyRequest,
+    SessionResponse,
+};
 use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::shared::PubkeyStr;
+use rust_decimal::Decimal;
 
 /// Sub-client for authentication operations.
 pub struct Auth<'a> {
@@ -57,10 +61,14 @@ impl<'a> Auth<'a> {
             "{}/api/auth/login_or_register_with_message",
             self.client.http.base_url()
         );
+        // Credential-management endpoint: opts out of the transport's
+        // 401 restore-and-replay. The backend consumes the login nonce before
+        // verifying the signature, so a replayed login deterministically
+        // fails — and restoring credentials in order to log in is circular.
         let session: SessionResponse = self
             .client
             .http
-            .post(&url, &request, RetryPolicy::None)
+            .post_without_credential_restore(&url, &request, RetryPolicy::None)
             .await?;
 
         let credentials = credentials_from_session(&session);
@@ -76,7 +84,8 @@ impl<'a> Auth<'a> {
     ///
     /// On success, updates internal `AuthCredentials` so `is_authenticated()`
     /// returns correct results. On failure (401, expired, no cookie), clears
-    /// internal credentials and returns an error.
+    /// internal credentials and returns an error. Temporary Privy unavailability
+    /// retains the cached credentials and returns immediately for a manual retry.
     pub async fn check_session(&self) -> Result<SessionResponse, SdkError> {
         let url = format!("{}/api/auth/me", self.client.http.base_url());
 
@@ -88,7 +97,9 @@ impl<'a> Auth<'a> {
         {
             Ok(body) => body,
             Err(error) => {
-                *self.client.auth_credentials.write().await = None;
+                if !error.is_privy_verification_unavailable() {
+                    *self.client.auth_credentials.write().await = None;
+                }
                 return Err(error);
             }
         };
@@ -125,12 +136,30 @@ impl<'a> Auth<'a> {
     }
 
     /// Logout — clears server-side cookie + internal token + all caches.
+    ///
+    /// Server revocation targets native clients' `lightcone-token` credentials.
+    /// Browser clients must end their Privy session through the Privy SDK.
+    ///
+    /// Local state (token, credentials) is cleared even when the server call
+    /// fails — the caller asked to be signed out locally regardless — but the
+    /// failure is then returned: callers gating security decisions on
+    /// teardown (e.g. whether an app may restart an authenticated transport)
+    /// must distinguish an unconfirmed revocation from a revoked token whose
+    /// WebSocket teardown is still pending. See the authentication guide in README.
+    /// A 401 counts as success: it means "already logged out".
     pub async fn logout(&self) -> Result<(), SdkError> {
         let url = format!("{}/api/auth/logout", self.client.http.base_url());
-        let _ = self
+        // Credential-management endpoint: opts out of the transport's
+        // 401 restore-and-replay — a 401 here means "already logged out", and
+        // restoring credentials just to log out again would be absurd.
+        let logout_result = self
             .client
             .http
-            .post::<serde_json::Value, _>(&url, &serde_json::json!({}), RetryPolicy::None)
+            .post_without_credential_restore::<serde_json::Value, _>(
+                &url,
+                &serde_json::json!({}),
+                RetryPolicy::None,
+            )
             .await;
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -138,20 +167,27 @@ impl<'a> Auth<'a> {
 
         *self.client.auth_credentials.write().await = None;
 
-        Ok(())
+        match logout_result {
+            Ok(_) => Ok(()),
+            Err(error) if error.is_unauthorized() => Ok(()),
+            Err(error) => Err(error),
+        }
     }
 
-    /// Register a Privy-authenticated user in the backend DB.
-    /// Called after Privy login when `is_new_user: true`.
-    /// Idempotent — safe to call multiple times.
-    pub async fn register_privy(&self) -> Result<(), SdkError> {
+    /// Create or synchronize a Privy Account and install the resulting session.
+    pub async fn register_privy(
+        &self,
+        request: &RegisterPrivyRequest,
+    ) -> Result<SessionResponse, SdkError> {
         let url = format!("{}/api/auth/register-privy", self.client.http.base_url());
-        let _: serde_json::Value = self
+        let session: SessionResponse = self
             .client
             .http
-            .post(&url, &serde_json::json!({}), RetryPolicy::None)
+            .post(&url, request, RetryPolicy::Idempotent)
             .await?;
-        Ok(())
+        let credentials = credentials_from_session(&session);
+        *self.client.auth_credentials.write().await = Some(credentials);
+        Ok(session)
     }
 
     /// Disconnect the user's linked X (Twitter) account.
@@ -163,6 +199,29 @@ impl<'a> Auth<'a> {
             .post(&url, &serde_json::json!({}), RetryPolicy::None)
             .await?;
         Ok(())
+    }
+
+    /// Persist an account-wide max-slippage preference strictly below 10%.
+    pub async fn update_max_slippage_preference(
+        &self,
+        max_slippage_preference: Decimal,
+    ) -> Result<Decimal, SdkError> {
+        let url = format!(
+            "{}/api/auth/max_slippage_preference",
+            self.client.http.base_url()
+        );
+        let response: MaxSlippagePreferenceBody = self
+            .client
+            .http
+            .post(
+                &url,
+                &MaxSlippagePreferenceBody {
+                    max_slippage_preference,
+                },
+                RetryPolicy::Idempotent,
+            )
+            .await?;
+        Ok(response.max_slippage_preference)
     }
 
     /// Get the URL for linking an X (Twitter) account via OAuth.
@@ -203,4 +262,271 @@ fn parse_expires_at(timestamp: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(timestamp, 0)
         .single()
         .unwrap_or_else(Utc::now)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::client::LightconeClient;
+    use rust_decimal::Decimal;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+
+    #[tokio::test]
+    async fn logout_presents_token_before_clearing_and_preserves_revocation_errors(
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let (url, request) =
+            spawn_capturing_response_server(r#"{"status":"success","body":{"success":true}}"#)
+                .await;
+        let client = client_with_token(&url).await;
+        client.auth().logout().await?;
+        if !request
+            .await?
+            .to_ascii_lowercase()
+            .contains("cookie: lightcone-token=live-cookie")
+        {
+            return Err("logout omitted the presented token".into());
+        }
+        if client.auth_token().await.is_some() {
+            return Err("logout retained local credentials".into());
+        }
+        for (status, code, body) in [
+            (
+                503,
+                "AUTH_SESSION_UNAVAILABLE",
+                r#"{"status":"error","error_details":{"reason":"unavailable","error_code":"AUTH_SESSION_UNAVAILABLE"}}"#,
+            ),
+            (
+                503,
+                "TOKEN_REVOCATION_UNAVAILABLE",
+                r#"{"status":"error","error_details":{"reason":"incomplete","error_code":"TOKEN_REVOCATION_UNAVAILABLE"}}"#,
+            ),
+            (
+                503,
+                "TOKEN_REVOCATION_RECOVERY_UNAVAILABLE",
+                r#"{"status":"error","error_details":{"reason":"incomplete","error_code":"TOKEN_REVOCATION_RECOVERY_UNAVAILABLE"}}"#,
+            ),
+            (
+                503,
+                "TOKEN_REVOCATION_FENCE_PENDING",
+                r#"{"status":"error","error_details":{"reason":"incomplete","error_code":"TOKEN_REVOCATION_FENCE_PENDING"}}"#,
+            ),
+            (
+                400,
+                "AMBIGUOUS_LIGHTCONE_TOKEN",
+                r#"{"status":"error","error_details":{"reason":"ambiguous","error_code":"AMBIGUOUS_LIGHTCONE_TOKEN"}}"#,
+            ),
+        ] {
+            let url = spawn_single_response_server(status, body).await;
+            let client = client_with_token(&url).await;
+            let Err(crate::error::SdkError::ApiRejected(details)) = client.auth().logout().await
+            else {
+                return Err("logout did not expose the server rejection".into());
+            };
+            if details.error_code.as_deref() != Some(code) || client.auth_token().await.is_some() {
+                return Err("logout changed the server code or failed local clearing".into());
+            }
+        }
+        Ok(())
+    }
+
+    // Minimal single-response server: the http-layer harness lives in a
+    // private test module, and logout only needs one canned reply.
+    async fn spawn_single_response_server(status: u16, body: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("logout test server failed to bind 127.0.0.1:0");
+        let addr = listener
+            .local_addr()
+            .expect("logout test server has no local addr");
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buffer = [0_u8; 4096];
+                    let _ = socket.read(&mut buffer).await;
+                    let raw_response = format!(
+                        "HTTP/1.1 {} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                        status,
+                        body.len(),
+                        body
+                    );
+                    let _ = socket.write_all(raw_response.as_bytes()).await;
+                });
+            }
+        });
+        format!("http://{}", addr)
+    }
+
+    #[tokio::test]
+    async fn check_session_keeps_credentials_when_privy_is_unavailable(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let url = spawn_single_response_server(503, r#"{"status":"error","error_details":{"reason":"Unavailable","error_code":"PRIVY_VERIFICATION_UNAVAILABLE"}}"#).await;
+        let client = client_with_token(&url).await;
+        *client.auth_credentials.write().await = Some(crate::auth::AuthCredentials {
+            user_id: "existing-account".into(),
+            wallet_address: "wallet".into(),
+            expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+        });
+        let error = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.auth().check_session(),
+        )
+        .await?
+        .err()
+        .ok_or("session check unexpectedly succeeded")?;
+        assert!(error.is_privy_verification_unavailable());
+        assert_eq!(
+            client
+                .auth_credentials
+                .read()
+                .await
+                .as_ref()
+                .map(|credentials| credentials.user_id.as_str()),
+            Some("existing-account")
+        );
+        assert!(client.auth_token().await.is_some());
+        let request = crate::auth::RegisterPrivyRequest {
+            attempted_identity: crate::auth::LinkedIdentitySelector::Email {
+                email: "fixture@example.test".into(),
+            },
+        };
+        let error = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            client.auth().register_privy(&request),
+        )
+        .await?
+        .err()
+        .ok_or("registration unexpectedly succeeded")?;
+        assert!(error.is_privy_verification_unavailable());
+        assert_eq!(
+            client
+                .auth_credentials
+                .read()
+                .await
+                .as_ref()
+                .map(|credentials| credentials.user_id.as_str()),
+            Some("existing-account")
+        );
+        Ok(())
+    }
+
+    async fn client_with_token(base_url: &str) -> LightconeClient {
+        let client = LightconeClient::builder()
+            .base_url(base_url)
+            .build()
+            .expect("failed to build the LightconeClient under test");
+        client
+            .http()
+            .user_session()
+            .set_token("live-cookie".to_string())
+            .await;
+        client
+    }
+
+    async fn spawn_capturing_response_server(
+        body: &'static str,
+    ) -> (String, oneshot::Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (request_tx, request_rx) = oneshot::channel();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0_u8; 4096];
+            let read = socket.read(&mut buffer).await.unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]).into_owned();
+            let _ = request_tx.send(request);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+        (format!("http://{}", addr), request_rx)
+    }
+
+    #[tokio::test]
+    async fn logout_failure_propagates_after_clearing_local_state() {
+        // The app's logout teardown gate reads this result to decide whether
+        // the WebSocket may reconnect — a swallowed failure would let it
+        // restart with a still-valid server-side cookie.
+        let base_url = spawn_single_response_server(
+            500,
+            r#"{"status":"error","error_details":{"reason":"session store down"}}"#,
+        )
+        .await;
+        let client = client_with_token(&base_url).await;
+
+        let result = client.auth().logout().await;
+
+        assert!(result.is_err());
+        assert!(client.auth_token().await.is_none());
+        assert!(client.auth().credentials().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn logout_401_counts_as_success() {
+        // 401 means "already logged out" — the goal state, not a failure.
+        let base_url = spawn_single_response_server(401, "Unauthorized").await;
+        let client = client_with_token(&base_url).await;
+
+        let result = client.auth().logout().await;
+
+        assert!(result.is_ok());
+        assert!(client.auth_token().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn update_max_slippage_preference_uses_exact_contract() {
+        let (base_url, request) = spawn_capturing_response_server(
+            r#"{"status":"success","body":{"max_slippage_preference":"5.50"}}"#,
+        )
+        .await;
+        let client = LightconeClient::builder()
+            .base_url(&base_url)
+            .build()
+            .unwrap();
+
+        let persisted = client
+            .auth()
+            .update_max_slippage_preference(Decimal::new(550, 2))
+            .await
+            .unwrap();
+        let request = request.await.unwrap();
+
+        assert_eq!(persisted, Decimal::new(550, 2));
+        assert!(request.starts_with("POST /api/auth/max_slippage_preference "));
+        assert!(request.contains(r#"{"max_slippage_preference":"5.50"}"#));
+    }
+
+    /// Verifies Privy registration returns and installs the backend-refreshed session.
+    #[tokio::test]
+    async fn register_privy_returns_session_and_installs_refreshed_credentials() {
+        let (base_url, request) = spawn_capturing_response_server(
+            r#"{"status":"success","body":{"user":{"user_id":"user:test","identity":{"type":"email","account":{"email":"verified@example.com"},"privy":{"id":"did:privy:test","wallet":{"privy_id":"wallet:test","chain":"solana","address":"11111111111111111111111111111111"}}},"max_slippage_preference":null},"expires_at":2000000000,"auth_method":"privy","is_beta":false}}"#,
+        )
+        .await;
+        let client = LightconeClient::builder()
+            .base_url(&base_url)
+            .build()
+            .unwrap();
+        let registration = crate::auth::RegisterPrivyRequest {
+            attempted_identity: crate::auth::LinkedIdentitySelector::Email {
+                email: "verified@example.com".to_string(),
+            },
+        };
+
+        let session = client.auth().register_privy(&registration).await.unwrap();
+        let request = request.await.unwrap();
+        let credentials = client.auth().credentials().await.unwrap();
+
+        assert_eq!(session.user.user_id, "user:test");
+        assert_eq!(credentials.user_id, "user:test");
+        assert_eq!(
+            credentials.wallet_address.as_str(),
+            "11111111111111111111111111111111"
+        );
+        assert!(request.starts_with("POST /api/auth/register-privy "));
+        assert!(request.contains("verified@example.com"));
+    }
 }

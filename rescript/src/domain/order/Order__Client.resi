@@ -9,15 +9,6 @@ let submit: (
   Order__Raw.SubmitRequest.t,
 ) => promise<result<Order__Raw.SubmitResponse.t, SdkError.t>>
 
-// Submit a signed trigger order (request built by `Envelope.buildTriggerOrder`).
-// Never retried.
-let submitTrigger: (
-  Client.t,
-  Order__Raw.SubmitRequest.t,
-) => promise<result<Order__Raw.TriggerResponse.t, SdkError.t>>
-
-// ── Cancel ────────────────────────────────────────────────────────────────────
-// Sign a cancel for one order (signs the order-hash hex string's UTF-8 bytes).
 let cancelBodySigned: (
   ~orderHash: string,
   ~maker: string,
@@ -43,22 +34,6 @@ let cancelAll: (
   Order__Raw.CancelAllBody.t,
 ) => promise<result<Order__Raw.CancelAllSuccess.t, SdkError.t>>
 
-// Sign a cancel for one trigger order (signs the trigger order id's UTF-8 bytes).
-let cancelTriggerBodySigned: (
-  ~triggerOrderId: string,
-  ~maker: string,
-  ~keypair: SolanaKit.cryptoKeyPair,
-) => promise<Order__Raw.CancelTriggerBody.t>
-
-// Cancel a resting trigger order. Never retried.
-let cancelTrigger: (
-  Client.t,
-  Order__Raw.CancelTriggerBody.t,
-) => promise<result<Order__Raw.CancelTriggerSuccess.t, SdkError.t>>
-
-// ── Strategy-signed cancels ───────────────────────────────────────────────────
-// Each signs with the client's configured strategy (native keypair or external
-// wallet adapter), the signer's address acting as maker.
 let cancelSigned: (
   Client.t,
   ~orderHash: string,
@@ -67,13 +42,6 @@ let cancelAllSigned: (
   Client.t,
   ~orderbookId: string,
 ) => promise<result<Order__Raw.CancelAllSuccess.t, SdkError.t>>
-let cancelTriggerSigned: (
-  Client.t,
-  ~triggerOrderId: string,
-) => promise<result<Order__Raw.CancelTriggerSuccess.t, SdkError.t>>
-
-// ── User orders / fills (read paths) ──────────────────────────────────────────
-// The authenticated user's open orders (wallet resolved server-side from the cookie).
 let getUserOrders: (
   Client.t,
   ~limit: int=?,

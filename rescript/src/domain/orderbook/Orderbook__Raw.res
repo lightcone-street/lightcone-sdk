@@ -15,6 +15,7 @@ module WsLevel = {
     side: Shared.Side.t,
     price: string,
     size: string,
+    @spice.key("quote_notional") quoteNotional: string,
   }
 }
 
@@ -50,7 +51,13 @@ module DepthResponse = {
     @spice.key("tick_size") tickSize?: string,
     bids: array<RestLevel.t>,
     asks: array<RestLevel.t>,
-    decimals?: DepthDecimals.t,
+    decimals: DepthDecimals.t,
+    @spice.key("price_quantum") priceQuantum: string,
+    @spice.key("trading_rules") tradingRules: Scaling.TradingRules.t,
+    @spice.default(false) @spice.key("bids_truncated") bidsTruncated: bool,
+    @spice.default(false) @spice.key("asks_truncated") asksTruncated: bool,
+    revision: ProtocolInt.U64.t,
+    @spice.key("captured_at_ms") capturedAtMs: ProtocolInt.U64.t,
   }
 }
 
@@ -63,7 +70,10 @@ module Book = {
   type t = {
     @spice.key("orderbook_id") id: Shared.orderBookId,
     @spice.default(false) @spice.key("is_snapshot") isSnapshot: bool,
-    @spice.default(0.0) seq: float,
+    seq: ProtocolInt.U64.t,
+    @spice.default(false) @spice.key("bids_truncated") bidsTruncated: bool,
+    @spice.default(false) @spice.key("asks_truncated") asksTruncated: bool,
+    timestamp?: string,
     @spice.default(false) resync: bool,
     @spice.default([]) bids: array<WsLevel.t>,
     @spice.default([]) asks: array<WsLevel.t>,

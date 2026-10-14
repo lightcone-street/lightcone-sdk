@@ -12,9 +12,9 @@ function apiUrl(env) {
   }
   switch (env) {
     case "local" :
-      return "https://api.local.lightcone.xyz";
+      return "https://api.local.internalcone.com";
     case "staging" :
-      return "https://api.staging.lightcone.xyz";
+      return "https://api.staging.internalcone.com";
     case "prod" :
       return "https://api.lightcone.xyz";
   }
@@ -27,9 +27,9 @@ function wsUrl(env) {
   }
   switch (env) {
     case "local" :
-      return "wss://ws.local.lightcone.xyz/ws";
+      return "wss://ws.local.internalcone.com/ws";
     case "staging" :
-      return "wss://ws.staging.lightcone.xyz/ws";
+      return "wss://ws.staging.internalcone.com/ws";
     case "prod" :
       return "wss://ws.lightcone.xyz/ws";
   }
@@ -60,7 +60,7 @@ function programId(env) {
     case "staging" :
       return "5G2fWZGHB5BA8gbABVBuR1bU4Ziri9cRxFoojz5C5Rxk";
     case "prod" :
-      return "B9rCvafkkjh749284jfDu5UB268pHeRLkzFpFf7t4mxK";
+      return "F5zrhPGL9REfsQ4vHR3ESYo9zaqiVvmHoHjqRwd8cPrz";
   }
 }
 

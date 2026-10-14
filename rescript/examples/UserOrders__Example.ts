@@ -22,31 +22,14 @@ async function main(): Promise<void> {
 
   const snapshot = await OrderClient.forUser(client, 10, undefined);
 
-  let limitOrders = 0;
-  let triggerOrders = 0;
-  for (const order of snapshot.orders) {
-    if (order.TAG === "Trigger") {
-      triggerOrders += 1;
-    } else {
-      limitOrders += 1;
-    }
-  }
-  console.log(`orders: ${limitOrders} limit / ${triggerOrders} trigger`);
+  console.log(`orders: ${snapshot.orders.length}`);
   console.log(`market balances: ${snapshot.marketBalances.length}`);
   console.log(`has more: ${snapshot.hasMore}`);
 
   const first = snapshot.orders[0];
   if (first) {
-    if (first.TAG === "Trigger") {
-      const trigger = first._0;
-      console.log(
-        `first trigger: ${trigger.triggerOrderId} ${trigger.common.side} @ ${trigger.common.price} ` +
-          `(trigger ${trigger.triggerPrice})`,
-      );
-    } else {
-      const limit = first._0;
-      console.log(`first limit: ${limit.common.orderHash} ${limit.common.side} @ ${limit.common.price}`);
-    }
+    const limit = first._0;
+    console.log(`first limit: ${limit.common.orderHash} ${limit.common.side} @ ${limit.common.price}`);
   }
 
   // Follow the cursor once, if the backend paginated the snapshot.

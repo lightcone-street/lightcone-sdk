@@ -17,7 +17,9 @@ let main = async () => {
     switch markets[0] {
     | None => Console.log("no markets found")
     | Some(market) =>
-      switch market.orderbookPairs->Array.find(pair => pair.active)->Option.orElse(market.orderbookPairs[0]) {
+      switch market.orderbookPairs
+      ->Array.find(pair => pair.active)
+      ->Option.orElse(market.orderbookPairs[0]) {
       | None => Console.log("selected market has no orderbooks")
       | Some(pair) => {
           let marketAddress = SolanaKit.address(market.pubkey)
@@ -28,7 +30,9 @@ let main = async () => {
           switch await Rpc.getExchange(client) {
           | Ok(exchange) => {
               let paused = exchange.paused ? "true" : "false"
-              Console.log(`exchange: authority=${exchange.authority} operator=${exchange.operator} paused=${paused}`)
+              Console.log(
+                `exchange: authority=${exchange.authority} operator=${exchange.operator} paused=${paused}`,
+              )
             }
           | Error(error) => Console.error(SdkError.toMessage(error))
           }
@@ -49,7 +53,7 @@ let main = async () => {
           switch await Rpc.getOrderbook(client, ~mintA=baseMint, ~mintB=quoteMint) {
           | Ok(onchainOrderbook) =>
             Console.log(
-              `orderbook: lookup_table=${onchainOrderbook.lookupTable} base_index=${Float.toString(
+              `orderbook: deposit_mint_a=${onchainOrderbook.depositMintA} base_index=${Float.toString(
                   onchainOrderbook.baseIndex,
                 )} bump=${Float.toString(onchainOrderbook.bump)}`,
             )
@@ -62,7 +66,8 @@ let main = async () => {
           }
 
           switch await Rpc.getPosition(client, ~owner=user, ~market=marketAddress) {
-          | Ok(position) => Console.log(`position exists: ${Option.isSome(position) ? "true" : "false"}`)
+          | Ok(position) =>
+            Console.log(`position exists: ${Option.isSome(position) ? "true" : "false"}`)
           | Error(error) => Console.error(SdkError.toMessage(error))
           }
 
@@ -70,7 +75,9 @@ let main = async () => {
           let positionPda = await Rpc.positionPda(client, ~owner=user, ~market=marketAddress)
           let globalDepositPda = await Rpc.globalDepositTokenPda(client, ~mint=depositMint)
           Console.log(
-            `pdas: exchange=${SolanaKit.addressToString(exchangePda)} position=${SolanaKit.addressToString(
+            `pdas: exchange=${SolanaKit.addressToString(
+                exchangePda,
+              )} position=${SolanaKit.addressToString(
                 positionPda,
               )} global_deposit=${SolanaKit.addressToString(globalDepositPda)}`,
           )

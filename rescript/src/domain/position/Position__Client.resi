@@ -38,4 +38,4 @@ let positionsForMarket: (
 let depositTokenBalances: (
   Client.t,
   ~cookieHeader: string=?,
-) => promise<result<dict<Position__Raw.DepositTokenBalance.t>, SdkError.t>>
+) => promise<result<Position__Raw.DepositTokenBalancesSnapshot.t, SdkError.t>>

@@ -1,6 +1,6 @@
 {
   "name": "@lightconexyz/lightcone-sdk",
-  "version": "0.8.0",
+  "version": "0.8.3",
   "description": "TypeScript SDK for Lightcone",
   "author": "Lightcone",
   "license": "MIT",
@@ -34,15 +34,19 @@
     "lint:fix": "eslint src --fix",
     "typecheck": "tsc --noEmit",
     "typecheck:examples": "tsc --noEmit -p tsconfig.examples.json",
-    "test": "npx tsx --test tests/**/*.test.ts",
+    "test": "tsx --test tests/**/*.test.ts",
     "prepublishOnly": "npm run clean && npm run lint && npm run typecheck && npm run typecheck:examples && npm run build"
   },
   "dependencies": {
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "^1.8.0",
+    "@solana/kit": "8.0.0",
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.90.0",
     "bs58": "^5.0.0",
     "decimal.js": "^10.6.0",
     "js-sha3": "^0.9.3",
+    "json-bigint": "^1.0.0",
     "sorted-btree": "^2.1.0",
     "tweetnacl": "^1.0.3"
   },
@@ -50,10 +54,12 @@
     "ws": "^8.0.0"
   },
   "devDependencies": {
+    "@types/json-bigint": "^1.0.4",
     "@types/ws": "^8.5.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
     "eslint": "^8.57.0",
+    "tsx": "^4.22.4",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {

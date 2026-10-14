@@ -4,37 +4,36 @@ import asyncio
 
 from common import (
     client as make_client,
+)
+from common import (
     get_keypair,
     login,
     market_and_orderbook,
     quote_deposit_mint,
     unix_timestamp,
 )
-from lightcone_sdk.domain.order import CancelBody, CancelAllBody
+
+from lightcone_sdk.domain.order import CancelAllBody, CancelBody
 from lightcone_sdk.program.orders import (
     generate_cancel_all_salt,
-    sign_cancel_order,
     sign_cancel_all,
+    sign_cancel_order,
 )
-from lightcone_sdk.rpc import require_connection
-
-# Mirrors the constant in submit_order.py. When we cancel the order that
-# example left open, we withdraw the same quote amount back from the global
-# pool so the deposit/submit/cancel/withdraw cycle is net-neutral.
-ORDER_QUOTE_AMOUNT = 1_100_000  # 0.55 * 2 USDC, 6 decimals
+from lightcone_sdk.program.types import OrderSide
+from lightcone_sdk.shared.scaling import scale_price_size
+from lightcone_sdk.shared.signing import SigningStrategy
 
 
 async def main():
     client = make_client()
     keypair = get_keypair()
+    client.set_signing_strategy(SigningStrategy.native(keypair))
     await login(client, keypair)
     pubkey = str(keypair.pubkey())
 
     # 1. Find an open limit order
     snapshot = await client.orders().get_user_orders(50)
-    limit_order = next(
-        (o for o in snapshot.orders if o.order_type == "limit"), None
-    )
+    limit_order = next((o for o in snapshot.orders if o.order_type == "limit"), None)
 
     if limit_order is None:
         print("No open limit orders to cancel.")
@@ -71,21 +70,24 @@ async def main():
     #    the companion submit_order → cancel_order cycle is net-neutral on the
     #    wallet's balance and the global pool.
     _, orderbook = await market_and_orderbook(client)
+    rules = await client.orderbooks().decimals(orderbook.orderbook_id)
+    order_quote_amount = scale_price_size(
+        rules.trading_rules.price_quantum, "1", int(OrderSide.BID), rules
+    ).quote_atoms
     mint = quote_deposit_mint(orderbook)
-    connection = require_connection(client)
     withdraw_ix = (
-        client.positions().withdraw_from_global()
+        client.positions()
+        .withdraw_from_global()
         .user(keypair.pubkey())
         .mint(mint)
-        .amount(ORDER_QUOTE_AMOUNT)
+        .amount(order_quote_amount)
         .build_ix()
     )
-    blockhash = await client.rpc().get_latest_blockhash()
-    withdraw_tx = await client.rpc().build_transaction([withdraw_ix])
-    withdraw_tx.sign([keypair], blockhash)
-    withdraw_result = await connection.send_raw_transaction(bytes(withdraw_tx))
-    await connection.confirm_transaction(withdraw_result.value)
-    print(f"withdraw_from_global: confirmed {withdraw_result.value}")
+    withdraw_tx = await client.rpc().build_transaction(
+        [withdraw_ix], keypair.pubkey(), await client.transaction_context()
+    )
+    withdraw_result = await client.sign_and_submit_tx_confirmed_with_slot(withdraw_tx)
+    print(f"withdraw_from_global: confirmed {withdraw_result.signature}")
 
     await client.close()
 

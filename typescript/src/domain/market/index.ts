@@ -41,23 +41,37 @@ export interface Market {
   id: number;
   pubkey: PubkeyStr;
   name: string;
-  bannerImageUrlLow: string;
-  bannerImageUrlMedium: string;
-  bannerImageUrlHigh: string;
+  bannerImageUrlLow?: string;
+  bannerImageUrlMedium?: string;
+  bannerImageUrlHigh?: string;
   iconUrlLow: string;
   iconUrlMedium: string;
     iconUrlHigh: string;
     featuredRank?: number;
     slug: string;
   status: Status;
+  /**
+   * Maker fee in basis points (1 bps = 0.01%); negative means a rebate.
+   * Set per market at creation, admin-updatable on chain.
+   */
+  makerFeeBps: number;
+  /**
+   * Taker fee in basis points (1 bps = 0.01%); negative means a rebate.
+   * Set per market at creation, admin-updatable on chain.
+   */
+  takerFeeBps: number;
   createdAt: Date;
   activatedAt?: Date;
   settledAt?: Date;
+  /** Resolution deadline as a Unix timestamp in milliseconds. */
+  resolutionBy?: number;
   resolution?: MarketResolutionResponse;
-  description: string;
+  description?: string;
   definition: string;
   category?: string;
+  subcategory?: string;
   tags: string[];
+  numOutcomes: number;
   depositAssets: DepositAsset[];
   /**
    * Unique base/quote deposit-asset pairs derived from `orderbookPairs`

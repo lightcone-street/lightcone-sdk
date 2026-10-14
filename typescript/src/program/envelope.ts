@@ -1,4 +1,3 @@
-import Decimal from "decimal.js";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 import type { ClientContext } from "../context";
@@ -7,19 +6,22 @@ import { SdkError } from "../error";
 import { RetryPolicy } from "../http";
 import {
   privyOrderFromLimitEnvelope,
-  privyOrderFromTriggerEnvelope,
 } from "../privy";
-import { alignPriceToTick, scalePriceSize } from "../shared/scaling";
+import {
+  ScalingError,
+  scalePriceSize,
+  validateRawAmounts,
+  validateSignedFields,
+  type OrderbookRules,
+} from "../shared/scaling";
 import { isUserCancellation } from "../shared/signing";
-import { orderbookDecimals, type OrderBookPair } from "../domain/orderbook";
+import { Orderbooks, type OrderBookPair } from "../domain/orderbook";
 import type {
   DepositSource,
   SubmitOrderRequest,
   TimeInForce,
-  TriggerType,
 } from "../shared";
 import type { SubmitOrderResponse } from "../domain/order/client";
-import type { TriggerOrderResponse } from "../domain/order/client";
 import { ProgramSdkError } from "./error";
 import {
   generateSalt,
@@ -63,9 +65,12 @@ function toUnsignedOrder(fields: OrderFields): Omit<SignedOrder, "signature"> {
   if (fields.amountIn === undefined) throw ProgramSdkError.missingField("amount_in");
   if (fields.amountOut === undefined) throw ProgramSdkError.missingField("amount_out");
 
+  const salt = fields.salt ?? generateSalt();
+  fields.salt = salt;
+  validateSignedFields(fields.amountIn, fields.amountOut, salt, fields.nonce);
   return {
     nonce: fields.nonce,
-    salt: fields.salt ?? generateSalt(),
+    salt,
     maker: fields.maker,
     market: fields.market,
     baseMint: fields.baseMint,
@@ -94,8 +99,8 @@ export interface OrderEnvelope {
   size(value: string): this;
   depositSource(value: DepositSource): this;
   payload(): Omit<SignedOrder, "signature">;
-  sign(keypair: Keypair, orderbook: OrderBookPair): SubmitOrderRequest;
-  finalize(signatureBase58: string, orderbook: OrderBookPair): SubmitOrderRequest;
+  sign(keypair: Keypair, orderbook: OrderBookPair, rules: OrderbookRules): SubmitOrderRequest;
+  finalize(signatureBase58: string, orderbook: OrderBookPair, rules: OrderbookRules): SubmitOrderRequest;
 }
 
 class BaseEnvelope {
@@ -247,23 +252,24 @@ class BaseEnvelope {
     }
   }
 
-  /**
-   * Auto-scale price/size to raw amounts if the user provided human-readable
-   * strings but not pre-computed amounts. Skips if amounts are already set.
-   */
-  protected autoScale(orderbook: OrderBookPair): void {
-    if (this.fields.amountIn !== undefined || this.fields.amountOut !== undefined) {
+  /** Construct or preflight the signed ratio using fetched immutable rules. */
+  protected applyRules(rules: OrderbookRules, orderbookId: string): void {
+    if (rules.orderbookId !== orderbookId) {
+      throw new ScalingError(
+        `trading rules for orderbook '${rules.orderbookId}' cannot be used for '${orderbookId}'`
+      );
+    }
+    if (this.fields.side === undefined) throw ProgramSdkError.missingField("side");
+    if (this.fields.amountIn !== undefined && this.fields.amountOut !== undefined) {
+      validateRawAmounts(this.fields.amountIn, this.fields.amountOut, this.fields.side, rules);
       return;
     }
-
+    if (this.fields.amountIn !== undefined || this.fields.amountOut !== undefined) {
+      throw ProgramSdkError.missingField("amount_in and amount_out must be supplied together");
+    }
     if (!this.fields.priceRaw) throw ProgramSdkError.missingField("price");
     if (!this.fields.sizeRaw) throw ProgramSdkError.missingField("size");
-    if (this.fields.side === undefined) throw ProgramSdkError.missingField("side");
-
-    const decimals = orderbookDecimals(orderbook);
-    const price = new Decimal(this.fields.priceRaw);
-    const alignedPrice = alignPriceToTick(price, decimals);
-    const scaled = scalePriceSize(alignedPrice, this.fields.sizeRaw, this.fields.side, decimals);
+    const scaled = scalePriceSize(this.fields.priceRaw, this.fields.sizeRaw, this.fields.side, rules);
     this.fields.amountIn = scaled.amountIn;
     this.fields.amountOut = scaled.amountOut;
   }
@@ -304,19 +310,19 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
     return this.timeInForceValue;
   }
 
-  sign(keypair: Keypair, orderbook: OrderBookPair): SubmitOrderRequest {
+  sign(keypair: Keypair, orderbook: OrderBookPair, rules: OrderbookRules): SubmitOrderRequest {
     this.autoFillFromOrderbook(orderbook);
-    this.autoScale(orderbook);
-    const signed = signOrderFull(this.payload(), keypair);
+    this.applyRules(rules, orderbook.orderbookId);
+    const signed = signOrderFull(this.payload(), keypair, rules);
     return toSubmitRequest(signed, orderbook.orderbookId, {
       timeInForce: this.timeInForceValue,
       depositSource: this.getDepositSource(),
     });
   }
 
-  finalize(signatureBase58: string, orderbook: OrderBookPair): SubmitOrderRequest {
+  finalize(signatureBase58: string, orderbook: OrderBookPair, rules: OrderbookRules): SubmitOrderRequest {
     this.autoFillFromOrderbook(orderbook);
-    this.autoScale(orderbook);
+    this.applyRules(rules, orderbook.orderbookId);
     const signatureHex = Buffer.from(bs58.decode(signatureBase58)).toString("hex");
     return this.finalizeWithHexSignature(signatureHex, orderbook.orderbookId, {
       timeInForce: this.timeInForceValue,
@@ -327,9 +333,10 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
     client: ClientContext,
     orderbook: OrderBookPair
   ): Promise<SubmitOrderResponse> {
+    const rules = await new Orderbooks(client).decimals(orderbook.orderbookId);
     const strategy = requireSigningStrategy(client);
     this.autoFillFromOrderbook(orderbook);
-    this.autoScale(orderbook);
+    this.applyRules(rules, orderbook.orderbookId);
 
     // Nonce cache: cache if explicitly set, auto-populate from cache if not
     if (this.fields.nonce !== undefined) {
@@ -340,7 +347,7 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
 
     switch (strategy.type) {
       case "native": {
-        const request = this.sign(strategy.keypair, orderbook);
+        const request = this.sign(strategy.keypair, orderbook, rules);
         const url = `${client.http.baseUrl()}/api/orders/submit`;
         return client.http.post<SubmitOrderResponse, SubmitOrderRequest>(
           url,
@@ -358,7 +365,7 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
             if (isUserCancellation(msg)) throw SdkError.userCancelled();
             throw SdkError.signing(msg);
           });
-        const request = this.finalize(bs58.encode(sigBytes), orderbook);
+        const request = this.finalize(bs58.encode(sigBytes), orderbook, rules);
         const url = `${client.http.baseUrl()}/api/orders/submit`;
         return client.http.post<SubmitOrderResponse, SubmitOrderRequest>(
           url,
@@ -375,164 +382,14 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
   }
 }
 
-export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
-  private timeInForceValue?: TimeInForce;
-  private triggerPriceValue?: number;
-  private triggerTypeValue?: TriggerType;
-
-  static new(): TriggerOrderEnvelope {
-    return new TriggerOrderEnvelope();
-  }
-
-  timeInForce(value: TimeInForce): this {
-    this.timeInForceValue = value;
-    return this;
-  }
-
-  triggerPrice(value: number): this {
-    this.triggerPriceValue = value;
-    return this;
-  }
-
-  triggerType(value: TriggerType): this {
-    this.triggerTypeValue = value;
-    return this;
-  }
-
-  takeProfit(price: number): this {
-    this.triggerPriceValue = price;
-    this.triggerTypeValue = "TP" as TriggerType;
-    return this;
-  }
-
-  stopLoss(price: number): this {
-    this.triggerPriceValue = price;
-    this.triggerTypeValue = "SL" as TriggerType;
-    return this;
-  }
-
-  gtc(): this {
-    this.timeInForceValue = "GTC" as TimeInForce;
-    return this;
-  }
-
-  ioc(): this {
-    this.timeInForceValue = "IOC" as TimeInForce;
-    return this;
-  }
-
-  fok(): this {
-    this.timeInForceValue = "FOK" as TimeInForce;
-    return this;
-  }
-
-  alo(): this {
-    this.timeInForceValue = "ALO" as TimeInForce;
-    return this;
-  }
-
-  getTimeInForce(): TimeInForce | undefined {
-    return this.timeInForceValue;
-  }
-
-  getTriggerPrice(): number | undefined {
-    return this.triggerPriceValue;
-  }
-
-  getTriggerType(): TriggerType | undefined {
-    return this.triggerTypeValue;
-  }
-
-  sign(keypair: Keypair, orderbook: OrderBookPair): SubmitOrderRequest {
-    this.requireTriggerFields();
-    this.autoFillFromOrderbook(orderbook);
-    this.autoScale(orderbook);
-    const signed = signOrderFull(this.payload(), keypair);
-    return toSubmitRequest(signed, orderbook.orderbookId, {
-      timeInForce: this.timeInForceValue,
-      triggerPrice: this.triggerPriceValue,
-      triggerType: this.triggerTypeValue,
-      depositSource: this.getDepositSource(),
-    });
-  }
-
-  finalize(signatureBase58: string, orderbook: OrderBookPair): SubmitOrderRequest {
-    this.requireTriggerFields();
-    this.autoFillFromOrderbook(orderbook);
-    this.autoScale(orderbook);
-    const signatureHex = Buffer.from(bs58.decode(signatureBase58)).toString("hex");
-    return this.finalizeWithHexSignature(signatureHex, orderbook.orderbookId, {
-      timeInForce: this.timeInForceValue,
-      triggerPrice: this.triggerPriceValue,
-      triggerType: this.triggerTypeValue,
-    });
-  }
-
-  async submit(
-    client: ClientContext,
-    orderbook: OrderBookPair
-  ): Promise<TriggerOrderResponse> {
-    const strategy = requireSigningStrategy(client);
-    this.requireTriggerFields();
-    this.autoFillFromOrderbook(orderbook);
-    this.autoScale(orderbook);
-
-    // Nonce cache: cache if explicitly set, auto-populate from cache if not
-    if (this.fields.nonce !== undefined) {
-      client.setOrderNonce?.(this.fields.nonce);
-    } else {
-      this.fields.nonce = client.orderNonce?.() ?? 0;
-    }
-
-    switch (strategy.type) {
-      case "native": {
-        const request = this.sign(strategy.keypair, orderbook);
-        const url = `${client.http.baseUrl()}/api/orders/submit`;
-        return client.http.post<TriggerOrderResponse, SubmitOrderRequest>(
-          url,
-          request,
-          RetryPolicy.None
-        );
-      }
-      case "walletAdapter": {
-        const unsigned = this.payload();
-        const hash = hashOrderHex({ ...unsigned, signature: Buffer.alloc(64) });
-        const sigBytes = await strategy.signer
-          .signMessage(new TextEncoder().encode(hash))
-          .catch((err: unknown) => {
-            const msg = err instanceof Error ? err.message : String(err);
-            if (isUserCancellation(msg)) throw SdkError.userCancelled();
-            throw SdkError.signing(msg);
-          });
-        const request = this.finalize(bs58.encode(sigBytes), orderbook);
-        const url = `${client.http.baseUrl()}/api/orders/submit`;
-        return client.http.post<TriggerOrderResponse, SubmitOrderRequest>(
-          url,
-          request,
-          RetryPolicy.None
-        );
-      }
-      case "privy": {
-        const envelope = privyOrderFromTriggerEnvelope(this, orderbook.orderbookId);
-        const url = `${client.http.baseUrl()}/api/privy/sign_and_send_order`;
-        return client.http.post(url, { wallet_id: strategy.walletId, order: envelope }, RetryPolicy.None);
-      }
-    }
-  }
-
-  private requireTriggerFields(): void {
-    if (this.triggerPriceValue === undefined) {
-      throw ProgramSdkError.missingField("trigger_price");
-    }
-    if (!this.triggerTypeValue) {
-      throw ProgramSdkError.missingField("trigger_type");
-    }
-  }
-}
-
 export function signPayload(
   payload: Omit<SignedOrder, "signature">,
-  keypair: Keypair
+  keypair: Keypair,
+  rules: OrderbookRules
 ): string {
-  return signOrder({ ...payload, signature: Buffer.alloc(64) }, keypair).toString("hex");
+  return signOrder(
+    { ...payload, signature: Buffer.alloc(64) },
+    keypair,
+    rules
+  ).toString("hex");
 }

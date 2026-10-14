@@ -12,10 +12,11 @@ from solders.pubkey import Pubkey
 # Allow imports from the SDK source
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from lightcone_sdk.client import LightconeClientBuilder, LightconeClient
-from lightcone_sdk.auth.client import sign_login_message
 from lightcone_sdk.auth import SessionResponse
-from lightcone_sdk.domain.market import Market, OrderBookPair
+from lightcone_sdk.auth.client import sign_login_message
+from lightcone_sdk.client import LightconeClient, LightconeClientBuilder
+from lightcone_sdk.domain.market import Market, OrderBookPair, Status
+from lightcone_sdk.program.transaction import V1ResourceConfig
 
 DEFAULT_WALLET_PATH = "~/.config/solana/id.json"
 
@@ -28,7 +29,10 @@ def client() -> LightconeClient:
     """
     from lightcone_sdk.env import LightconeEnv
 
-    builder = LightconeClientBuilder()
+    # Explicit example budget; applications should choose limits for their workload.
+    builder = LightconeClientBuilder().transaction_resources(
+        V1ResourceConfig(1_400_000, 67_108_864, 0)
+    )
     env_str = os.environ.get("LIGHTCONE_ENV")
     if env_str:
         try:
@@ -37,6 +41,9 @@ def client() -> LightconeClient:
             raise RuntimeError(
                 f"invalid LIGHTCONE_ENV '{env_str}'. Options: local, staging, prod"
             ) from exc
+    api_key = os.environ.get("LIGHTCONE_API_KEY", "").strip()
+    if api_key:
+        builder = builder.api_key(api_key)
     return builder.build()
 
 
@@ -44,13 +51,22 @@ def client() -> LightconeClient:
 rest_client = client
 
 
-def get_keypair() -> Keypair:
-    """Load a keypair from disk.
+def get_keypair(path_variable: str | None = None) -> Keypair:
+    """Load an SDK or peer keypair from an existing wallet-path variable.
 
-    Defaults to ``~/.config/solana/id.json``. Set ``LIGHTCONE_WALLET_PATH``
-    to override.
+    With no argument, the Python-specific path wins, then the generic path,
+    then ``~/.config/solana/id.json``. An explicit variable is required to be
+    present, which keeps fund-moving peer selection fail-closed.
     """
-    raw = os.environ.get("LIGHTCONE_WALLET_PATH", DEFAULT_WALLET_PATH)
+    if path_variable is not None:
+        raw = os.environ.get(path_variable)
+        if raw is None:
+            raise RuntimeError(f"{path_variable} is required")
+    else:
+        raw = os.environ.get(
+            "LIGHTCONE_WALLET_PATH_PYTHON",
+            os.environ.get("LIGHTCONE_WALLET_PATH", DEFAULT_WALLET_PATH),
+        )
     path = Path(raw).expanduser()
     with path.open() as f:
         secret = json.load(f)
@@ -73,11 +89,16 @@ async def login(
 
 
 async def market(client: LightconeClient) -> Market:
-    result = await client.markets().get(None, 1)
-    markets = result.markets
-    if not markets:
-        raise RuntimeError("no markets returned by the API")
-    return markets[0]
+    """Select the first non-resolved market, paging by increasing market ID."""
+    cursor = None
+    while True:
+        markets = (await client.markets().get(cursor, 100)).markets
+        for candidate in markets:
+            if candidate.status != Status.RESOLVED:
+                return candidate
+        if not markets or (cursor is not None and markets[-1].id <= cursor):
+            raise RuntimeError("no non-resolved markets returned by the API")
+        cursor = markets[-1].id
 
 
 async def market_and_orderbook(
@@ -97,7 +118,7 @@ def quote_deposit_mint(orderbook: OrderBookPair) -> Pubkey:
 
 
 def num_outcomes(m: Market) -> int:
-    return len(m.outcomes)
+    return m.num_outcomes
 
 
 async def wait_for_global_balance(
@@ -115,15 +136,21 @@ async def wait_for_global_balance(
     print(f"waiting for global balance: mint={mint_str} required={minimum_amount}")
     while time.monotonic() < deadline:
         attempt += 1
-        balances = await client.positions().deposit_token_balances()
+        snapshot = await client.positions().deposit_token_balances()
         entry = next(
-            (balance for balance in balances.values() if balance.mint == mint_str),
+            (
+                balance
+                for balance in snapshot.balances.values()
+                if balance.mint == mint_str
+            ),
             None,
         )
         current_idle = float(entry.idle) if entry is not None else 0.0
         symbol = entry.symbol if entry is not None else "unknown"
         if current_idle >= minimum_amount:
-            print(f"global balance ready: {symbol} idle={current_idle} (attempt {attempt})")
+            print(
+                f"global balance ready: {symbol} idle={current_idle} (attempt {attempt})"
+            )
             return
         remaining = deadline - time.monotonic()
         print(

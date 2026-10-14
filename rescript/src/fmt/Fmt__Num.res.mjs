@@ -3,7 +3,7 @@
 import * as Stdlib_Float from "@rescript/runtime/lib/es6/Stdlib_Float.js";
 import * as Stdlib_BigInt from "@rescript/runtime/lib/es6/Stdlib_BigInt.js";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
-import * as Fmt__Constants from "./Fmt__Constants.res.mjs";
+import * as Fmt__Constants$LightconeSdk from "./Fmt__Constants.res.mjs";
 
 function displayFormattedString(formatted) {
   let match = formatted.split(".");
@@ -67,7 +67,7 @@ function displayDefaultFormattedString(formatted) {
 }
 
 function displayDecimals(absValue) {
-  return Fmt__Constants.displayDecimalsBy(threshold => absValue >= Stdlib_Option.getOr(Stdlib_Float.fromString(threshold), 0.0));
+  return Fmt__Constants$LightconeSdk.displayDecimalsBy(threshold => absValue >= Stdlib_Option.getOr(Stdlib_Float.fromString(threshold), 0.0));
 }
 
 function display(amount) {

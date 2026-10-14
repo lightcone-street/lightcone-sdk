@@ -17,3 +17,5 @@ let displayPct: (Decimal.t, ~padding: bool=?) => string
 // Human-readable Decimal → token base units (10^decimals, truncated). `None`
 // when negative or over u64::MAX.
 let toBaseUnits: (Decimal.t, ~decimals: int) => option<bigint>
+@genType type exactDisplay = {compact: string, expanded: string}
+let displayExact: Decimal.t => exactDisplay

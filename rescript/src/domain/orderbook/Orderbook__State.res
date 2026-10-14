@@ -1,30 +1,38 @@
-// The live sorted book maintained from WS `BookUpdate` frames. The stream is
-// snapshot-only / last-write-wins: every non-`resync` frame rebuilds both sides
-// wholesale (a zero-size level is omitted, so "remove a level" is realized as
-// "don't insert it"); `seq` / `isSnapshot` never gate — only `resync` bails out with
-// `RefreshRequired`, and the caller must unsubscribe/resubscribe.
-//
-// Bids and asks are both price-keyed `SortedBtree`s ordered ascending (via `Decimal.cmp`);
-// the bid/ask asymmetry is realized at read time — best bid = max key, best ask = min key.
-// Wire prices/sizes are decimal strings; they are parsed to `Decimal` for correct numeric
-// ordering + mid/spread math, and the accessors return decimal strings (the SDK convention).
-
+// A state belongs to one normalized subscription. Each accepted frame replaces
+// both sides; sequence ordering applies only within the current generation.
 type refreshReason = ServerResync
-type applyResult = Applied | RefreshRequired(refreshReason)
+type applyResult = Applied | DiscardedStale | SubscriptionMismatch | RefreshRequired(refreshReason)
 
 type t = {
   orderbookId: Shared.orderBookId,
-  mutable seq: float,
+  mutable seq: bigint,
+  mutable lastSeq: option<bigint>,
+  aggregation: Orderbook__Model.Aggregation.t,
+  mutable bidsTruncated: bool,
+  mutable asksTruncated: bool,
+  mutable bidLevels: array<Orderbook__Raw.WsLevel.t>,
+  mutable askLevels: array<Orderbook__Raw.WsLevel.t>,
   bids: SortedBtree.t<Decimal.t, Decimal.t>,
   asks: SortedBtree.t<Decimal.t, Decimal.t>,
 }
 
-let make = (orderbookId: Shared.orderBookId): t => {
+let withAggregation = (
+  orderbookId: Shared.orderBookId,
+  aggregation: Orderbook__Model.Aggregation.t,
+): t => {
   orderbookId,
-  seq: 0.0,
+  seq: 0n,
+  lastSeq: None,
+  aggregation: Orderbook__Model.Aggregation.normalized(aggregation),
+  bidsTruncated: false,
+  asksTruncated: false,
+  bidLevels: [],
+  askLevels: [],
   bids: SortedBtree.make(~compare=Decimal.cmp, ()),
   asks: SortedBtree.make(~compare=Decimal.cmp, ()),
 }
+
+let make = orderbookId => withAggregation(orderbookId, Orderbook__Model.Aggregation.full)
 
 // Parse a wire decimal string; drop (rather than throw on) anything malformed.
 let parseDecimal = (value: string): option<Decimal.t> =>
@@ -42,19 +50,33 @@ let rebuild = (
   SortedBtree.clear(book)
   levels->Array.forEach(level =>
     switch (parseDecimal(level.price), parseDecimal(level.size)) {
-    | (Some(price), Some(size)) if !Decimal.isZero(size) => SortedBtree.set(book, price, size)->ignore
+    | (Some(price), Some(size)) if !Decimal.isZero(size) =>
+      SortedBtree.set(book, price, size)->ignore
     | _ => ()
     }
   )
 }
 
 let apply = (state: t, book: Orderbook__Raw.Book.t): applyResult =>
-  if book.resync {
+  if (
+    book.id != state.orderbookId ||
+      Orderbook__Model.Aggregation.keySuffix(Orderbook__Raw.Book.toAggregation(book)) !=
+        Orderbook__Model.Aggregation.keySuffix(state.aggregation)
+  ) {
+    SubscriptionMismatch
+  } else if book.resync {
     RefreshRequired(ServerResync)
+  } else if state.lastSeq->Option.mapOr(false, previous => book.seq <= previous) {
+    DiscardedStale
   } else {
     rebuild(state.bids, book.bids)
     rebuild(state.asks, book.asks)
     state.seq = book.seq
+    state.lastSeq = Some(book.seq)
+    state.bidsTruncated = book.bidsTruncated
+    state.asksTruncated = book.asksTruncated
+    state.bidLevels = book.bids->Array.copy
+    state.askLevels = book.asks->Array.copy
     Applied
   }
 
@@ -66,7 +88,8 @@ let bestAsk = (state: t): option<string> =>
 
 let midPrice = (state: t): option<string> =>
   switch (SortedBtree.maxKey(state.bids), SortedBtree.minKey(state.asks)) {
-  | (Some(bid), Some(ask)) => Some(Decimal.div(Decimal.plus(bid, ask), Decimal.fromInt(2))->Decimal.toString)
+  | (Some(bid), Some(ask)) =>
+    Some(Decimal.div(Decimal.plus(bid, ask), Decimal.fromInt(2))->Decimal.toString)
   | _ => None
   }
 
@@ -91,11 +114,22 @@ let asks = (state: t): array<(string, string)> =>
 let isEmpty = (state: t): bool =>
   SortedBtree.size(state.bids) == 0 && SortedBtree.size(state.asks) == 0
 
-let seq = (state: t): float => state.seq
+let seq = (state: t): bigint => state.seq
 let orderbookId = (state: t): Shared.orderBookId => state.orderbookId
 
 let clear = (state: t): unit => {
   SortedBtree.clear(state.bids)
   SortedBtree.clear(state.asks)
-  state.seq = 0.0
+  state.seq = 0n
+  state.lastSeq = None
+  state.bidsTruncated = false
+  state.asksTruncated = false
+  state.bidLevels = []
+  state.askLevels = []
 }
+
+let beginGeneration = state => state.lastSeq = None
+let bidsTruncated = state => state.bidsTruncated
+let asksTruncated = state => state.asksTruncated
+let bidLevels = state => Array.copy(state.bidLevels)
+let askLevels = state => Array.copy(state.askLevels)

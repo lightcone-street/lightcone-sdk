@@ -1,17 +1,45 @@
-// Transactions — sign + broadcast v0 transactions with the client's signing
-// strategy. Native signers use the
-// kit signer flow; external signers receive the unsigned wire bytes and return
-// the signed wire bytes. The blockhash lifetime is fetched automatically. The
-// lifetime projector and broadcast helpers are internal.
-
-// Sign + broadcast a single-instruction v0 transaction (the strategy's address
-// is the fee payer). Returns the transaction signature.
+module Simulation: {
+  @genType
+  type t = {
+    slot: bigint,
+    unitsConsumed: option<bigint>,
+    loadedAccountsDataSize: option<bigint>,
+    logs: array<string>,
+  }
+}
+module Confirmed: {
+  @genType type t = {signature: string, slot: bigint}
+}
+let contextWithResources: (
+  Client.t,
+  V1Transaction.Resources.t,
+) => promise<result<V1Transaction.Context.t, SdkError.t>>
+let context: Client.t => promise<result<V1Transaction.Context.t, SdkError.t>>
+let build: (
+  Client.t,
+  ~payer: SolanaKit.address,
+  ~instructions: array<SolanaKit.instruction>,
+) => promise<result<V1Transaction.t, SdkError.t>>
+let ensureV1Supported: Client.t => promise<result<unit, SdkError.t>>
+let estimateFee: (Client.t, V1Transaction.t) => promise<result<bigint, SdkError.t>>
+let simulate: (Client.t, V1Transaction.t) => promise<result<Simulation.t, SdkError.t>>
+let submitSigned: (Client.t, V1Transaction.t) => promise<result<string, SdkError.t>>
+let signPrepared: (
+  Client.t,
+  V1Transaction.t,
+  ~additionalSigners: array<SolanaKit.cryptoKeyPair>=?,
+) => promise<result<V1Transaction.t, SdkError.t>>
+let signAndSubmitPrepared: (Client.t, V1Transaction.t) => promise<result<string, SdkError.t>>
+let signAndSubmitConfirmed: (Client.t, V1Transaction.t) => promise<result<Confirmed.t, SdkError.t>>
+let confirm: (
+  Client.t,
+  string,
+  ~lastValidBlockHeight: bigint=?,
+  ~pollIntervalMs: int=?,
+  ~maxPolls: int=?,
+) => promise<result<Confirmed.t, SdkError.t>>
 let signAndSubmit: (
   Client.t,
   unit => promise<SolanaKit.instruction>,
 ) => promise<result<string, SdkError.t>>
-
-// Sign + broadcast a caller-assembled message (e.g. `Position.Builders.unsignedTx`
-// with further instructions appended). The fee payer must already be set and
-// match the configured strategy's address.
-let signAndSubmitMessage: (Client.t, SolanaKitTx.message) => promise<result<string, SdkError.t>>
+let signAndSubmitMessage: (Client.t, V1Transaction.t) => promise<result<string, SdkError.t>>

@@ -1,26 +1,3 @@
-// WebSocket subscription params + outbound message serialization.
-//
-// Wire shapes:
-//   • Outbound envelope: `{"method": "subscribe"|"unsubscribe", "params": {…}}`
-//     (the unit `Ping` variant is just `{"method": "ping"}` — no `params` key).
-//   • Inner params object is internally tagged on `"type"` — `book_update`,
-//     `trades`, `user`, `price_history`, `ticker`, `market`, `deposit_price`,
-//     `deposit_asset_price`. Both subscribe and unsubscribe share the tags; the
-//     outer `method` discriminates them.
-//
-// Books carry the optional Hyperliquid-style aggregation (`nSigFigs`/`mantissa`):
-// camelCase `nSigFigs`, both keys omitted when full precision, and normalized
-// before sending ((5, none) → (5, 1)) — see `Orderbook.Aggregation`.
-//
-// `SubscribeParams`/`UnsubscribeParams` live in their own sub-modules so the
-// look-alike `Books`/`Trades`/… constructors don't collide (same convention as
-// the `Shared` trigger enums). Variant payloads deliberately avoid ReScript inline
-// records (those don't compile — the anonymous type escapes its constructor):
-// single-field channels carry a bare value, multi-field channels carry a named
-// record declared just above the variant (the `Messages` payload style). Within
-// each sub-module no two records share an identical field set, so ReScript can
-// disambiguate the record literals.
-
 module SubscribeParams = {
   type booksParams = {orderbookIds: array<Shared.orderBookId>, nSigFigs?: int, mantissa?: int}
 
@@ -36,6 +13,7 @@ module SubscribeParams = {
     | Books(booksParams)
     | Trades(array<Shared.orderBookId>)
     | User(Shared.pubkeyStr)
+    | WalletDepositBalances(Shared.pubkeyStr)
     | PriceHistory(priceHistoryParams)
     | Ticker(array<Shared.orderBookId>)
     | Market(Shared.pubkeyStr)
@@ -55,6 +33,7 @@ module UnsubscribeParams = {
     | Books(booksParams)
     | Trades(array<Shared.orderBookId>)
     | User(Shared.pubkeyStr)
+    | WalletDepositBalances(Shared.pubkeyStr)
     | PriceHistory(priceHistoryParams)
     | Ticker(array<Shared.orderBookId>)
     | Market(Shared.pubkeyStr)
@@ -75,14 +54,15 @@ type t =
 let sortedIds = (ids: array<Shared.orderBookId>): array<Shared.orderBookId> =>
   ids->Array.toSorted((left, right) => String.compare(left, right))
 
-let idsJson = (ids: array<Shared.orderBookId>): JSON.t =>
-  JSON.Array(sortedIds(ids)->Array.map(id => JSON.String(id)))
+let idsJson = (ids: array<Shared.orderBookId>): JSON.t => JSON.Array(
+  sortedIds(ids)->Array.map(id => JSON.String(id)),
+)
 
 // Aggregation params, normalized and with absent keys omitted: full precision →
 // no keys; (2..4) → `nSigFigs` only; (5, m) → both. Mirrors the backend contract
 // (unknown/snake_case/null aggregation params are rejected server-side).
 let aggregationFields = (nSigFigs: option<int>, mantissa: option<int>): array<(string, JSON.t)> => {
-  let normalized = Orderbook.Aggregation.normalized({nSigFigs: ?nSigFigs, mantissa: ?mantissa})
+  let normalized = Orderbook.Aggregation.normalized({?nSigFigs, ?mantissa})
   let fields = []
   normalized.nSigFigs->Option.forEach(value =>
     fields->Array.push(("nSigFigs", JSON.Number(Int.toFloat(value))))
@@ -97,13 +77,18 @@ let jsonObject = (fields: array<(string, JSON.t)>): JSON.t => JSON.Object(Dict.f
 
 let subscribeParamsToJson = (params: SubscribeParams.t): JSON.t =>
   switch params {
-  | Books({orderbookIds, nSigFigs: ?nSigFigs, mantissa: ?mantissa}) => {
+  | Books({orderbookIds, ?nSigFigs, ?mantissa}) => {
       let fields = [("type", JSON.String("book_update")), ("orderbook_ids", idsJson(orderbookIds))]
       aggregationFields(nSigFigs, mantissa)->Array.forEach(field => fields->Array.push(field))
       jsonObject(fields)
     }
   | Trades(orderbookIds) =>
     jsonObject([("type", JSON.String("trades")), ("orderbook_ids", idsJson(orderbookIds))])
+  | WalletDepositBalances(walletAddress) =>
+    jsonObject([
+      ("type", JSON.String("wallet_deposit_balances")),
+      ("wallet_address", JSON.String(walletAddress)),
+    ])
   | User(walletAddress) =>
     jsonObject([("type", JSON.String("user")), ("wallet_address", JSON.String(walletAddress))])
   | PriceHistory({orderbookId, resolution, includeOhlcv}) =>
@@ -124,18 +109,26 @@ let subscribeParamsToJson = (params: SubscribeParams.t): JSON.t =>
       ("resolution", Shared.Resolution.t_encode(resolution)),
     ])
   | DepositAssetPrice(depositAsset) =>
-    jsonObject([("type", JSON.String("deposit_asset_price")), ("deposit_asset", JSON.String(depositAsset))])
+    jsonObject([
+      ("type", JSON.String("deposit_asset_price")),
+      ("deposit_asset", JSON.String(depositAsset)),
+    ])
   }
 
 let unsubscribeParamsToJson = (params: UnsubscribeParams.t): JSON.t =>
   switch params {
-  | Books({orderbookIds, nSigFigs: ?nSigFigs, mantissa: ?mantissa}) => {
+  | Books({orderbookIds, ?nSigFigs, ?mantissa}) => {
       let fields = [("type", JSON.String("book_update")), ("orderbook_ids", idsJson(orderbookIds))]
       aggregationFields(nSigFigs, mantissa)->Array.forEach(field => fields->Array.push(field))
       jsonObject(fields)
     }
   | Trades(orderbookIds) =>
     jsonObject([("type", JSON.String("trades")), ("orderbook_ids", idsJson(orderbookIds))])
+  | WalletDepositBalances(walletAddress) =>
+    jsonObject([
+      ("type", JSON.String("wallet_deposit_balances")),
+      ("wallet_address", JSON.String(walletAddress)),
+    ])
   | User(walletAddress) =>
     jsonObject([("type", JSON.String("user")), ("wallet_address", JSON.String(walletAddress))])
   | PriceHistory({orderbookId, resolution}) =>
@@ -155,7 +148,10 @@ let unsubscribeParamsToJson = (params: UnsubscribeParams.t): JSON.t =>
       ("resolution", Shared.Resolution.t_encode(resolution)),
     ])
   | DepositAssetPrice(depositAsset) =>
-    jsonObject([("type", JSON.String("deposit_asset_price")), ("deposit_asset", JSON.String(depositAsset))])
+    jsonObject([
+      ("type", JSON.String("deposit_asset_price")),
+      ("deposit_asset", JSON.String(depositAsset)),
+    ])
   }
 
 // Outbound message → wire JSON: `{"method": …, "params": …}` (Ping omits params).
@@ -164,7 +160,10 @@ let toJson = (message: t): JSON.t =>
   | Subscribe(params) =>
     jsonObject([("method", JSON.String("subscribe")), ("params", subscribeParamsToJson(params))])
   | Unsubscribe(params) =>
-    jsonObject([("method", JSON.String("unsubscribe")), ("params", unsubscribeParamsToJson(params))])
+    jsonObject([
+      ("method", JSON.String("unsubscribe")),
+      ("params", unsubscribeParamsToJson(params)),
+    ])
   | Ping => jsonObject([("method", JSON.String("ping"))])
   }
 
@@ -176,7 +175,7 @@ let idsKey = (ids: array<Shared.orderBookId>): string => sortedIds(ids)->Array.j
 // shape (`book:a,b`); grouped books append the aggregation suffix.
 let subscriptionKey = (params: SubscribeParams.t): string =>
   switch params {
-  | Books({orderbookIds, nSigFigs: ?nSigFigs, mantissa: ?mantissa}) => {
+  | Books({orderbookIds, ?nSigFigs, ?mantissa}) => {
       let aggregation = Orderbook.Aggregation.fromFrame(nSigFigs, mantissa)
       Orderbook.Aggregation.isFull(aggregation)
         ? `book:${idsKey(orderbookIds)}`
@@ -184,6 +183,7 @@ let subscriptionKey = (params: SubscribeParams.t): string =>
     }
   | Trades(orderbookIds) => `trades:${idsKey(orderbookIds)}`
   | User(walletAddress) => `user:${walletAddress}`
+  | WalletDepositBalances(walletAddress) => `wallet_deposit_balances:${walletAddress}`
   | PriceHistory({orderbookId, resolution}) =>
     `price_history:${orderbookId}:${Shared.Resolution.toString(resolution)}`
   | Ticker(orderbookIds) => `ticker:${idsKey(orderbookIds)}`
@@ -197,7 +197,7 @@ let subscriptionKey = (params: SubscribeParams.t): string =>
 // subscription for removal (set-equality on ids + normalized aggregation).
 let unsubscribeKey = (params: UnsubscribeParams.t): string =>
   switch params {
-  | Books({orderbookIds, nSigFigs: ?nSigFigs, mantissa: ?mantissa}) => {
+  | Books({orderbookIds, ?nSigFigs, ?mantissa}) => {
       let aggregation = Orderbook.Aggregation.fromFrame(nSigFigs, mantissa)
       Orderbook.Aggregation.isFull(aggregation)
         ? `book:${idsKey(orderbookIds)}`
@@ -205,6 +205,7 @@ let unsubscribeKey = (params: UnsubscribeParams.t): string =>
     }
   | Trades(orderbookIds) => `trades:${idsKey(orderbookIds)}`
   | User(walletAddress) => `user:${walletAddress}`
+  | WalletDepositBalances(walletAddress) => `wallet_deposit_balances:${walletAddress}`
   | PriceHistory({orderbookId, resolution}) =>
     `price_history:${orderbookId}:${Shared.Resolution.toString(resolution)}`
   | Ticker(orderbookIds) => `ticker:${idsKey(orderbookIds)}`
@@ -217,11 +218,12 @@ let unsubscribeKey = (params: UnsubscribeParams.t): string =>
 // Derive the matching unsubscribe for a tracked subscription.
 let toUnsubscribeParams = (params: SubscribeParams.t): UnsubscribeParams.t =>
   switch params {
-  | Books({orderbookIds, nSigFigs: ?nSigFigs, mantissa: ?mantissa}) =>
-    Books({orderbookIds, nSigFigs: ?nSigFigs, mantissa: ?mantissa})
+  | Books({orderbookIds, ?nSigFigs, ?mantissa}) => Books({orderbookIds, ?nSigFigs, ?mantissa})
   | Trades(orderbookIds) => Trades(orderbookIds)
   | User(walletAddress) => User(walletAddress)
-  | PriceHistory({orderbookId, resolution, includeOhlcv: _}) => PriceHistory({orderbookId, resolution})
+  | WalletDepositBalances(walletAddress) => WalletDepositBalances(walletAddress)
+  | PriceHistory({orderbookId, resolution, includeOhlcv: _}) =>
+    PriceHistory({orderbookId, resolution})
   | Ticker(orderbookIds) => Ticker(orderbookIds)
   | Market(marketPubkey) => Market(marketPubkey)
   | DepositPrice({depositAsset, resolution}) => DepositPrice({depositAsset, resolution})

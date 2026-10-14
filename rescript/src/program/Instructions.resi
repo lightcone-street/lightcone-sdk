@@ -55,9 +55,8 @@ let initPositionTokens: (
   ~user: SolanaKit.address,
   ~market: SolanaKit.address,
   ~depositMints: array<SolanaKit.address>,
-  ~recentSlot: bigint,
   ~numOutcomes: int,
-) => promise<SolanaKit.instruction>
+) => promise<result<SolanaKit.instruction, SdkError.t>>
 
 // Deposit / MintCompleteSet (opcode 3) — market-level direct deposit from the
 // user's wallet ATA (mints a complete conditional-token set into the position).
@@ -76,7 +75,15 @@ let withdrawFromPosition: (
   ~programId: SolanaKit.address,
   ~user: SolanaKit.address,
   ~market: SolanaKit.address,
-  ~mint: SolanaKit.address,
+  ~depositMint: SolanaKit.address,
+  ~amount: bigint,
+  ~outcomeIndex: int,
+) => promise<SolanaKit.instruction>
+let withdrawConditionalFromPosition: (
+  ~programId: SolanaKit.address,
+  ~user: SolanaKit.address,
+  ~market: SolanaKit.address,
+  ~depositMint: SolanaKit.address,
   ~amount: bigint,
   ~outcomeIndex: int,
 ) => promise<SolanaKit.instruction>
@@ -87,31 +94,6 @@ let incrementNonce: (
   ~user: SolanaKit.address,
 ) => promise<SolanaKit.instruction>
 
-// ExtendPositionTokens (opcode 21) — operator-signed; appends newly-added deposit
-// mints' ATAs to an existing position ALT. `depositMints` must be non-empty.
-let extendPositionTokens: (
-  ~programId: SolanaKit.address,
-  ~operator: SolanaKit.address,
-  ~user: SolanaKit.address,
-  ~market: SolanaKit.address,
-  ~lookupTable: SolanaKit.address,
-  ~depositMints: array<SolanaKit.address>,
-  ~numOutcomes: int,
-) => promise<SolanaKit.instruction>
-
-// ClosePositionAlt (opcode 23) — operator-signed; deactivates or closes a
-// position ALT. `~position` is the position PDA address (passed through).
-let closePositionAlt: (
-  ~programId: SolanaKit.address,
-  ~operator: SolanaKit.address,
-  ~position: SolanaKit.address,
-  ~market: SolanaKit.address,
-  ~lookupTable: SolanaKit.address,
-) => promise<SolanaKit.instruction>
-
-// ClosePositionTokenAccounts (opcode 25) — operator-signed; closes empty SPL
-// conditional ATAs owned by a position PDA after resolution. `~position` is the
-// position PDA address; `depositMints` must be non-empty, `numOutcomes` in 2..=6.
 let closePositionTokenAccounts: (
   ~programId: SolanaKit.address,
   ~operator: SolanaKit.address,
@@ -332,6 +314,8 @@ let matchOrdersMulti: (
   ~market: SolanaKit.address,
   ~baseMint: SolanaKit.address,
   ~quoteMint: SolanaKit.address,
+  ~baseDepositMint: SolanaKit.address,
+  ~quoteDepositMint: SolanaKit.address,
   ~feeReceiver: SolanaKit.address,
   ~takerOrder: SignedOrder.t,
   ~takerIsFullFill: bool,
@@ -355,42 +339,18 @@ let createOrderbook: (
   ~mintB: OrderbookMint.t,
   ~baseIndex: int,
   ~feeReceiver: SolanaKit.address,
-  ~recentSlot: bigint,
 ) => promise<result<SolanaKit.instruction, SdkError.t>>
 
 // RefreshOrderbookAlt (opcode 34) — manager-only fee-receiver ATA refresh.
-let refreshOrderbookAlt: (
-  ~programId: SolanaKit.address,
-  ~manager: SolanaKit.address,
-  ~market: SolanaKit.address,
-  ~orderbook: SolanaKit.address,
-  ~lookupTable: SolanaKit.address,
-  ~quoteMint: SolanaKit.address,
-  ~feeReceiver: SolanaKit.address,
-) => promise<SolanaKit.instruction>
 
-// DepositToGlobal with the user-deposit-ALT create/extend block (opcode 17).
-module DepositToGlobalAltContext: {
-  type t =
-    | Create({recentSlot: bigint})
-    | Extend({lookupTable: SolanaKit.address})
-}
-
-let depositToGlobalWithAlt: (
-  ~programId: SolanaKit.address,
-  ~user: SolanaKit.address,
-  ~mint: SolanaKit.address,
-  ~amount: bigint,
-  ~altContext: DepositToGlobalAltContext.t,
-) => promise<SolanaKit.instruction>
-
-// DepositAndSwap (opcode 20) — unified deposit + swap execution (1–5 makers).
 let depositAndSwap: (
   ~programId: SolanaKit.address,
   ~operator: SolanaKit.address,
   ~market: SolanaKit.address,
   ~baseMint: SolanaKit.address,
   ~quoteMint: SolanaKit.address,
+  ~baseDepositMint: SolanaKit.address,
+  ~quoteDepositMint: SolanaKit.address,
   ~feeReceiver: SolanaKit.address,
   ~takerOrder: SignedOrder.t,
   ~takerIsFullFill: bool,
@@ -408,17 +368,9 @@ let closeOrderStatus: (
 ) => promise<SolanaKit.instruction>
 
 // CloseOrderbookAlt (opcode 26) / CloseOrderbook (opcode 27) — operator-only.
-let closeOrderbookAlt: (
-  ~programId: SolanaKit.address,
-  ~operator: SolanaKit.address,
-  ~orderbook: SolanaKit.address,
-  ~market: SolanaKit.address,
-  ~lookupTable: SolanaKit.address,
-) => promise<SolanaKit.instruction>
 let closeOrderbook: (
   ~programId: SolanaKit.address,
   ~operator: SolanaKit.address,
   ~orderbook: SolanaKit.address,
   ~market: SolanaKit.address,
-  ~lookupTable: SolanaKit.address,
 ) => promise<SolanaKit.instruction>

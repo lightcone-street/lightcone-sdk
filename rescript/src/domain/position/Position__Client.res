@@ -10,10 +10,10 @@
 // (getExchange / getMarket / getOrderbook / getPosition + PDA helpers).
 
 // All positions for a user across every market. Public path-based endpoint.
-let get = async (
-  client: Client.t,
-  ~userPubkey: string,
-): result<Position__Raw.PositionsResponse.t, SdkError.t> =>
+let get = async (client: Client.t, ~userPubkey: string): result<
+  Position__Raw.PositionsResponse.t,
+  SdkError.t,
+> =>
   await Http.get(
     client.http,
     ~path=`/api/users/${userPubkey}/positions`,
@@ -21,11 +21,10 @@ let get = async (
   )
 
 // Positions for a user in a specific market. Public path-based endpoint.
-let getForMarket = async (
-  client: Client.t,
-  ~userPubkey: string,
-  ~marketPubkey: string,
-): result<Position__Raw.MarketPositionsResponse.t, SdkError.t> =>
+let getForMarket = async (client: Client.t, ~userPubkey: string, ~marketPubkey: string): result<
+  Position__Raw.MarketPositionsResponse.t,
+  SdkError.t,
+> =>
   await Http.get(
     client.http,
     ~path=`/api/users/${userPubkey}/markets/${marketPubkey}/positions`,
@@ -34,10 +33,10 @@ let getForMarket = async (
 
 // All positions for the authenticated user (wallet resolved server-side from the
 // auth cookie). Pass `~cookieHeader` to forward a per-request cookie (SSR).
-let positions = async (
-  client: Client.t,
-  ~cookieHeader: option<string>=?,
-): result<Position__Raw.PositionsResponse.t, SdkError.t> =>
+let positions = async (client: Client.t, ~cookieHeader: option<string>=?): result<
+  Position__Raw.PositionsResponse.t,
+  SdkError.t,
+> =>
   await Http.get(
     client.http,
     ~path="/api/users/positions",
@@ -60,13 +59,13 @@ let positionsForMarket = async (
 
 // SPL deposit-token balances for the authenticated user, keyed by mint pubkey.
 // An empty map means the user holds none of the tracked balances (not an error).
-let depositTokenBalances = async (
-  client: Client.t,
-  ~cookieHeader: option<string>=?,
-): result<dict<Position__Raw.DepositTokenBalance.t>, SdkError.t> =>
+let depositTokenBalances = async (client: Client.t, ~cookieHeader: option<string>=?): result<
+  Position__Raw.DepositTokenBalancesSnapshot.t,
+  SdkError.t,
+> =>
   await Http.get(
     client.http,
     ~path="/api/users/deposit-token-balances",
     ~cookieHeader?,
-    ~decode=json => Spice.dictFromJson(Position__Raw.DepositTokenBalance.t_decode, json),
+    ~decode=Position__Raw.DepositTokenBalancesSnapshot.t_decode,
   )

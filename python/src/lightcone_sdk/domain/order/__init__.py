@@ -3,20 +3,18 @@
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from enum import Enum
-from typing import Optional
 
-from ...error import _require
-from ...shared.types import TimeInForce, TriggerType
+from ...error import DeserializationError, _require
 
 
 class OrderType(str, Enum):
+    """Supported resting-order kind."""
+
     LIMIT = "limit"
-    TRIGGER = "trigger"
 
     def label(self) -> str:
         return {
             OrderType.LIMIT: "Limit",
-            OrderType.TRIGGER: "Trigger",
         }[self]
 
 
@@ -55,10 +53,10 @@ class LimitOrder:
     price: str
     filled_size: str = "0"
     remaining_size: str = "0"
-    created_at: Optional[str] = None
+    created_at: str | None = None
     status: OrderStatus = OrderStatus.OPEN
     outcome_index: int = 0
-    tx_signature: Optional[str] = None
+    tx_signature: str | None = None
     base_mint: str = ""
     quote_mint: str = ""
 
@@ -68,50 +66,8 @@ class OrderEvent:
     """WebSocket order event."""
 
     type: str
-    order: Optional[LimitOrder] = None
-    fill: Optional[FillInfo] = None
-
-
-@dataclass
-class TriggerOrder:
-    """Trigger order domain type."""
-
-    trigger_order_id: str
-    order_hash: str
-    market_pubkey: str
-    orderbook_id: str
-    trigger_price: str
-    trigger_type: TriggerType
-    side: int
-    amount_in: str
-    amount_out: str
-    time_in_force: TimeInForce
-    created_at: Optional[str] = None
-
-    def limit_price(self) -> Optional[Decimal]:
-        """Derive the limit price from pre-scaled amounts.
-
-        ``amount_in`` and ``amount_out`` are already human-readable decimals
-        (scaled by the snapshot/websocket layer), so no further decimal
-        conversion is needed.
-
-        For Ask: maker gives base, receives quote -> price = quote / base
-        For Bid: maker gives quote, receives base -> price = quote / base
-        """
-        amount_in = Decimal(self.amount_in)
-        amount_out = Decimal(self.amount_out)
-
-        if self.side == 1 and amount_in > 0:  # Ask
-            return amount_out / amount_in
-        elif self.side == 0 and amount_out > 0:  # Bid
-            return amount_in / amount_out
-        return None
-
-
-@dataclass
-class TriggerOrderResponse:
-    trigger_order_id: str
-    order_hash: str
+    order: LimitOrder | None = None
+    fill: FillInfo | None = None
 
 
 @dataclass
@@ -168,25 +124,6 @@ class CancelAllSuccess:
     user_pubkey: str = ""
     orderbook_id: str = ""
     message: str = ""
-
-
-@dataclass
-class CancelTriggerBody:
-    trigger_order_id: str
-    maker: str
-    signature: str
-
-    def to_dict(self) -> dict:
-        return {
-            "trigger_order_id": self.trigger_order_id,
-            "maker": self.maker,
-            "signature": self.signature,
-        }
-
-
-@dataclass
-class CancelTriggerSuccess:
-    trigger_order_id: str
 
 
 @dataclass
@@ -279,13 +216,7 @@ class UserMarketBalance:
 
 @dataclass
 class UserSnapshotOrder:
-    """Unified REST/WS user order snapshot.
-
-    The backend only returns ``order_type == "limit"`` or
-    ``order_type == "trigger"``. Trigger subtype details such as stop-loss vs
-    take-profit are expressed through the trigger fields, not through additional
-    ``order_type`` variants.
-    """
+    """Limit order from a REST response or WebSocket account snapshot."""
 
     order_hash: str = ""
     market_pubkey: str = ""
@@ -297,42 +228,47 @@ class UserSnapshotOrder:
     filled: str = "0"
     price: str = "0"
     size: str = "0"
-    created_at: Optional[str] = None
+    created_at: str | None = None
     expiration: int = 0
     base_mint: str = ""
     quote_mint: str = ""
     outcome_index: int = 0
     status: str = OrderStatus.OPEN.value
     order_type: str = OrderType.LIMIT.value
-    # Trigger-specific fields (present when order_type == "trigger")
-    trigger_order_id: Optional[str] = None
-    trigger_price: Optional[str] = None
-    trigger_type: Optional[TriggerType] = None
-    time_in_force: Optional[TimeInForce] = None
-    # Limit-specific fields
-    tx_signature: Optional[str] = None
+    tx_signature: str | None = None
 
     @staticmethod
     def from_dict(d: dict) -> "UserSnapshotOrder":
+        """Decode a limit order with its required wire kind, amounts, and order hash."""
         from ...shared.types import Side as _Side
 
-        trigger_type_raw = d.get("trigger_type")
-        time_in_force_raw = d.get("time_in_force")
+        if not isinstance(d, dict):
+            raise DeserializationError("UserSnapshotOrder requires an order object")
+        if d.get("order_type") != OrderType.LIMIT.value:
+            raise DeserializationError("UserSnapshotOrder requires order_type 'limit'")
+        order_hash = _require(d, "order_hash", "UserSnapshotOrder")
+        if not isinstance(order_hash, str):
+            raise DeserializationError("UserSnapshotOrder order_hash must be a string")
+        amount_in = d.get("amount_in", d.get("maker_amount"))
+        amount_out = d.get("amount_out", d.get("taker_amount"))
+        if amount_in is None or amount_out is None:
+            raise DeserializationError(
+                "UserSnapshotOrder requires amount_in and amount_out"
+            )
         remaining = str(d.get("remaining", "0"))
         filled = str(d.get("filled", "0"))
         size = d.get("size")
         if size is None:
             size = _sum_decimal_strings(remaining, filled)
-        order_type = str(d.get("order_type", OrderType.LIMIT.value)).lower()
         return UserSnapshotOrder(
-            order_hash=d.get("order_hash", ""),
+            order_hash=order_hash,
             side=int(_Side.from_wire(d.get("side", 0))),
             price=d.get("price", "0"),
             size=str(size),
             orderbook_id=d.get("orderbook_id", ""),
             market_pubkey=d.get("market_pubkey", ""),
-            amount_in=d.get("amount_in", d.get("maker_amount", "0")),
-            amount_out=d.get("amount_out", d.get("taker_amount", "0")),
+            amount_in=amount_in,
+            amount_out=amount_out,
             remaining=remaining,
             filled=filled,
             expiration=d.get("expiration", 0),
@@ -340,20 +276,8 @@ class UserSnapshotOrder:
             quote_mint=d.get("quote_mint", ""),
             outcome_index=d.get("outcome_index", 0),
             status=d.get("status", OrderStatus.OPEN.value),
-            order_type=order_type,
+            order_type=OrderType.LIMIT.value,
             created_at=d.get("created_at"),
-            trigger_order_id=d.get("trigger_order_id"),
-            trigger_price=d.get("trigger_price"),
-            trigger_type=(
-                TriggerType.from_wire(trigger_type_raw)
-                if trigger_type_raw is not None
-                else None
-            ),
-            time_in_force=(
-                TimeInForce.from_wire(time_in_force_raw)
-                if time_in_force_raw is not None
-                else None
-            ),
             tx_signature=d.get("tx_signature"),
         )
 
@@ -370,14 +294,14 @@ class UserOrdersResponse:
     user_pubkey: str = ""
     orders: list[UserSnapshotOrder] = field(default_factory=list)
     market_balances: list[UserMarketBalance] = field(default_factory=list)
-    next_cursor: Optional[str] = None
+    next_cursor: str | None = None
     has_more: bool = False
 
 
 from .wire import (  # noqa: E402 — re-export wire types matching Rust mod.rs
-    Role,
     FillStatus,
     OrderFillEvent,
+    Role,
     UserOrderFill,
     UserOrderFillsResponse,
 )
@@ -388,16 +312,12 @@ __all__ = [
     "FillInfo",
     "LimitOrder",
     "OrderEvent",
-    "TriggerOrder",
-    "TriggerOrderResponse",
     "SubmitOrderResponse",
     "SubmitOrderStatus",
     "CancelBody",
     "CancelSuccess",
     "CancelAllBody",
     "CancelAllSuccess",
-    "CancelTriggerBody",
-    "CancelTriggerSuccess",
     "ConditionalBalance",
     "GlobalDepositBalance",
     "UserMarketBalance",

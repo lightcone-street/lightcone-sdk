@@ -1,4 +1,5 @@
 import { asPubkeyStr } from "../../shared";
+import { MAX_OUTCOMES, MIN_OUTCOMES } from "../../program/constants";
 import type { OrderBookPair } from "../orderbook";
 import { orderBookPairFromWire } from "../orderbook/convert";
 import { resolveIconUrls } from "./icon";
@@ -17,6 +18,16 @@ export { globalDepositAssetFromWire, resolveIconUrls };
 
 export function marketFromWire(source: MarketResponse): Market {
   const errors: string[] = [];
+  const numOutcomes = source.num_outcomes ?? source.deposit_assets[0]?.num_outcomes ?? 0;
+  if (!Number.isInteger(numOutcomes) || numOutcomes < MIN_OUTCOMES || numOutcomes > MAX_OUTCOMES) {
+    errors.push(`Invalid outcome count: ${numOutcomes}`);
+  }
+  const inconsistentOutcomeCounts = source.deposit_assets
+    .map((asset) => asset.num_outcomes)
+    .filter((count) => count !== numOutcomes);
+  if (inconsistentOutcomeCounts.length > 0) {
+    errors.push(`Deposit asset outcome counts do not match market: ${inconsistentOutcomeCounts.join(", ")}`);
+  }
 
   const outcomes = source.outcomes.flatMap((outcome) => {
     try {
@@ -52,17 +63,17 @@ export function marketFromWire(source: MarketResponse): Market {
   });
 
   const status = statusFromWire(source.market_status);
+  const definition = typeof source.definition === "string" ? source.definition : undefined;
   if (!source.slug) errors.push("Missing slug");
   if (!source.market_name) errors.push("Missing market name");
   if (!status) errors.push(`Invalid status: ${source.market_status}`);
-  if (!source.description) errors.push("Missing description");
-  if (!source.definition) errors.push("Missing definition");
+  if (!definition) errors.push("Missing definition");
 
   const iconUrls = resolveIconUrls(source.icon_url_low, source.icon_url_medium, source.icon_url_high);
   if (!iconUrls) errors.push("Missing icon URL");
 
+  // Banners are optional; cross-fallback still applies when any variant is set.
   const bannerUrls = resolveIconUrls(source.banner_image_url_low, source.banner_image_url_medium, source.banner_image_url_high);
-  if (!bannerUrls) errors.push("Missing banner image URL");
 
   const depositAssetPairs = sortByDisplayPriority(
     deriveDepositAssetPairs(depositAssets, orderbookPairs),
@@ -80,23 +91,28 @@ export function marketFromWire(source: MarketResponse): Market {
     id: source.market_id,
     pubkey: asPubkeyStr(source.market_pubkey),
     name: source.market_name ?? "",
-    bannerImageUrlLow: bannerUrls?.low ?? "",
-    bannerImageUrlMedium: bannerUrls?.medium ?? "",
-    bannerImageUrlHigh: bannerUrls?.high ?? "",
+    bannerImageUrlLow: bannerUrls?.low,
+    bannerImageUrlMedium: bannerUrls?.medium,
+    bannerImageUrlHigh: bannerUrls?.high,
     iconUrlLow: iconUrls?.low ?? "",
     iconUrlMedium: iconUrls?.medium ?? "",
     iconUrlHigh: iconUrls?.high ?? "",
     featuredRank: source.featured_rank,
     slug: source.slug ?? "",
     status: status ?? Status.Pending,
+    makerFeeBps: source.maker_fee_bps ?? 0,
+    takerFeeBps: source.taker_fee_bps ?? 0,
     createdAt: new Date(source.created_at),
     activatedAt: source.activated_at ? new Date(source.activated_at) : undefined,
     settledAt: source.settled_at ? new Date(source.settled_at) : undefined,
+    resolutionBy: source.resolution_by ?? undefined,
     resolution: source.resolution,
-    description: source.description ?? "",
-    definition: source.definition ?? "",
+    description: source.description,
+    definition: definition as string,
     category: source.category,
+    subcategory: source.subcategory,
     tags: source.tags ?? [],
+    numOutcomes,
     depositAssets,
     depositAssetPairs,
     conditionalTokens,

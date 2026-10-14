@@ -5,14 +5,10 @@ use common::{
     wait_for_global_balance, ExampleResult,
 };
 use lightcone::prelude::*;
+use lightcone::program::V1Transaction;
+use lightcone::{program::types::OrderSide, shared::scale_price_size};
 use solana_signer::Signer;
-use solana_transaction::Transaction;
 use std::sync::Arc;
-
-// Quote needed for the bid below (price * size, scaled to the deposit asset's
-// decimals). Must stay in sync with the same constant in `cancel_order.rs`,
-// which withdraws this amount back out of the global pool after cancelling.
-const ORDER_QUOTE_AMOUNT: u64 = 1_100_000; // 0.55 * 2 USDC, 6 decimals
 
 #[tokio::main]
 async fn main() -> ExampleResult {
@@ -22,9 +18,19 @@ async fn main() -> ExampleResult {
     common::login(&client, keypair.as_ref(), false).await?;
 
     let (_market, orderbook) = market_and_orderbook(&client).await?;
+    let rules = client
+        .orderbooks()
+        .decimals(orderbook.orderbook_id.as_str())
+        .await?;
+    let order_price = rules.trading_rules.price_quantum.clone();
+    let order_size = "1";
+    let order_quote_amount =
+        scale_price_size(&order_price, order_size, OrderSide::Bid, &rules)?.quote_atoms;
+    let required_balance = rust_decimal::Decimal::new(
+        i64::try_from(order_quote_amount)?,
+        u32::from(rules.quote_decimals),
+    );
     let mint = quote_deposit_mint(&orderbook)?;
-    let rpc_sub = client.rpc();
-    let rpc = rpc_sub.inner().await?;
 
     // 1. Deposit collateral into the global pool.
     //
@@ -39,19 +45,25 @@ async fn main() -> ExampleResult {
         .deposit_to_global()
         .user(maker)
         .mint(mint)
-        .amount(ORDER_QUOTE_AMOUNT)
+        .amount(order_quote_amount)
         .build_ix()?;
-    let blockhash = rpc_sub.get_latest_blockhash().await?;
-    let mut deposit_tx = Transaction::new_with_payer(&[deposit_ix], Some(&maker));
-    deposit_tx.try_sign(&[keypair.as_ref()], blockhash)?;
-    let deposit_sig = rpc.send_and_confirm_transaction(&deposit_tx).await?;
+    let context = client.transaction_context().await?;
+    let deposit_tx = V1Transaction::compile(&[deposit_ix], &maker, &context)?;
+    let deposit_tx = deposit_tx.sign(&[keypair.as_ref()])?;
+    let deposit_sig = client.submit_signed_transaction(&deposit_tx).await?;
+    client
+        .confirm_signature(
+            &deposit_sig,
+            Some(deposit_tx.context().last_valid_block_height),
+        )
+        .await?;
     println!("deposit_to_global: confirmed {deposit_sig}");
 
     client
         .set_signing_strategy(SigningStrategy::Native(keypair.clone()))
         .await;
 
-    wait_for_global_balance(&client, &mint, rust_decimal::Decimal::new(11, 1)).await?;
+    wait_for_global_balance(&client, &mint, required_balance).await?;
 
     // 2. Submit the limit order. Fetch and cache the on-chain nonce once —
     //    subsequent orders that omit `.nonce()` use this cached value.
@@ -64,8 +76,8 @@ async fn main() -> ExampleResult {
         .await
         .maker(maker)
         .bid()
-        .price("0.55")
-        .size("2")
+        .price(&order_price)
+        .size(order_size)
         .salt(lightcone::program::orders::generate_salt())
         .submit(&client, &orderbook)
         .await?;

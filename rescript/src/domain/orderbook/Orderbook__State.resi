@@ -1,13 +1,12 @@
-// The live sorted book maintained from WS `BookUpdate` frames. Snapshot-only /
-// last-write-wins; a `resync` frame bails with `RefreshRequired` and leaves the
-// book untouched (caller must resubscribe). Prices/sizes are decimal strings;
-// bids are returned high→low, asks low→high.
+// One normalized subscription per state. Accepted newer frames replace both sides;
+// a new generation resets sequence admission while preserving visible levels.
+// Resync requests preserve levels and require a subscription refresh.
 
 @genType
 type refreshReason = ServerResync
 
 @genType
-type applyResult = Applied | RefreshRequired(refreshReason)
+type applyResult = Applied | DiscardedStale | SubscriptionMismatch | RefreshRequired(refreshReason)
 
 @genType.opaque
 type t
@@ -41,10 +40,17 @@ let asks: t => array<(string, string)>
 
 @genType
 let isEmpty: t => bool
-// The seq of the last applied frame (informational; never gates).
+// The sequence of the last accepted data frame.
 @genType
-let seq: t => float
+let seq: t => bigint
 @genType
 let orderbookId: t => Shared.orderBookId
 @genType
 let clear: t => unit
+
+@genType let withAggregation: (Shared.orderBookId, Orderbook__Model.Aggregation.t) => t
+@genType let beginGeneration: t => unit
+@genType let bidsTruncated: t => bool
+@genType let asksTruncated: t => bool
+@genType let bidLevels: t => array<Orderbook__Raw.WsLevel.t>
+@genType let askLevels: t => array<Orderbook__Raw.WsLevel.t>

@@ -5,6 +5,7 @@ import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 
 import { LightconeClient, LightconeEnv, type Market, type OrderBookPair } from "../src";
 import { signLoginMessage, type SessionResponse } from "../src/auth";
+import { Status as MarketStatus } from "../src/domain/market";
 
 const DEFAULT_WALLET_PATH = "~/.config/solana/id.json";
 
@@ -14,7 +15,12 @@ const DEFAULT_WALLET_PATH = "~/.config/solana/id.json";
  * (options: local, staging, prod).
  */
 export function restClient(): LightconeClient {
-  const builder = LightconeClient.builder();
+  // Explicit example limits; applications choose limits appropriate to their workload.
+  const builder = LightconeClient.builder().transactionResources({
+    computeUnitLimit: 1_400_000,
+    loadedAccountsDataSizeLimit: 64 * 1024 * 1024,
+    priorityFeeLamports: 0n,
+  });
   const envStr = process.env.LIGHTCONE_ENV?.toLowerCase();
   if (envStr) {
     switch (envStr) {
@@ -29,6 +35,10 @@ export function restClient(): LightconeClient {
         );
     }
   }
+  const apiKey = process.env.LIGHTCONE_API_KEY?.trim();
+  if (apiKey) {
+    builder.apiKey(apiKey);
+  }
   return builder.build();
 }
 
@@ -37,12 +47,21 @@ export function rpcClient(): LightconeClient {
 }
 
 /**
- * Load a keypair from disk.
- * Defaults to `~/.config/solana/id.json`. Set `LIGHTCONE_WALLET_PATH`
- * to override.
+ * Load an SDK or peer keypair from an existing wallet-path variable.
+ *
+ * With no argument, the TypeScript-specific path wins, then the generic path,
+ * then `~/.config/solana/id.json`. Passing a variable name is fail-closed and
+ * is used by fund-moving examples to address a configured peer wallet.
  */
-export function getKeypair(): Keypair {
-  const walletFile = process.env.LIGHTCONE_WALLET_PATH ?? DEFAULT_WALLET_PATH;
+export function getKeypair(pathVariable?: string): Keypair {
+  const walletFile = pathVariable
+    ? process.env[pathVariable]
+    : process.env.LIGHTCONE_WALLET_PATH_TS ??
+      process.env.LIGHTCONE_WALLET_PATH ??
+      DEFAULT_WALLET_PATH;
+  if (!walletFile) {
+    throw new Error(`${pathVariable} is required`);
+  }
   const resolved = walletFile.startsWith("~")
     ? path.join(os.homedir(), walletFile.slice(1))
     : walletFile;
@@ -67,11 +86,19 @@ export async function login(
   );
 }
 
+/** Select the first non-resolved market, paging by increasing market ID. */
 export async function market(client: LightconeClient): Promise<Market> {
-  const result = await client.markets().get(undefined, 1);
-  const m = result.markets[0];
-  if (!m) throw new Error("No markets found");
-  return m;
+  let cursor: number | undefined;
+  while (true) {
+    const { markets } = await client.markets().get(cursor, 100);
+    const selected = markets.find((candidate) => candidate.status !== MarketStatus.Resolved);
+    if (selected) return selected;
+    const next = markets[markets.length - 1]?.id;
+    if (next === undefined || (cursor !== undefined && next <= cursor)) {
+      throw new Error("No non-resolved markets returned by the API");
+    }
+    cursor = next;
+  }
 }
 
 export async function marketAndOrderbook(
@@ -89,7 +116,7 @@ export function quoteDepositMint(orderbook: OrderBookPair): PublicKey {
 }
 
 export function numOutcomes(m: Market): number {
-  return m.outcomes.length;
+  return m.numOutcomes;
 }
 
 export async function waitForGlobalBalance(
@@ -105,8 +132,10 @@ export async function waitForGlobalBalance(
   console.log(`waiting for global balance: mint=${mintStr} required=${minimumAmount}`);
   while (Date.now() < deadline) {
     attempt++;
-    const balances = await client.positions().depositTokenBalances();
-    const entry = Object.values(balances).find((balance) => balance.mint === mintStr);
+    const snapshot = await client.positions().depositTokenBalances();
+    const entry = Object.values(snapshot.balances).find(
+      (balance) => balance.mint === mintStr
+    );
     const currentIdle = entry ? Number(entry.idle) : 0;
     const symbol = entry?.symbol ?? "unknown";
     if (currentIdle >= minimumAmount) {

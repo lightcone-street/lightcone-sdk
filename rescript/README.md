@@ -1,114 +1,180 @@
 # Lightcone ReScript SDK
 
-An idiomatic **ReScript** SDK for the [Lightcone](https://lightcone.xyz) protocol, authored in
-ReScript and exported to **TypeScript** via [gentype](https://rescript-lang.org/docs/manual/latest/typescript-integration).
-Behavior mirrors the Rust SDK (the source of truth).
+The app-facing ReScript SDK, with generated JavaScript and TypeScript APIs. Version
+`0.9.0-rc.1` implements the contract at staging commit
+`6df479dd401c03c71fab63037b7b0f05f88422f1`. It retains order nonces and ALO. Trigger
+orders and ALT operations have been removed from this contract.
 
-It is consumable from three surfaces, all generated from one ReScript codebase:
+Use Node 24+ and Bun 1.3.14 for development. Browser applications use Web Crypto,
+Fetch, and WebSocket. The browser entry does not load Node's `ws` transport.
 
-| Surface | What you import | Error handling |
-|---|---|---|
-| **ReScript** | the domain modules (`Market`, `Trade`, `Auth`, …) | `promise<result<_, SdkError.t>>` (idiomatic) |
-| **JavaScript** | the compiled `*.res.mjs` (esm) | same runtime as ReScript |
-| **TypeScript** | the namespaced gentype API `TypeScriptApi.gen.ts` (package entry) | throwing `Promise<T>`, grouped: `Markets.featured`, `Orders.submitLimit`, … |
+## Install and import
 
-## Stack
-
-- **ReScript 12.3** + **bun** for dev, npm-publishable ESM output (`.res.mjs`, in-source).
-- [`@mununki/ppx-spice`](https://github.com/green-labs/ppx_spice) generates JSON encoders/decoders for
-  every wire/domain type; **gentype** emits `.gen.ts` for TS consumers.
-- [`@solana/kit`](https://solanakit.com) for the Solana/crypto layer (ed25519 signing, PDAs,
-  transactions, RPC) + [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) for keccak256 +
-  [`@solana-program/token`](https://www.npmjs.com/package/@solana-program/token) for ATAs. Bindings to
-  `decimal.js` and `sorted-btree`. HTTP is the platform-global **Fetch** (no axios); the app WebSocket
-  is the platform-global `WebSocket`. House-style bindings live in [`bindings/`](bindings/).
-
-## Layout
-
-```
-bindings/   per-library dirs (solana-kit, noble-hashes, solana-program-token, decimal,
-            sorted-btree, fetch, websocket) — each with its own README + runtime tests
-src/
-  Shared      enums/newtypes (Side, TimeInForce, OrderStatus, Resolution, DepositSource, …)
-  SdkError    error tree + ApiResponse decoding + the result→throwing facade helper
-  Env, Http   environment config + Fetch transport (retry, cookies, x-request-id)
-  Price       decimal-string ↔ float helpers (lossy; use Decimal for precision-safe math)
-  Client      the client handle (HTTP, env, program id, RPC, signing strategy — native keypair or
-              external wallet adapter — deposit source, nonce)
-  auth/       Auth domain — nonce + ed25519 signed-message login (native or external signer), session,
-              logout, Privy/X (Auth.res pure alias namespace over Auth__Model/Raw/Native/Client)
-  fmt/        Fmt display-formatting namespace (Fmt.Decimal / Fmt.Num / Fmt.Str over the Fmt__* files:
-              magnitude-tiered decimals, k/m/b/t abbreviation, percentages, base-unit conversions)
-  domain/     one folder per domain: market/ orderbook/ trade/ position/ order/ priceHistory/
-              metrics/ notification/ referral/ faucet/. Each follows the same file set —
-                <Domain>.res        pure alias namespace (what you import: Market.t, Order.Client.…)
-                <Domain>__Model     plain domain types (leaf; type-per-module with `type t`)
-                <Domain>__Raw       wire types (@spice / hand decoders) + to<Target> conversions
-                <Domain>__State     WS "apply events → live view" reducers (live sorted book via
-                                    sorted-btree; rolling candles; open limit/trigger orders; capped
-                                    trade history; balance index) — consumed from a Ws onMessage closure
-                <Domain>__Client    HTTP client fns, called as <Domain>.Client.<fn>(client, …)
-              (Model/State only where the domain has them; Metrics/Faucet are wire-only. position/ adds
-              Position__Builders — high-level on-chain tx builders: deposit/withdraw/merge/redeem/init/
-              extend/close + unsignedTx — as Position.Builders.)
-  program/    Constants, Pda, OrderPayload (keccak256 + ed25519 order hashing, 233/37-byte codecs, order
-              math), Scaling, Instructions (every program instruction incl. operator/admin + matching),
-              Envelope (limit + trigger build/sign/submit, native or client-strategy signed),
-              Transactions (strategy-aware sign + broadcast), Accounts
-  Rpc         on-chain reads over @solana/kit (blockhash, exchange/market/orderbook/position/order-status/
-              global-deposit-token accounts, user nonce)
-  ws/         Ws (connect/reconnect/heartbeat), Subscriptions, Messages
-  TypeScriptApi  the gentype-exported, namespaced TypeScript API (package entry; `@genType module`s)
-examples/     ReScript (.res) + TypeScript (.ts) examples, co-located; the compiled .res.mjs is the JS
-              example. Each is a `<Name>__Example.res` / `__Example.ts` entry point — the `__Example`
-              suffix keeps the module name a single valid identifier (editor/LSP-friendly) and distinct
-              from the SDK/domain modules (`Orderbook__Example` doesn't shadow the `Orderbook` domain).
-              Shared helper: `Common__Example.res`. TypeScript examples import only from the generated
-              `.gen.ts` — never the compiled .res.mjs.
-tests/        runtime tests (bun): bindings, codecs, order-hash & scaling golden vectors, PDAs
-```
-
-## Usage
-
-**ReScript** (idiomatic `result`):
+ReScript applications add `@lightconexyz/lightcone-sdk-rescript` to both their
+package dependencies and `rescript.json` dependencies. Import through the
+`LightconeSdk` namespace; modules such as `Client` no longer occupy the app's global
+namespace. The package ships source, interfaces, compiled ESM, and declarations.
 
 ```rescript
+open LightconeSdk
+
 let client = Client.make(~env=Staging, ())
 switch await Market.Client.featured(client) {
-| Ok(markets) => Console.log(Array.length(markets))
+| Ok(markets) => Console.log(markets)
 | Error(error) => Console.error(SdkError.toMessage(error))
 }
 ```
 
-**TypeScript** (throwing, namespaced, via gentype — imported from the package entry):
+JavaScript and TypeScript use the same package entry. Its asynchronous facade
+throws a `LightconeError` with the structured ReScript error in `.sdkError`.
 
 ```ts
-import { makeForEnv, Markets, login } from "@lightconexyz/lightcone-sdk-rescript";
-const client = makeForEnv("staging");
-const markets = await Markets.featured(client); // Promise<Market__Raw_MarketSearchResult_t[]>
-await login(client, undefined);            // throws on failure
+import { makeForEnv, MarketClient } from '@lightconexyz/lightcone-sdk-rescript';
+const client = makeForEnv('staging');
+const markets = await MarketClient.featured(client);
 ```
 
-See [`examples/`](examples/) for both surfaces (and `examples/*.res.mjs` for the compiled JS).
+The server entry adds native credentials, signed-message login, trading API keys,
+and authenticated WebSocket handshakes:
 
-## Develop
+```ts
+import { makeForEnv } from '@lightconexyz/lightcone-sdk-rescript';
+import { useNativeSigner, login, connect } from '@lightconexyz/lightcone-sdk-rescript/server';
+const client = makeForEnv('staging');
+// secretKey is the caller's 64-byte Solana keypair.
+await useNativeSigner(client, secretKey);
+await login(client, undefined);
+const socket = connect(client, message => console.log(message), undefined, undefined);
+```
+
+`ServerApi` is the equivalent native ReScript surface. Browser signed-message login
+and server API keys fail explicitly. Browser cookies and Privy logout belong to
+the provider; SDK logout revokes the SDK session and clears cached credentials.
+
+## Exact amounts and order entry
+
+Human prices and sizes are decimal strings. Amounts, salts, nonces, slots, and
+transaction lamports use `bigint`. Outgoing large JSON integers remain integer
+tokens; incoming integers retain their exact value. Presentation-only float
+helpers must not be used to authorize fund movement.
+
+`Orderbook.Client.decimals` retrieves and caches validated `Scaling.OrderbookRules`.
+Concurrent reads share a lookup. `invalidateDecimals` and `clearDecimalsCache`
+explicitly remove cached rules. Offline `Envelope.buildLimitOrder` requires rules;
+`Envelope.submitLimitOrderSigned` fetches them before asking the wallet to sign.
+Neither path rounds a user's price or size. Direct signed submission validates the
+same amount and field limits.
+
+`Fmt.Decimal.displayExact` returns both `compact` and `expanded` strings. The compact
+form can compress leading fractional zeros; the expanded form retains every digit.
+
+## Session and discovery APIs
+
+`Auth.Client.registerPrivy` accepts an attempted identity and always installs the
+returned synchronized session. Cached credentials carry the trading wallet and
+expiry. `Http.setCredentialRestorer` installs an app-owned callback: concurrent
+eligible 401 responses share one bounded restoration attempt, and only retry-safe
+requests replay once. Mutating order requests do not replay automatically.
+
+The exact `PRIVY_VERIFICATION_UNAVAILABLE` 503 rejection requires manual retry and
+preserves cached credentials. Logout clears local authentication even when server
+revocation fails, while preserving that failure result. Explicit per-request
+cookies neither replace shared credentials nor invoke restoration.
+
+Markets include signed fee basis points, exact resolution deadlines, validated
+outcome counts, optional artwork, and subcategories. `Market.Client.favoriteMarkets`,
+`addFavoriteMarket`, and `removeFavoriteMarket` support explicit cookies.
+`Market.depositSymbol` displays canonical WSOL as SOL while retaining its mint.
+
+## Prepared v1 transactions
+
+All SDK transaction construction uses v1. Configure explicit resources before
+using convenience builders or SOL planners; there is no implicit budget or v0
+fallback. Priority fees are **total lamports**, not micro-lamports per compute unit.
+
+```rescript
+let resources: LightconeSdk.V1Transaction.Resources.t = {
+  computeUnitLimit: 200000,
+  loadedAccountsDataSizeLimit: 1048576,
+  priorityFeeLamports: 0n,
+}
+let client = LightconeSdk.Client.make(~env=Staging, ~transactionResources=resources, ())
+```
+
+Choose resources appropriate to the actual instruction workload. The values above
+illustrate configuration, not a promise that every instruction fits that budget.
+
+`V1Transaction.compile` builds offline using a paired blockhash/expiry context.
+`Transactions.build` fetches that context. Fees are estimated against the exact
+prepared message. External wallets receive unsigned v1 wire bytes and must return
+the same message with every required signature. Altered messages and invalid
+signatures fail before submission. Unsupported wallets must report failure.
+
+`Transactions.signAndSubmitPrepared` checks funding, verifies v1 activation,
+simulates the signed transaction, and sends it once. `signAndSubmitConfirmed`
+additionally returns `{signature, slot}`. `confirm` can reconcile a known signature
+using its retained expiry. `SubmissionUnknown`, `ConfirmationTimeout`, and
+`TransactionExpired` require reconciliation before building another transaction;
+the SDK never automatically rebuilds and resends them.
+
+Unsigned program instructions remain available through `Instructions` and position
+builders. Permissionless position initialization accepts a signing payer and a
+separate on-curve beneficiary. Conditional withdrawals take the registered deposit
+mint and validate the outcome against the on-chain market.
+
+## Live state and SOL plans
+
+The app owns state instances and account activation. `Orderbook.State` replaces both
+sides on every accepted frame, retains exact quote notional and truncation metadata,
+and gates equal/older sequences within a subscription generation. Call
+`beginGeneration` when establishing a fresh subscription; visible levels survive.
+A resync result asks the app to refresh its subscription without clearing the book.
+
+`Position.WalletState` consumes complete REST snapshots and
+`WalletDepositBalances` events. Complete snapshots replace state even if their slot
+is lower than a component update; an optional minimum snapshot slot guards pending
+confirmed operations. Component updates apply only to an initialized matching
+wallet. Native SOL remains separate from SPL balances.
+
+`Position.Sol` exposes `planSplit`, `planMerge`, `planRedeem`,
+`planNativeWithdrawal`, `planWrap`, and `planUnwrapAll`. Plans include the unsigned
+transaction, live fee/rent costs, reserve-aware availability, and separate native
+and canonical WSOL deltas. They require complete state, valid authenticated wallet
+credentials, and a matching signer. SOL planning fails when live costs are unknown.
+
+Ordinary actions support browser wallets and preserve the canonical WSOL account.
+Split wraps only its shortfall. Native withdrawal either transfers native SOL or
+converts the shortfall through an atomic temporary account. Explicit wrap and
+unwrap-all require a native keypair. Wrap rejects unsynchronized donated lamports;
+unwrap-all returns the full live canonical account balance. Sponsored SOL planning
+is unsupported in this staging contract.
+
+Submit a freshly rebuilt plan through `Position.Sol.submit`, then retain its
+projection until a **complete** wallet snapshot reaches the returned confirmation
+slot. See [`examples/SolPlan__Example.res`](examples/SolPlan__Example.res).
+
+`Ws.stop` clears queued sends, `restartConnection` permits an auth-driven restart,
+and stale socket callbacks cannot publish into the new generation. Authenticated
+cleanup removes both user and wallet-balance subscriptions. Native handshakes read
+the current token each time; browser handshakes use browser-owned cookies.
+
+## Develop and validate
 
 ```bash
-bun install
-bun run build          # rescript compile + gentype
-bun test ./tests/*Test.res.mjs ./bindings/*/tests/*Test.res.mjs
-bun x tsc --noEmit -p tsconfig.json   # typecheck the gentype output + TS examples
+bun install --frozen-lockfile
+bun run test
+bun run typecheck
+bun run test:consumers
+bunx playwright install chromium
+bun run test:browser
 ```
 
-## Conventions (for contributors)
+Set `CHROMIUM_PATH` to use an installed Chromium executable. Browser tests use a
+local HTTP/WebSocket server and deterministic signing keys. Offline tests require
+no deployed backend and move no funds. Stateful examples remain environment-gated
+through the root example runner and disabled in CI with the existing backend gate.
 
-- **String enums**: set BOTH `@as("wire")` and `@spice.as("wire")` so the ReScript runtime value, the
-  JSON wire value, and the gentype TS union all match (e.g. `Side` → `"bid" | "ask"`).
-- **Decimals** (prices/sizes) stay as wire **strings** in domain types (no precision loss, gentype-clean);
-  wrap in `Decimal` for math. Timestamps/ids/counts are `float`; on-chain amounts are `bigint`.
-- **Optional fields** use `field?: T`; the HTTP layer strips JSON `null` before decoding so absent and
-  `null` both map to `None` (spice's `?`-field decoder rejects an explicit `null` otherwise).
-- **Internally/adjacently-tagged unions** (serde `#[serde(tag=…)]`) are hand-decoded (spice can't derive
-  them) — see `Auth__Raw.decodeIdentity` / `SdkError.parseApiResponse`.
-- No `namespace` in `rescript.json`: it makes gentype route cross-module types through an un-generated
-  bundle. Without it, `.gen.ts` files import types directly and resolve under `tsc`.
+Keep `.res`, `.resi`, generated `.res.mjs`, gentype output, namespace aliases, and
+examples synchronized. Tests include Rust-pinned v1 digests, ABI boundaries, exact
+order admission, auth recovery, SOL projections, browser signing, and clean packed
+consumers. See the [staging parity record](../docs/rescript-staging-parity.md).

@@ -33,13 +33,20 @@ class RejectionCode(str):
         "TOKEN_PAIR_MISMATCH": "Token Pair Mismatch",
         "INSUFFICIENT_MARKET_FEE_BUFFER": "Insufficient Market Fee Buffer",
         "SIGNATURE_EXPIRED": "Signature Expired",
+        "TRADING_RULES_UNAVAILABLE": "Trading Rules Unavailable",
+        "ORDER_FIELD_OUT_OF_RANGE": "Order Field Out of Range",
+        "PRICE_NOT_EXACTLY_REPRESENTABLE": "Price Not Exactly Representable",
+        "PRICE_OUT_OF_RANGE": "Price Out of Range",
+        "INVALID_PRICE_DECIMALS": "Invalid Price Decimals",
+        "INVALID_PRICE_SIGNIFICANT_FIGURES": "Invalid Price Significant Figures",
+        "INVALID_SIZE_DECIMALS": "Invalid Size Decimals",
     }
 
-    def __new__(cls, value: str) -> "RejectionCode":
+    def __new__(cls, value: str) -> RejectionCode:
         return super().__new__(cls, value)
 
     @classmethod
-    def from_wire(cls, value: str | None) -> "RejectionCode | None":
+    def from_wire(cls, value: str | None) -> RejectionCode | None:
         if value is None:
             return None
         normalized = value.upper()

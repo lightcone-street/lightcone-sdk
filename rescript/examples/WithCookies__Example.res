@@ -27,7 +27,9 @@ let main = async () => {
       switch await Position.Client.depositTokenBalances(client, ~cookieHeader) {
       | Ok(balances) =>
         Console.log(
-          `tracked deposit balances: ${Int.toString(Array.length(Dict.keysToArray(balances)))}`,
+          `tracked deposit balances: ${Int.toString(
+              Array.length(Dict.keysToArray(balances.balances)),
+            )}`,
         )
       | Error(error) => Console.error(SdkError.toMessage(error))
       }

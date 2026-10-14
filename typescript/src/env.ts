@@ -31,9 +31,9 @@ export function apiUrl(environment: LightconeEnv): string {
   if (overrideUrl) return overrideUrl;
   switch (environment) {
     case LightconeEnv.Local:
-      return "https://api.local.lightcone.xyz";
+      return "https://api.local.internalcone.com";
     case LightconeEnv.Staging:
-      return "https://api.staging.lightcone.xyz";
+      return "https://api.staging.internalcone.com";
     case LightconeEnv.Prod:
       return "https://api.lightcone.xyz";
   }
@@ -51,9 +51,9 @@ export function wsUrl(environment: LightconeEnv): string {
   if (overrideUrl) return overrideUrl;
   switch (environment) {
     case LightconeEnv.Local:
-      return "wss://ws.local.lightcone.xyz/ws";
+      return "wss://ws.local.internalcone.com/ws";
     case LightconeEnv.Staging:
-      return "wss://ws.staging.lightcone.xyz/ws";
+      return "wss://ws.staging.internalcone.com/ws";
     case LightconeEnv.Prod:
       return "wss://ws.lightcone.xyz/ws";
   }
@@ -97,7 +97,7 @@ export function programId(environment: LightconeEnv): PublicKey {
     case LightconeEnv.Staging:
       return new PublicKey("5G2fWZGHB5BA8gbABVBuR1bU4Ziri9cRxFoojz5C5Rxk");
     case LightconeEnv.Prod:
-      return new PublicKey("B9rCvafkkjh749284jfDu5UB268pHeRLkzFpFf7t4mxK");
+      return new PublicKey("F5zrhPGL9REfsQ4vHR3ESYo9zaqiVvmHoHjqRwd8cPrz");
   }
 }
 

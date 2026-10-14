@@ -28,3 +28,7 @@ let isUsdStablecoin = Market__Model.isUsdStablecoin
 let currencySymbol = Market__Model.currencySymbol
 let sortByDisplayPriority = Market__Model.sortByDisplayPriority
 let resolveIconUrls = Market__Model.resolveIconUrls
+
+module FavoriteMarkets = Market__Model.FavoriteMarkets
+module FavoriteMarketUpdate = Market__Model.FavoriteMarketUpdate
+let depositSymbol = Market__Model.depositSymbol

@@ -8,7 +8,9 @@ let billion = Decimal.fromString("1000000000")
 let trillion = Decimal.fromString("1000000000000")
 
 let displayDecimals = (absValue: Decimal.t): int =>
-  Fmt__Constants.displayDecimalsBy(threshold => Decimal.gte(absValue, Decimal.fromString(threshold)))
+  Fmt__Constants.displayDecimalsBy(threshold =>
+    Decimal.gte(absValue, Decimal.fromString(threshold))
+  )
 
 // Format for display: tier-based decimal places, ties away from zero,
 // comma-grouped thousands; values that round to zero display as "0".
@@ -26,7 +28,10 @@ let abbrNumber = (amount: Decimal.t, ~digits: int=2, ~showSign: bool=true): stri
   let sign = showSign && Decimal.isNeg(amount) ? "-" : ""
   let absAmount = Decimal.abs(amount)
   let scaled = (value, divisor, suffix) =>
-    `${sign}${Decimal.div(value, divisor)->Decimal.toFixedWithRounding(digits, Decimal.roundHalfEven)}${suffix}`
+    `${sign}${Decimal.div(value, divisor)->Decimal.toFixedWithRounding(
+        digits,
+        Decimal.roundHalfEven,
+      )}${suffix}`
   if Decimal.gte(absAmount, trillion) {
     scaled(absAmount, trillion, "t")
   } else if Decimal.gte(absAmount, billion) {
@@ -62,4 +67,44 @@ let toBaseUnits = (value: Decimal.t, ~decimals: int): option<bigint> => {
     // BigInt.fromString is already option-returning (Some for this integral string).
     BigInt.fromString(scaled->Decimal.toFixedWithRounding(0, Decimal.roundDown))
   }
+}
+
+type exactDisplay = {compact: string, expanded: string}
+let subscript = digit =>
+  switch digit {
+  | "0" => "₀"
+  | "1" => "₁"
+  | "2" => "₂"
+  | "3" => "₃"
+  | "4" => "₄"
+  | "5" => "₅"
+  | "6" => "₆"
+  | "7" => "₇"
+  | "8" => "₈"
+  | "9" => "₉"
+  | other => other
+  }
+let displayExact = value => {
+  let text = if Decimal.isZero(value) {
+    "0"
+  } else {
+    Decimal.toFixedExact(value)
+  }
+  let expanded = Fmt__Num.displayFormattedString(text)
+  let parts = String.split(expanded, ".")
+  let compact = switch (parts[0], parts[1]) {
+  | (Some(integer), Some(fraction)) if integer == "0" || integer == "-0" =>
+    let significant = String.replaceRegExp(fraction, /^0+/, "")
+    let count = String.length(fraction) - String.length(significant)
+    if count >= 6 && significant != "" {
+      integer ++
+      ".0" ++
+      Int.toString(count)->String.split("")->Array.map(subscript)->Array.join("") ++
+      significant
+    } else {
+      expanded
+    }
+  | _ => expanded
+  }
+  {compact, expanded}
 }

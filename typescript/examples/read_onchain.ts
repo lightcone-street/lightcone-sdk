@@ -22,7 +22,10 @@ async function main() {
   let onchainOrderbook;
   try {
     onchainOrderbook = await client.orderbooks().getOnchain(baseMint, quoteMint);
-  } catch {
+  } catch (error) {
+    if (!(error instanceof program.ProgramSdkError) || error.variant !== "AccountNotFound") {
+      throw error;
+    }
     console.log("orderbook: not found on-chain");
   }
   const nonce = await client.orders().currentNonce(keypair.publicKey);
@@ -37,7 +40,7 @@ async function main() {
   );
   if (onchainOrderbook) {
     console.log(
-      `orderbook: lookup_table=${onchainOrderbook.lookupTable.toBase58()} base_index=${onchainOrderbook.baseIndex} bump=${onchainOrderbook.bump}`
+      `orderbook: deposit_mint_a=${onchainOrderbook.depositMintA.toBase58()} deposit_mint_b=${onchainOrderbook.depositMintB.toBase58()} outcome_index=${onchainOrderbook.outcomeIndex} base_index=${onchainOrderbook.baseIndex} bump=${onchainOrderbook.bump}`
     );
   }
   console.log(`user nonce: ${nonce}`);

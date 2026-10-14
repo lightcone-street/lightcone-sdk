@@ -4,6 +4,8 @@ Official SDKs for the [Lightcone](https://lightcone.xyz) impact market protocol.
 
 ## SDKs
 
+These guides describe the SDK APIs in this checkout. The [published documentation repository](https://github.com/lightcone-street/docs) owns the API guides and OpenAPI specification.
+
 | Language | Package | Install |
 |----------|---------|---------|
 | **Rust** | [`lightcone`](rust/) | `cargo add lightcone` |
@@ -11,8 +13,11 @@ Official SDKs for the [Lightcone](https://lightcone.xyz) impact market protocol.
 | **Python** | [`lightcone-sdk`](python/) | `pip install git+https://github.com/lightcone-street/lightcone-sdk.git@prod#subdirectory=python` |
 | **ReScript** | [`@lightconexyz/lightcone-sdk-rescript`](rescript/) | `bun add @lightconexyz/lightcone-sdk-rescript` — authored in ReScript, exported to TypeScript via gentype |
 
-All four SDKs expose the same interface and capabilities. The ReScript SDK is consumable from
-ReScript, JavaScript (its compiled output), and TypeScript (via the generated `.gen.ts` types).
+Rust, TypeScript, and Python share the protocol's instruction ABI, business
+semantics, and Solana v1 transaction contract. Transaction builders require
+explicit resources and a blockhash/expiry context; legacy/v0 imports are rejected.
+
+The ReScript SDK is authored in ReScript and also exposes JavaScript and generated TypeScript surfaces.
 
 ## Features
 
@@ -22,13 +27,75 @@ ReScript, JavaScript (its compiled output), and TypeScript (via the generated `.
 - **On-chain operations** - Mint/merge complete sets, increment nonce, PDA derivations
 - **Authentication** - Session-based ED25519 signed message flow
 
+## Program Compatibility
+
+### REST response envelopes
+
+The SDK HTTP transports unwrap successful responses from `{"status":"success","body":...}`. They convert `{"status":"error","error_details":...}` into structured SDK errors. This also applies to `POST /api/claim`: `client.claim(...)` returns the decoded `FaucetResponse` body, not the outer envelope.
+
+Refer to the response declarations for [Rust](rust/src/domain/faucet.rs), [TypeScript](typescript/src/domain/faucet.ts), and [Python](python/src/lightcone_sdk/domain/faucet.py). The published [claim reference](https://github.com/lightcone-street/docs/blob/main/api-reference/endpoint/claim.mdx) and [OpenAPI specification](https://github.com/lightcone-street/docs/blob/main/api-reference/openapi.json) belong to the documentation repository.
+
+### Supported order responses
+
+The SDK decoders model REST orders, WebSocket account snapshots, and live order events as limit orders. They decode these payloads directly and propagate decoding errors. Their account models retain balances, notifications, and nonce. REST response models retain the server's pagination metadata. The [published API specification](https://github.com/lightcone-street/docs/blob/main/api-reference/openapi.json) owns backend payload semantics.
+
+The snapshot converters return `UserOpenLimitOrders`: `convert_snapshot_orders` in Rust and Python, and `convertSnapshotOrders` in TypeScript. Market-style execution still uses a signed limit order with its time-in-force policy.
+
+### On-chain program
+
+The program builders target the [reviewed program ABI](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src). This is a hard cutover. Orderbooks use the 176-byte layout with both collateral mints and a shared outcome. Matching requires both collateral identities. Preparation uses `InitPositionTokens` without a slot. Retired ALT operations and their SDK parameters are removed.
+
+Matching instructions support up to eleven makers with two-byte participant masks and taker bit 15. This limit does not guarantee that a transaction fits the transport or runtime limits. All four SDKs compile, sign, simulate, and submit Solana v1 transactions with explicit resources and expiry. They reject legacy/v0 imports and changed wallet messages. See the [v1 decision](docs/adr/0004-solana-v1.md) and migration instructions for [Rust](rust/README.md#solana-v1-transactions), [TypeScript](typescript/README.md#solana-v1-transactions), [Python](python/README.md#solana-v1-transactions), and [ReScript](rescript/README.md#prepared-v1-transactions). Python now requires 3.11 or newer for its maintained v1 dependencies.
+
+Program event schema version 2 is independent of outer Solana transaction version 1. Refer to the [authenticated event transport decision](docs/adr/0003-authenticated-event-transport.md).
+
+## SOL Account Lifecycle
+
+All four SDKs model native SOL and canonical Tokenkeg WSOL separately while
+presenting their sum as one SOL balance. Split wraps only a shortfall; merge and
+redeem retain proceeds in the persistent canonical account; native withdrawal
+uses native SOL directly or converts only its shortfall through a temporary
+seeded account. The conversion instructions share one Solana transaction, so an
+instruction failure rolls the entire conversion back atomically. Ordinary
+planners never close the canonical account implicitly. Native-keypair users can
+instead plan an exact standalone wrap or an explicit no-amount unwrap-all that
+returns the account's complete lamports, including rent, to the same Trading
+Wallet. The per-language `wsol_conversion` examples rebuild before
+signing, submit prepared transactions with confirmed slots, retain each frozen
+projection until a complete snapshot covers that slot, and warn that a later SOL
+action may recreate the closed account and pay rent. An uncertain submission or
+confirmation is never retried automatically; inspect authoritative balances
+before planning another action. See the [persistent canonical WSOL
+ADR](docs/adr/0001-persistent-canonical-wsol.md).
+
+## Transaction Fee Funding
+
+Every ordinary and prepared on-chain transaction submitted through a shared SDK
+submission API performs a best-effort pre-signing check of its exact message fee
+and declared fee-payer Native SOL Balance. A proven shortfall returns the typed
+`InsufficientSolForTransactionFees` contract with available and required lamports
+and the message `Insufficient SOL for transaction fees. Deposit SOL to your wallet
+and try again.` Fee or balance lookup failure preserves the existing submission;
+SOL action planners keep their stricter live fee, rent, and reserve requirements.
+
+Transaction Sponsorship Capability is a client-wide trusted application assertion
+that defaults to false. It bypasses the generic check for external signing, while
+local-keypair submission rejects it with `transaction sponsorship is not supported
+with local-keypair signing`. The SDK does not infer sponsorship from a wallet
+provider. The existing Privy transaction endpoint cannot return signed bytes for
+message validation, so SDK-owned Privy transaction submission fails before any
+request. Use a v1-capable external signer that returns the signed transaction;
+Privy off-chain order signing remains available. See
+[ADR 0002](docs/adr/0002-transaction-fee-funding-preflight.md) and the
+[v1 signing contract](docs/adr/0004-solana-v1.md).
+
 ## Development Setup
 
 ### Prerequisites
 
 - [Rust](https://rustup.rs/) toolchain (via rustup)
 - [Node.js](https://nodejs.org/) 22+ and npm
-- [Python](https://www.python.org/) 3.12+ and [uv](https://docs.astral.sh/uv/)
+- [Python](https://www.python.org/) 3.11+ and [uv](https://docs.astral.sh/uv/)
 - [Solana CLI](https://docs.solanalabs.com/cli/install) (`solana-keygen` for wallet generation)
 
 ### Per-SDK Setup
@@ -60,7 +127,7 @@ The Lightcone backend must be running locally for SDK examples to work. At minim
 - **backend/api** — REST API server
 - **backend/engine** — order matching engine
 
-Set `LIGHTCONE_ENV=local` to point the SDK at the local backend (`https://api.local.lightcone.xyz`).
+Set `LIGHTCONE_ENV=local` to point the SDK at the local backend (`https://api.local.internalcone.com`).
 
 For Caddy + mkcert TLS setup and running the full local stack, refer to the [web-app repo](https://github.com/lightcone-street/lightcone) setup instructions.
 
@@ -69,12 +136,30 @@ For Caddy + mkcert TLS setup and running the full local stack, refer to the [web
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `LIGHTCONE_ENV` | Yes | Target environment: `local`, `staging`, or `prod` |
-| `SDK_RPC_URL` | Yes | Solana RPC URL. Use a private RPC (e.g. [Helius](https://www.helius.dev/) devnet) to avoid 429 rate-limit errors from the public `api.devnet.solana.com` |
+| `LIGHTCONE_API_KEY` | For direct trading on deployed API hosts | Your own API Key for Rust/Python `api_key(...)` or TypeScript `apiKey(...)`. Shared example builders read it when set. Only submit, cancel, and cancel-all requests send it; public read examples need no key. Keep it server-side. |
+| `SDK_RPC_URL` | Optional | Solana RPC URL. Use a private devnet RPC (e.g. [Helius](https://www.helius.dev/)) to avoid 429 rate-limit errors from the public `api.devnet.solana.com`. Local `wsol_conversion` runs and eligible staging-CI runs may retain it; other fund-moving examples document stricter guards. |
 | `LIGHTCONE_WALLET_PATH` | Yes | Path to Solana keypair JSON for Rust examples |
 | `LIGHTCONE_WALLET_PATH_TS` | Yes | Path to Solana keypair JSON for TypeScript examples |
 | `LIGHTCONE_WALLET_PATH_PYTHON` | Yes | Path to Solana keypair JSON for Python examples |
 
-Add these to your shell profile (`.bashrc` / `.zshrc`):
+The fund-moving `deposit_token_balances` example remains excluded from
+`scripts/run-examples.sh`; run it manually with `LIGHTCONE_ENV=local` or
+`staging` and all endpoint/program overrides unset. It uses the three existing
+wallet paths as a funding cycle (`Rust -> TypeScript -> Python -> Rust`).
+
+`wsol_conversion` runs automatically for every SDK in the local aggregate suite
+and is included when the stateful example workflow is enabled for staging CI.
+That workflow's global `backend-ready` gate currently disables all stateful CI
+jobs. Each language uses its own wallet, wraps a small exact amount, warns that it
+will close the complete canonical WSOL account, and unwraps all without a prompt.
+The local runner preserves an optional paid RPC while clearing API, WebSocket,
+and program overrides so application and program identity remain built in. An
+enabled staging-CI run may supply its managed endpoints, but a program-ID
+override still fails.
+Production skips the example, and the example itself refuses production.
+
+For the routine automatic example suite, add these to your shell profile
+(`.bashrc` / `.zshrc`):
 
 ```bash
 export LIGHTCONE_ENV=local
@@ -83,6 +168,12 @@ export LIGHTCONE_WALLET_PATH=~/.config/solana/lightcone-sdk-rs.json
 export LIGHTCONE_WALLET_PATH_TS=~/.config/solana/lightcone-sdk-ts.json
 export LIGHTCONE_WALLET_PATH_PYTHON=~/.config/solana/lightcone-sdk-py.json
 ```
+
+Before directly running `deposit_token_balances`, use a clean shell or run `unset
+SDK_API_URL SDK_WS_URL SDK_RPC_URL SDK_PROGRAM_ID`. Direct local
+`wsol_conversion` runs may retain `SDK_RPC_URL` but must unset `SDK_API_URL`,
+`SDK_WS_URL`, and `SDK_PROGRAM_ID`; the aggregate local runner performs that
+three-variable cleanup in its subprocess.
 
 ### Wallet Setup
 
@@ -110,6 +201,8 @@ Then send devnet SOL and 100 Lightcone USDC to each wallet's public key (viewabl
 
 ### Running Examples
 
+The shared example helpers select the first non-resolved market in API order. They continue across pages of resolved markets and report an error if no non-resolved market is returned.
+
 Use the shared example runner script:
 
 ```bash
@@ -120,6 +213,7 @@ Use the shared example runner script:
 ./scripts/run-examples.sh --sdk rs
 ./scripts/run-examples.sh --sdk ts
 ./scripts/run-examples.sh --sdk py
+./scripts/run-examples.sh --sdk res
 
 # See all options
 ./scripts/run-examples.sh --help
@@ -127,7 +221,7 @@ Use the shared example runner script:
 
 ### Supply Chain Security
 
-All three SDKs enforce a 7-day minimum release age on dependencies to guard against supply chain attacks. Install `cargo-cooldown` so that Rust dependency updates respect the cooldown window:
+All four SDKs enforce a 7-day minimum release age on dependencies to guard against supply chain attacks. Install `cargo-cooldown` so that Rust dependency updates respect the cooldown window:
 
 ```bash
 cargo install --locked cargo-cooldown
@@ -139,4 +233,13 @@ Then use `cargo cooldown` in place of `cargo` when updating dependencies (e.g. `
 |-----|-----------|--------|
 | Rust | [`cargo-cooldown`](https://crates.io/crates/cargo-cooldown) | `cooldown.toml` — `cooldown_minutes = 10080` |
 | TypeScript | npm `min-release-age` | `.npmrc` — `min-release-age=7` |
+| ReScript | Bun `minimumReleaseAge` | `rescript/bunfig.toml` — 604800 seconds |
 | Python | uv `exclude-newer` | `pyproject.toml` — `exclude-newer = "7 days"` |
+
+## Manual recovery from temporary authentication failures
+
+See the [API response contract](https://github.com/lightcone-street/docs/blob/main/api-reference/rest-introduction.mdx#response-format) for the wire envelope. The SDK-specific recovery behavior is shared by Rust, TypeScript, and Python: the exact `503 PRIVY_VERIFICATION_UNAVAILABLE` rejection bypasses retry policies and credential restoration, and session checks retain cached credentials. Other failures retain their existing policies.
+
+Structured rejections expose `retry_after_ms` in Rust/Python and `retryAfterMs` in TypeScript, in milliseconds from response receipt. Numeric and HTTP-date guidance is supported, with fractional milliseconds rounded up and elapsed dates clamped to zero. Missing or malformed guidance remains absent. Applications own the countdown and manual retry action. Keep the retry action disabled until the delay ends. Expiry only enables the action and never sends a request. Without valid guidance, offer the manual retry at once. The shared delay parser also applies to generic retry delays and rate-limit errors.
+
+Rust consumers constructing `ApiRejectedDetails` directly must add `retry_after_ms: None` when no HTTP response supplied a delay. Exhaustive destructuring patterns must include the field or `..`. This optional transport field is skipped by Serde, so backend JSON remains unchanged. Existing error variants remain available.

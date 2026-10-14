@@ -6,7 +6,7 @@
 export type Token_t = { readonly symbol: string; readonly amount: number };
 
 export type Response_t = {
-  readonly signature: string; 
-  readonly sol: number; 
+  readonly signature: string;
+  readonly sol: number;
   readonly tokens: Token_t[]
 };

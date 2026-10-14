@@ -1,7 +1,7 @@
 """Per-call cookie forwarding for SSR / route handlers.
 
 Demonstrates the ``*_with_cookies`` variants on ``Positions``, ``Notifications``,
-``Referrals``, ``Orders``, and ``Metrics``. These bypass the SDK's process-wide
+``Referrals``, ``Orders``, ``Metrics``, and ``Markets``. These bypass the SDK's process-wide
 ``auth_token`` store and forward the supplied raw ``Cookie`` header for that
 single call only — so a server can relay whatever auth cookies the browser sent
 (``privy-token`` and/or ``lightcone-token``).
@@ -18,7 +18,7 @@ request's cookie jar. Here we mimic that by:
 
 import asyncio
 
-from common import rest_client, get_keypair, login
+from common import get_keypair, login, market, rest_client
 
 
 async def main():
@@ -40,8 +40,10 @@ async def main():
     positions = await client.positions().positions_with_cookies(cookie_header)
     print(f"markets with positions: {positions.total_markets}")
 
-    balances = await client.positions().deposit_token_balances_with_cookies(cookie_header)
-    print(f"tracked deposit balances: {len(balances)}")
+    balances = await client.positions().deposit_token_balances_with_cookies(
+        None, cookie_header
+    )
+    print(f"tracked deposit balances: {len(balances.balances)}")
 
     notifications = await client.notifications().fetch_with_cookies(cookie_header)
     print(f"notifications: {len(notifications)}")
@@ -53,7 +55,10 @@ async def main():
     print(f"open orders: {len(orders.orders)}")
 
     fills = await client.orders().get_user_order_fills_with_cookies(
-        None, 50, None, cookie_header,
+        None,
+        50,
+        None,
+        cookie_header,
     )
     print(f"order fills: {len(fills.orders)}")
 
@@ -62,6 +67,38 @@ async def main():
         f"user metrics: volume_usd={user_metrics.total_volume_usd} "
         f"outcomes_traded={user_metrics.total_outcomes_traded}"
     )
+
+    favorite_market_pubkeys: list[str] = []
+    favorite_cursor: int | None = None
+    while True:
+        favorite_page = await client.markets().favorite_markets_with_cookies(
+            1000, favorite_cursor, cookie_header
+        )
+        favorite_market_pubkeys.extend(favorite_page.market_pubkeys)
+        if not favorite_page.has_more:
+            break
+        if favorite_page.next_cursor is None:
+            raise RuntimeError("Favorite page is missing next_cursor")
+        favorite_cursor = favorite_page.next_cursor
+    print(f"favorite markets: {len(favorite_market_pubkeys)}")
+
+    market_pubkey = (await market(client)).pubkey
+    was_favorited = market_pubkey in favorite_market_pubkeys
+    if was_favorited:
+        await client.markets().remove_favorite_market_with_cookies(
+            market_pubkey, cookie_header
+        )
+        await client.markets().add_favorite_market_with_cookies(
+            market_pubkey, cookie_header
+        )
+    else:
+        await client.markets().add_favorite_market_with_cookies(
+            market_pubkey, cookie_header
+        )
+        await client.markets().remove_favorite_market_with_cookies(
+            market_pubkey, cookie_header
+        )
+    print(f"restored favorite state for {market_pubkey}")
 
     await client.close()
 

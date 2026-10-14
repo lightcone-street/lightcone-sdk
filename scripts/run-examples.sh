@@ -32,6 +32,7 @@ usage() {
     echo "  LIGHTCONE_WALLET_PATH_RESCRIPT Wallet keypair path for ReScript examples (.res.mjs + .ts)"
     echo "  SDK_RPC_URL                    Solana RPC URL override (recommended: private RPC to avoid 429s)"
     echo "  SKIP_EXAMPLES                  Set to 1 to bypass the pre-commit hook prompt"
+    echo "  LIGHTCONE_API_KEY              Required for deployed submit/cancel trading requests"
     echo ""
     echo "Examples:"
     echo "  LIGHTCONE_ENV=local $0                  # Run all SDKs in parallel"
@@ -105,6 +106,18 @@ done
 should_skip() {
     local name="$1"
     case "$name" in
+        # The peer transfer remains manual. Conversion runs against each SDK's
+        # dedicated wallet locally and in enabled staging-CI suites, never production.
+        deposit_token_balances|DepositTokenBalances__Example) return 0 ;;
+        wsol_conversion|WsolConversion__Example)
+            if [ "$LIGHTCONE_ENV" = "local" ]; then
+                return 1
+            fi
+            if [ -n "${CI:-}" ] && [ "$LIGHTCONE_ENV" = "staging" ]; then
+                return 1
+            fi
+            return 0
+            ;;
         admin_*|faucet_claim|common|Common__Example|FaucetClaim__Example) return 0 ;;
         *) return 1 ;;
     esac
@@ -155,7 +168,7 @@ run_sdk() {
     # ReScript: compile .res -> .res.mjs (+ gentype) once before running the examples.
     if [ "$sdk" = "res" ]; then
         echo -e "${BLUE}  building ReScript SDK…${RESET}"
-        if ! (cd "$sdk_dir" && bun install --silent && ./node_modules/.bin/rescript build); then
+        if ! (cd "$sdk_dir" && bun install --frozen-lockfile --silent && bun run build); then
             echo -e "${RED}  ✗ ReScript build failed${RESET}"
             echo "0 1 0" > "$results_file"
             return 1
@@ -185,17 +198,35 @@ run_sdk() {
         local run_exit=0
         case "$sdk" in
             rs)
-                (cd "$sdk_dir" && LIGHTCONE_WALLET_PATH="$wallet_path" timeout "$TIMEOUT" \
-                    cargo run --example "$name" --features "native,trigger_orders") || run_exit=$?
+                (
+                    cd "$sdk_dir" || exit
+                    if [ "$name" = "wsol_conversion" ] && [ "$LIGHTCONE_ENV" = "local" ]; then
+                        unset SDK_API_URL SDK_WS_URL SDK_PROGRAM_ID
+                    fi
+                    LIGHTCONE_WALLET_PATH="$wallet_path" timeout "$TIMEOUT" \
+                        cargo run --example "$name" --features "native"
+                ) || run_exit=$?
                 ;;
             ts)
-                (cd "$sdk_dir" && LIGHTCONE_WALLET_PATH="$wallet_path" \
-                    NODE_EXTRA_CA_CERTS="${mkcert_ca:-}" \
-                    timeout "$TIMEOUT" npx tsx "examples/$name.ts") || run_exit=$?
+                (
+                    cd "$sdk_dir" || exit
+                    if [ "$name" = "wsol_conversion" ] && [ "$LIGHTCONE_ENV" = "local" ]; then
+                        unset SDK_API_URL SDK_WS_URL SDK_PROGRAM_ID
+                    fi
+                    LIGHTCONE_WALLET_PATH="$wallet_path" \
+                        NODE_EXTRA_CA_CERTS="${mkcert_ca:-}" \
+                        timeout "$TIMEOUT" npx tsx "examples/$name.ts"
+                ) || run_exit=$?
                 ;;
             py)
-                (cd "$sdk_dir" && LIGHTCONE_WALLET_PATH="$wallet_path" timeout "$TIMEOUT" \
-                    $python_cmd "examples/$name.py") || run_exit=$?
+                (
+                    cd "$sdk_dir" || exit
+                    if [ "$name" = "wsol_conversion" ] && [ "$LIGHTCONE_ENV" = "local" ]; then
+                        unset SDK_API_URL SDK_WS_URL SDK_PROGRAM_ID
+                    fi
+                    LIGHTCONE_WALLET_PATH="$wallet_path" timeout "$TIMEOUT" \
+                        $python_cmd "examples/$name.py"
+                ) || run_exit=$?
                 ;;
             res)
                 # Run BOTH surfaces so "run all" is literal: the compiled .res.mjs

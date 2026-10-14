@@ -77,9 +77,9 @@ module Outcome: {
   @genType
   type t = {
     index: float,
-    iconUrlLow: string,
-    iconUrlMedium: string,
-    iconUrlHigh: string,
+    iconUrlLow?: string,
+    iconUrlMedium?: string,
+    iconUrlHigh?: string,
     name: string,
     nameLong?: string,
   }
@@ -205,11 +205,6 @@ module OrderBookPair: {
     active: bool,
   }
 
-  // Scaling decimals derived from the pair's token metadata (no REST call
-  // needed).
-  @genType
-  let decimals: t => Scaling.OrderbookDecimals.t
-
   // The conditional token a denomination refers to on this pair, plus its
   // symbols.
   @genType
@@ -252,9 +247,9 @@ type t = {
   id: float,
   pubkey: Shared.pubkeyStr,
   name: string,
-  bannerImageUrlLow: string,
-  bannerImageUrlMedium: string,
-  bannerImageUrlHigh: string,
+  bannerImageUrlLow?: string,
+  bannerImageUrlMedium?: string,
+  bannerImageUrlHigh?: string,
   iconUrlLow: string,
   iconUrlMedium: string,
   iconUrlHigh: string,
@@ -266,9 +261,14 @@ type t = {
   activatedAt?: float,
   settledAt?: float,
   resolution?: Resolution.t,
-  description: string,
+  description?: string,
   definition: string,
   category?: string,
+  subcategory?: string,
+  makerFeeBps: int,
+  takerFeeBps: int,
+  resolutionBy?: bigint,
+  numOutcomes: int,
   tags: array<string>,
   depositAssets: array<DepositAsset.t>,
   // Unique base/quote deposit-asset pairs derived from `orderbookPairs`,
@@ -291,7 +291,7 @@ let hasSingleWinningOutcome: t => bool
 // validation errors (invalid markets are skipped, not fatal).
 module MarketsResult: {
   @genType
-  type nonrec t = {
+  type t = {
     markets: array<t>,
     validationErrors: array<string>,
   }
@@ -306,3 +306,17 @@ module GlobalDepositAssetsResult: {
     validationErrors: array<string>,
   }
 }
+
+module FavoriteMarkets: {
+  @genType @spice
+  type t = {
+    @spice.key("market_pubkeys") marketPubkeys: array<string>,
+    @spice.key("next_cursor") nextCursor?: ProtocolInt.U64.t,
+    @spice.key("has_more") hasMore: bool,
+  }
+}
+module FavoriteMarketUpdate: {
+  @genType @spice type t = {@spice.key("market_pubkey") marketPubkey: string, favorited: bool}
+}
+
+@genType let depositSymbol: (~mint: string, ~symbol: string) => string

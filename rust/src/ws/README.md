@@ -22,6 +22,7 @@ Real-time data feeds for orderbooks, trades, user events, price history, ticker,
 | Books | `SubscribeParams::Books { orderbook_ids, n_sig_figs, mantissa }` | `Kind::BookUpdate` | Top-20 orderbook snapshots (full replacement per frame, optional aggregation) |
 | Trades | `SubscribeParams::Trades { orderbook_ids }` | `Kind::Trade` | Individual trade executions |
 | User | `SubscribeParams::User { wallet_address }` | `Kind::User` | Order updates, balance changes, snapshots |
+| Wallet Deposit Balances | `SubscribeParams::WalletDepositBalances { wallet_address }` | `Kind::WalletDepositBalances` | Authenticated wallet-scoped SPL/native SOL replacement snapshots and absolute updates |
 | Price History | `SubscribeParams::PriceHistory { orderbook_id, resolution }` | `Kind::PriceHistory` | OHLCV snapshots + updates |
 | Ticker | `SubscribeParams::Ticker { orderbook_ids }` | `Kind::Ticker` | Best bid/ask/mid prices |
 | Market | `SubscribeParams::Market { market_pubkey }` | `Kind::Market` | Settlement, activation, pausing |
@@ -38,6 +39,8 @@ Real-time data feeds for orderbooks, trades, user events, price history, ticker,
 | `MessageOut::unsubscribe_trades(ids)` | Unsubscribe from trades |
 | `MessageOut::subscribe_user(wallet)` | Subscribe to user events (requires auth) |
 | `MessageOut::unsubscribe_user(wallet)` | Unsubscribe from user events |
+| `MessageOut::subscribe_wallet_deposit_balances(wallet)` | Subscribe to external-wallet SPL and native SOL balances |
+| `MessageOut::unsubscribe_wallet_deposit_balances(wallet)` | Unsubscribe from wallet balances |
 | `MessageOut::subscribe_price_history(id, resolution)` | Subscribe to price candles |
 | `MessageOut::unsubscribe_price_history(id, resolution)` | Unsubscribe from candles |
 | `MessageOut::subscribe_ticker(ids)` | Subscribe to ticker updates |
@@ -62,7 +65,17 @@ Book subscriptions accept an optional Hyperliquid-style aggregation: `n_sig_figs
 
 Every incoming `book_update` frame is tagged with its (normalized) aggregation as `n_sig_figs`/`mantissa`, omitted for full precision — `OrderBook::aggregation()` returns the view's `BookAggregation`. Each `(orderbook, aggregation)` pair is a **distinct subscription**: one connection may hold multiple aggregation views of the same orderbook simultaneously (key your `OrderbookState` instances by `(orderbook_id, aggregation)`), each counts against the per-connection subscription limit, and unsubscribe must repeat the same aggregation to match. Book-scoped error frames (`ENGINE_UNAVAILABLE` — subscribe rolled back, retry; `SUBSCRIPTION_LIMIT_REACHED`; `INVALID_ORDERBOOK_SUBSCRIPTION`) carry `orderbook_id` plus the same tag fields (`WsError::aggregation()`) so retries can target the exact subscription.
 
-The stream is **snapshot-only**: every data frame carries the full top-20 levels per side (~50ms conflation) and replaces the previous book wholesale, last-write-wins. `seq` is strictly increasing but non-contiguous, and the initial snapshot after every (re)subscribe is `seq: 0` — never gate frames on `seq`. A `resync: true` frame (also tagged) means unsubscribe and re-subscribe that exact `(orderbook, aggregation)`.
+Each bid and ask level carries exact decimal `quote_notional`. Grouped `price`
+is a side-safe bucket boundary, while `quote_notional` independently sums the
+underlying maker orders. Use that field for quote liquidity and totals, never
+grouped `price * size`. `OrderbookState` retains price and base size only, so
+quote notional remains on the decoded `OrderBook` levels.
+
+The stream is **snapshot-only**: every accepted frame replaces the full top-20
+view. `seq` is the real engine revision. Within one subscription generation,
+discard equal/lower revisions and accept non-contiguous forward jumps. Reset the
+gate on reconnect or resubscribe. A `resync: true` frame means unsubscribe and
+re-subscribe that exact `(orderbook, aggregation)` and begin a fresh generation.
 
 ## Inbound Messages
 
@@ -83,25 +96,30 @@ Discriminated union of all inbound message types:
 | `Kind::Ticker(WsTickerData)` | Best bid/ask/mid | `ticker` |
 | `Kind::Market(MarketEvent)` | Market lifecycle events | `market` |
 | `Kind::Auth(AuthUpdate)` | Authentication status | `auth` |
+| `Kind::WalletDepositBalances(WalletDepositBalancesEvent)` | Nested snapshot, absolute SPL update, absolute native SOL update, or status | `wallet_deposit_balances` |
 | `Kind::Pong(Pong)` | Pong response | -- |
 | `Kind::Error(WsError)` | Server-side error | -- |
 
 ### `UserUpdate`
 
-The `User` channel delivers three event types:
+The `User` channel delivers account snapshots and updates:
 
 | Variant | Description |
 |---------|-------------|
 | `UserUpdate::Snapshot(UserSnapshot)` | Full snapshot of orders, balances, and global deposits |
-| `UserUpdate::Order(OrderEvent)` | Limit or trigger order update |
+| `UserUpdate::Order(OrderEvent)` | Live limit-order update |
 | `UserUpdate::BalanceUpdate(UserBalanceUpdate)` | Token balance change |
+| `UserUpdate::GlobalDepositUpdate(GlobalDepositUpdate)` | Global deposit balance change |
+| `UserUpdate::NonceUpdate(NonceUpdate)` | Account order nonce change |
+| `UserUpdate::Notification(NotificationUpdate)` | User notification |
 
-`OrderEvent` is further discriminated:
+`OrderEvent::Limit(OrderUpdate)` carries limit order placements, updates, and cancellations.
 
-| Variant | Description |
-|---------|-------------|
-| `OrderEvent::Limit(OrderUpdate)` | Limit order placement, update, or cancellation |
-| `OrderEvent::Trigger(TriggerOrderUpdate)` | Trigger order status change |
+Refer to the [shared order-response contract](../../../README.md#supported-order-responses) for limit-order decoding and account metadata.
+
+### `WalletDepositBalancesEvent`
+
+The authenticated outer `wallet_deposit_balances` channel is scoped to a wallet owned by the current user and carries a nested union tagged by `event_type`. `wallet_deposit_balance_snapshot` establishes or replaces the complete baseline; `wallet_deposit_balance_update` replaces one absolute mint balance; `wallet_native_sol_balance_update` replaces the exact native value; and status events report `reconnecting` or `metadata_unavailable` without mutation. Use `WalletDepositBalancesState` so pre-snapshot and wrong-wallet balance updates cannot cross lifecycle boundaries.
 
 ## WsEvent
 
@@ -138,6 +156,8 @@ let config = client.ws_config().clone();
 
 Requires the `ws-native` feature (included in `native` bundle). Uses `tokio-tungstenite` with a background task for connection management.
 
+For private streams, complete the [nonce login flow](../auth/README.md#native-login-flow) before connecting. The upgrade sends `Cookie: lightcone-token=<token>`. Set `wallet_address` on the user subscription to `session.user.trading_wallet(session.auth_method)`. Refer to the [authenticated streaming example](../../examples/ws_user_and_market.rs) for the complete flow.
+
 ```rust
 let mut ws = client.ws_native();
 ```
@@ -153,9 +173,11 @@ let mut ws = client.ws_native();
 | `unsubscribe` | `fn unsubscribe(&self, params: UnsubscribeParams) -> Result<(), WsError>` | Unsubscribe from a channel |
 | `is_connected` | `fn is_connected(&self) -> bool` | Connection status |
 | `ready_state` | `fn ready_state(&self) -> ReadyState` | Detailed connection state |
-| `restart_connection` | `async fn restart_connection(&mut self)` | Force a fresh connection |
-| `clear_authed_subscriptions` | `fn clear_authed_subscriptions(&self)` | Remove User channel from tracking |
+| `restart_connection` | `async fn restart_connection(&mut self)` | Restart unless the native client remains in `Connecting` |
+| `clear_authed_subscriptions` | `fn clear_authed_subscriptions(&self)` | Best-effort non-blocking purge of User/wallet replay tracking and queued auth messages; disconnect for definitive teardown |
 | `events` | `fn events(&self) -> impl Stream<Item = WsEvent>` | Stream of events from the connection |
+
+After `WsEvent::MaxReconnectReached`, the native client can remain in `Connecting`, so `restart_connection()` can do nothing. Calling `connect()` alone also does nothing while its command channel remains installed. Drop the borrowed event stream, call `disconnect().await?`, then call `connect().await?`. Reissue required subscriptions. Refer to the [native client recovery guide](../../../docs/auth-session-recovery.md) for the complete procedure.
 
 ### Features
 
@@ -164,6 +186,10 @@ let mut ws = client.ws_native();
 - **Message queue** -- messages sent while disconnected are flushed on reconnect
 - **Ping/pong health check** -- detects stale connections
 - **Auth token injection** -- passes the session cookie in the WS upgrade request
+
+WebSocket clients are owned independently from `Auth`; logout does not clear or
+disconnect them. The caller must unsubscribe or disconnect each live client and
+clear replay state where it intends to retain the connection.
 
 ## WASM Client
 
@@ -188,17 +214,20 @@ All methods are static (the WASM client manages a single global connection):
 | Method | Signature | Description |
 |--------|-----------|-------------|
 | `connect` | `fn connect(config: WsConfig, on_event: impl Fn(WsEvent))` | Connect with event callback |
-| `send` | `fn send(message: MessageOut)` | Send a message |
+| `send` | `fn send(message: MessageOut)` | Send immediately when open, queue while connecting, or queue and reconnect when closing/closed |
 | `subscribe` | `fn subscribe(params: SubscribeParams)` | Subscribe to a channel |
 | `unsubscribe` | `fn unsubscribe(params: UnsubscribeParams)` | Unsubscribe from a channel |
 | `is_connected` | `fn is_connected() -> bool` | Connection status |
 | `ready_state` | `fn ready_state() -> ReadyState` | Detailed state |
 | `restart_connection` | `fn restart_connection()` | Force reconnect |
+| `clear_authed_subscriptions` | `fn clear_authed_subscriptions()` | Purge User/wallet replay tracking and queued auth messages; does not unsubscribe the live socket |
 | `cleanup` | `fn cleanup()` | Tear down connection and clean up |
 
 ## Examples
 
 ### Market maker: subscribe to book + user events
+
+This excerpt requires an authenticated client and its Trading Wallet address.
 
 ```rust
 use lightcone::prelude::*;

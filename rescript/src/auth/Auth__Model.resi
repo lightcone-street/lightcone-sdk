@@ -62,9 +62,42 @@ module GoogleAccount: {
 }
 
 // The login identity, internally tagged on the wire (`type`: google | x | wallet).
+module EmailAccount: {
+  @genType @spice type t = {email: string}
+}
+module LinkedIdentity: {
+  @genType
+  type t =
+    | Email(EmailAccount.t)
+    | Google(GoogleAccount.t)
+    | X(XAccount.t)
+    | Wallet({address: string, chain: ChainType.t})
+}
+module LinkedIdentitySelector: {
+  @genType
+  type t =
+    | Email(string)
+    | Google(string)
+    | X(string)
+    | Wallet({address: string, chain: ChainType.t})
+}
+module RegisterPrivyRequest: {
+  @genType type t = {attemptedIdentity: LinkedIdentitySelector.t}
+}
+module Credentials: {
+  @genType type t = {userId: string, walletAddress: string, expiresAt: float}
+}
+module RegisterPrivyConflict: {
+  @genType
+  type t =
+    | IdentityOwned(option<SdkError.LinkedIdentityType.t>)
+    | MultipleAccounts
+    | WalletOwned(option<SdkError.LinkedIdentityType.t>)
+}
 module Identity: {
   @genType
   type t =
+    | Email({account: EmailAccount.t, privy: PrivyData.t})
     | Google({account: GoogleAccount.t, privy: PrivyData.t})
     | X({account: XAccount.t, privy: PrivyData.t})
     | Wallet({address: string, chain: ChainType.t, privy?: PrivyData.t})
@@ -77,6 +110,9 @@ module User: {
     userId: string,
     identity: Identity.t,
     connectedX?: XAccount.t,
+    linkedIdentities: array<LinkedIdentity.t>,
+    maxSlippagePreference?: string,
+    telegramInviteUrl?: string,
   }
 }
 
@@ -101,3 +137,10 @@ module SignedLogin: {
     pubkeyBytes: array<int>,
   }
 }
+
+@genType let tradingWallet: (User.t, Method.t) => string
+@genType let credentialsFromSession: Session.t => Credentials.t
+@genType let walletDisplayName: (User.t, Method.t) => string
+@genType let displayName: User.t => string
+@genType let avatarUrl: User.t => option<string>
+@genType let classifyRegisterPrivyConflict: SdkError.t => option<RegisterPrivyConflict.t>

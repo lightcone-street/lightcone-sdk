@@ -12,10 +12,13 @@ pub mod scaling;
 pub mod serde_util;
 pub mod signing;
 
-pub use api_response::{ApiRejectedDetails, ApiResponse};
+pub use api_response::{ApiRejectedDetails, ApiResponse, LinkedIdentityType};
 pub use price::{format_decimal, parse_decimal};
 pub use rejection::RejectionCode;
-pub use scaling::{scale_price_size, OrderbookDecimals, ScaledAmounts, ScalingError};
+pub use scaling::{
+    exact_scaled_integer, scale_price_size, validate_raw_amounts, validate_signed_fields,
+    OrderbookRules, ScaledAmounts, ScalingError, TradingRules, I64_MAX_U64, NONCE_MAX, PRICE_SCALE,
+};
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -255,7 +258,8 @@ impl Side {
     /// The price to submit with a market (IOC) order: the worst book fill price padded
     /// by the impact-protection percentage in the direction that lets the order fill.
     ///
-    /// `None` unless both inputs are positive.
+    /// `None` unless the fill price and protection are positive. Protection has
+    /// no policy maximum; Ask protection at or above 100% saturates at zero.
     pub fn apply_impact_protection(
         &self,
         worst_fill_price: Decimal,
@@ -264,12 +268,14 @@ impl Side {
         if worst_fill_price <= Decimal::ZERO || protection_percent <= Decimal::ZERO {
             return None;
         }
-        let factor = protection_percent / Decimal::from(100);
-        let price = match self {
-            Side::Bid => worst_fill_price * (Decimal::ONE + factor), // buying: willing to pay more
-            Side::Ask => worst_fill_price * (Decimal::ONE - factor), // selling: willing to receive less
-        };
-        Some(price)
+        let factor = protection_percent.checked_div(Decimal::ONE_HUNDRED)?;
+        match self {
+            // Buying: willing to pay more.
+            Side::Bid => worst_fill_price.checked_mul(Decimal::ONE.checked_add(factor)?),
+            // Selling: willing to receive less, but never at a negative price.
+            Side::Ask if factor >= Decimal::ONE => Some(Decimal::ZERO),
+            Side::Ask => worst_fill_price.checked_mul(Decimal::ONE.checked_sub(factor)?),
+        }
     }
 }
 
@@ -316,46 +322,6 @@ pub enum TimeInForce {
     Alo,
 }
 
-// ─── TriggerType ─────────────────────────────────────────────────────────────
-
-/// Trigger order type.
-///
-/// Serializes as `"TP"` (take-profit) or `"SL"` (stop-loss).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum TriggerType {
-    #[serde(rename = "TP")]
-    TakeProfit,
-    #[serde(rename = "SL")]
-    StopLoss,
-}
-
-impl std::fmt::Display for TriggerType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TriggerType::TakeProfit => write!(f, "TP"),
-            TriggerType::StopLoss => write!(f, "SL"),
-        }
-    }
-}
-
-// ─── TriggerStatus ──────────────────────────────────────────────────────────
-
-/// Lifecycle status of a trigger order from WS updates.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TriggerStatus {
-    /// Trigger order was just created and is now pending.
-    Created,
-    /// Trigger condition met, order was submitted.
-    Triggered,
-    /// Trigger condition met, but order submission failed.
-    Failed,
-    /// Trigger condition met, but the pre-signed order had expired.
-    Expired,
-    /// Trigger order was invalidated.
-    Invalidated,
-}
-
 // ─── OrderUpdateType ────────────────────────────────────────────────────────
 
 /// WS limit order update type.
@@ -366,35 +332,6 @@ pub enum OrderUpdateType {
     #[default]
     Update,
     Cancellation,
-}
-
-// ─── TriggerUpdateType ─────────────────────────────────────────────────────
-
-/// WS trigger order update type (uppercase version of TriggerStatus).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "UPPERCASE")]
-pub enum TriggerUpdateType {
-    /// Trigger order was just created.
-    Created,
-    #[default]
-    Triggered,
-    Failed,
-    Expired,
-    Invalidated,
-}
-
-// ─── TriggerResultStatus ────────────────────────────────────────────────────
-
-/// Result status of a triggered order after matching.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TriggerResultStatus {
-    /// Order matched (at least partially).
-    Filled,
-    /// Order placed on book (GTC with no immediate match).
-    Accepted,
-    /// FOK/IOC that couldn't fill.
-    Rejected,
 }
 
 // ─── DepositSource ──────────────────────────────────────────────────────────
@@ -609,7 +546,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_impact_protection_requires_positive_inputs() {
+    fn test_apply_impact_protection_requires_positive_unbounded_percent() {
         assert_eq!(
             Side::Bid.apply_impact_protection(Decimal::ZERO, Decimal::from(10)),
             None
@@ -617,6 +554,26 @@ mod tests {
         assert_eq!(
             Side::Ask.apply_impact_protection(Decimal::from(100), Decimal::ZERO),
             None
+        );
+        assert_eq!(
+            Side::Bid.apply_impact_protection(Decimal::from(100), Decimal::ONE_HUNDRED),
+            Some(Decimal::from(200))
+        );
+        assert_eq!(
+            Side::Ask.apply_impact_protection(Decimal::from(100), Decimal::ONE_HUNDRED),
+            Some(Decimal::ZERO)
+        );
+        assert_eq!(
+            Side::Bid.apply_impact_protection(Decimal::from(100), Decimal::from(-1)),
+            None
+        );
+        assert_eq!(
+            Side::Bid.apply_impact_protection(Decimal::from(100), Decimal::from(101)),
+            Some(Decimal::from(201))
+        );
+        assert_eq!(
+            Side::Ask.apply_impact_protection(Decimal::from(100), Decimal::from(101)),
+            Some(Decimal::ZERO)
         );
     }
 
@@ -649,21 +606,7 @@ mod tests {
     }
 
     #[test]
-    fn test_trigger_type_serde_roundtrip() {
-        let cases = [
-            (TriggerType::TakeProfit, "\"TP\""),
-            (TriggerType::StopLoss, "\"SL\""),
-        ];
-        for (variant, expected_json) in &cases {
-            let json = serde_json::to_string(variant).unwrap();
-            assert_eq!(&json, expected_json);
-            let back: TriggerType = serde_json::from_str(&json).unwrap();
-            assert_eq!(&back, variant);
-        }
-    }
-
-    #[test]
-    fn test_submit_order_request_without_tif_trigger() {
+    fn test_submit_order_request_without_tif() {
         let req = SubmitOrderRequest {
             maker: "maker".into(),
             nonce: 1,
@@ -678,20 +621,16 @@ mod tests {
             signature: "sig".into(),
             orderbook_id: "ob".into(),
             time_in_force: None,
-            trigger_price: None,
-            trigger_type: None,
             deposit_source: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         // Optional fields should be omitted when None
         assert!(!json.contains("tif"));
-        assert!(!json.contains("trigger_price"));
-        assert!(!json.contains("trigger_type"));
         assert!(!json.contains("deposit_source"));
     }
 
     #[test]
-    fn test_submit_order_request_with_tif_trigger() {
+    fn test_submit_order_request_with_tif() {
         let req = SubmitOrderRequest {
             maker: "maker".into(),
             nonce: 1,
@@ -706,19 +645,14 @@ mod tests {
             signature: "sig".into(),
             orderbook_id: "ob".into(),
             time_in_force: Some(TimeInForce::Ioc),
-            trigger_price: Some(0.55),
-            trigger_type: Some(TriggerType::TakeProfit),
             deposit_source: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"tif\":\"IOC\""));
-        assert!(json.contains("\"trigger_price\":0.55"));
-        assert!(json.contains("\"trigger_type\":\"TP\""));
 
         let back: SubmitOrderRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(back.time_in_force, Some(TimeInForce::Ioc));
-        assert_eq!(back.trigger_price, Some(0.55));
-        assert_eq!(back.trigger_type, Some(TriggerType::TakeProfit));
+        assert_eq!(back, req);
     }
 
     #[test]
@@ -751,8 +685,6 @@ mod tests {
             signature: "sig".into(),
             orderbook_id: "ob".into(),
             time_in_force: None,
-            trigger_price: None,
-            trigger_type: None,
             deposit_source: Some(DepositSource::Global),
         };
         let json = serde_json::to_string(&req).unwrap();
@@ -778,8 +710,6 @@ mod tests {
             signature: "sig".into(),
             orderbook_id: "ob".into(),
             time_in_force: None,
-            trigger_price: None,
-            trigger_type: None,
             deposit_source: None,
         };
         let json = serde_json::to_string(&req).unwrap();
@@ -810,10 +740,6 @@ pub struct SubmitOrderRequest {
     pub orderbook_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "tif")]
     pub time_in_force: Option<TimeInForce>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trigger_price: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trigger_type: Option<TriggerType>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deposit_source: Option<DepositSource>,
 }

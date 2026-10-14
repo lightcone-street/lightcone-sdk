@@ -37,10 +37,6 @@ module SubmitResponse: {
   }
 }
 
-// ── Submit request ────────────────────────────────────────────────────────────
-// The signed order, ready to POST. Built by `Envelope.buildLimitOrder` /
-// `buildTriggerOrder` — a trigger order is the same signed payload plus the
-// `triggerPrice` / `triggerType` fields (the backend discriminates on them).
 module SubmitRequest: {
   @genType
   type t = {
@@ -60,24 +56,10 @@ module SubmitRequest: {
     orderbookId: string,
     timeInForce?: Shared.TimeInForce.t,
     depositSource?: Shared.DepositSource.t,
-    // Trigger-only fields (the wire sends `trigger_price` as a JSON number).
-    triggerPrice?: float,
-    triggerType?: Shared.TriggerType.t,
   }
 
   // The POST body (snake_case keys; bigints as JSON numbers).
   let toJson: t => JSON.t
-}
-
-// ── Trigger / cancel responses ────────────────────────────────────────────────
-// Trigger orders use the same submit endpoint; the trigger fields on the request
-// select the trigger path and the backend answers with the trigger order's ids.
-module TriggerResponse: {
-  @genType @spice
-  type t = {
-    @spice.key("trigger_order_id") triggerOrderId: string,
-    @spice.key("order_hash") orderHash: string,
-  }
 }
 
 module CancelSuccess: {
@@ -99,13 +81,6 @@ module CancelAllSuccess: {
   }
 }
 
-module CancelTriggerSuccess: {
-  @genType @spice
-  type t = {
-    @spice.key("trigger_order_id") triggerOrderId: string,
-  }
-}
-
 // ── Cancel bodies (signed by `Order__Client`) ─────────────────────────────────
 module CancelBody: {
   @genType
@@ -124,17 +99,6 @@ module CancelAllBody: {
   }
 }
 
-module CancelTriggerBody: {
-  @genType
-  type t = {triggerOrderId: string, maker: string, signatureHex: string}
-}
-
-// ── User orders snapshot ──────────────────────────────────────────────────────
-// The backend returns limit + trigger orders in one array, discriminated by
-// `order_type`, with the common fields flattened into the same object. Used by
-// both REST `GET /api/users/orders` and the WS user snapshot.
-
-// Fields shared by limit and trigger order snapshots.
 module SnapshotCommon: {
   @genType
   type t = {
@@ -170,28 +134,9 @@ module SnapshotLimit: {
   let toLimit: t => Order__Model.Limit.t
 }
 
-// The trigger arm of a snapshot order.
-module SnapshotTrigger: {
-  @genType
-  type t = {
-    common: SnapshotCommon.t,
-    triggerOrderId: string,
-    triggerPrice: string,
-    triggerType: Shared.TriggerType.t,
-    timeInForce?: Shared.TimeInForce.t,
-  }
-
-  // Snapshot trigger arm → domain order; an absent TIF defaults to GTC.
-  @genType
-  let toTrigger: t => Order__Model.Trigger.t
-}
-
-// Order snapshot — tagged on `order_type` ("limit" | "trigger").
 module SnapshotOrder: {
   @genType
-  type t =
-    | Limit(SnapshotLimit.t)
-    | Trigger(SnapshotTrigger.t)
+  type t = Limit(SnapshotLimit.t)
 
   // The fields shared by both variants.
   let common: t => SnapshotCommon.t
@@ -366,7 +311,8 @@ module Update: {
     @spice.key("orderbook_id") orderbookId: Shared.orderBookId,
     timestamp: string,
     @spice.key("tx_signature") txSignature?: string,
-    @spice.default(Shared.OrderUpdateType.Update) @spice.key("type") updateType: Shared.OrderUpdateType.t,
+    @spice.default(Shared.OrderUpdateType.Update) @spice.key("type")
+    updateType: Shared.OrderUpdateType.t,
     order: WsOrder.t,
   }
 
@@ -375,47 +321,9 @@ module Update: {
   let toLimit: t => Order__Model.Limit.t
 }
 
-// Trigger-order WS update event on the user channel. Result fields are zero /
-// absent until the order triggers; `tif` arrives numerically.
-module TriggerUpdate: {
-  @genType
-  type t = {
-    triggerOrderId: string,
-    userPubkey: Shared.pubkeyStr,
-    marketPubkey: Shared.pubkeyStr,
-    orderbookId: Shared.orderBookId,
-    triggerPrice: string,
-    triggerAbove: bool,
-    status: Shared.TriggerStatus.t,
-    updateType: Shared.TriggerUpdateType.t,
-    orderHash: string,
-    side: Shared.Side.t,
-    resultStatus?: Shared.TriggerResultStatus.t,
-    resultFilled: string,
-    resultRemaining: string,
-    // ISO-8601.
-    timestamp: string,
-    makerAmount: string,
-    takerAmount: string,
-    tif: Shared.TimeInForce.t,
-  }
-
-  // Exposed for tests (the WS trigger update is hand-decoded).
-  let t_decode: JSON.t => result<t, Spice.decodeError>
-
-  // WS trigger update → domain order: the trigger type is implied by the
-  // trigger direction (`triggerAbove`).
-  @genType
-  let toTrigger: t => Order__Model.Trigger.t
-}
-
-// WS order event — both limit and trigger updates arrive as `event_type: "order"`,
-// discriminated by `order_type` at the same level.
 module Event: {
   @genType
-  type t =
-    | Limit(Update.t)
-    | Trigger(TriggerUpdate.t)
+  type t = Limit(Update.t)
 
   let t_decode: JSON.t => result<t, Spice.decodeError>
 }

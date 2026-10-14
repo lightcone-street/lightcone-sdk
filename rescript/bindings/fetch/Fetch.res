@@ -15,6 +15,7 @@ type requestInit = {
   // "include" | "omit" | "same-origin" — credentials govern cookie forwarding.
   credentials?: string,
   signal?: abortSignal,
+  redirect?: string,
 }
 
 @val external fetch: (string, requestInit) => promise<response> = "fetch"

@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "native-auth")]
 use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
 
 /// Trait for external wallet signers (browser wallet adapters).
 ///
@@ -18,11 +19,22 @@ use solana_keypair::Keypair;
 /// # Example
 ///
 /// ```rust,ignore
-/// struct MyAdapterSigner;
+/// use lightcone::prelude::ExternalSigner;
+/// use solana_pubkey::Pubkey;
+/// use std::{future::Future, pin::Pin};
+///
+/// struct MyAdapterSigner {
+///     // Keep this identity synchronized with the connected wallet.
+///     wallet: Pubkey,
+/// }
 ///
 /// impl ExternalSigner for MyAdapterSigner {
-///     fn sign_message(&self, message: &[u8])
-///         -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + '_>>
+///     fn wallet_address(&self) -> Option<Pubkey> {
+///         Some(self.wallet)
+///     }
+///
+///     fn sign_message<'a>(&'a self, message: &'a [u8])
+///         -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + 'a>>
 ///     {
 ///         Box::pin(async move {
 ///             let result = ADAPTER().sign_message(message).await.map_err(|e| format!("{e:?}"))?;
@@ -30,8 +42,8 @@ use solana_keypair::Keypair;
 ///         })
 ///     }
 ///
-///     fn sign_transaction(&self, tx_bytes: &[u8])
-///         -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + '_>>
+///     fn sign_transaction<'a>(&'a self, tx_bytes: &'a [u8])
+///         -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + 'a>>
 ///     {
 ///         Box::pin(async move {
 ///             let result = ADAPTER().sign_transaction(tx_bytes, None).await.map_err(|e| format!("{e:?}"))?;
@@ -41,13 +53,26 @@ use solana_keypair::Keypair;
 /// }
 /// ```
 pub trait ExternalSigner: Send + Sync {
+    /// Return the public key of the connected wallet controlled by this signer.
+    ///
+    /// Unsponsored transaction submission requires `Some` with the transaction's
+    /// fee payer; `None` fails before signing. Message-only signers can retain
+    /// the default. Sponsored submission does not require a wallet identity,
+    /// but identity-bound SOL planners still do.
+    fn wallet_address(&self) -> Option<Pubkey> {
+        None
+    }
+
     /// Sign a message and return the raw signature bytes.
     fn sign_message<'a>(
         &'a self,
         message: &'a [u8],
     ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + 'a>>;
 
-    /// Sign a serialized unsigned transaction and return the signed transaction bytes.
+    /// Sign canonical Solana v1 wire bytes and return canonical signed v1 bytes.
+    /// The wallet must support v1 and preserve the entire message, including the
+    /// blockhash and inline resources. Unsupported wallets must return an error.
+    /// The SDK verifies every signature and rejects changed messages before send.
     fn sign_transaction<'a>(
         &'a self,
         tx_bytes: &'a [u8],
@@ -67,6 +92,38 @@ pub enum SigningStrategy {
     /// External wallet adapter (browser).
     /// Delegates signing to the provided `ExternalSigner` implementation.
     WalletAdapter(Arc<dyn ExternalSigner>),
+}
+
+impl SigningStrategy {
+    /// Return whether this strategy signs with a local keypair that cannot use sponsorship.
+    pub(crate) fn is_local_keypair(&self) -> bool {
+        match self {
+            #[cfg(feature = "native-auth")]
+            Self::Native(_) => true,
+            Self::WalletAdapter(_) => false,
+        }
+    }
+
+    /// Return the wallet identity this strategy can prove before signing.
+    pub fn wallet_address(&self) -> Option<Pubkey> {
+        match self {
+            #[cfg(feature = "native-auth")]
+            Self::Native(keypair) => Some(solana_signer::Signer::pubkey(keypair.as_ref())),
+            Self::WalletAdapter(signer) => signer.wallet_address(),
+        }
+    }
+
+    /// Return the local-keypair wallet accepted by wrap and unwrap-all planners.
+    ///
+    /// A wallet-adapter strategy returns `None` even when it exposes a matching
+    /// wallet identity. Ordinary planners continue to accept that strategy.
+    #[cfg(feature = "native-auth")]
+    pub(crate) fn native_conversion_wallet(&self) -> Option<Pubkey> {
+        match self {
+            Self::Native(keypair) => Some(solana_signer::Signer::pubkey(keypair.as_ref())),
+            Self::WalletAdapter(_) => None,
+        }
+    }
 }
 
 /// Check if an external signer error indicates the user cancelled/rejected

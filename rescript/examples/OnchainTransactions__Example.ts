@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import {
   makeForEnv,
+  TransactionClient,
   useNativeSigner,
   AuthClient,
   MarketClient,
@@ -28,6 +29,7 @@ function walletSecretKey(): Uint8Array {
 async function main(): Promise<void> {
   const env = (process.env.LIGHTCONE_ENV ?? "prod") as Env_t;
   const client = makeForEnv(env);
+  TransactionClient.setResources(client, { computeUnitLimit: 1400000, loadedAccountsDataSizeLimit: 67108864, priorityFeeLamports: 0n });
 
   await useNativeSigner(client, walletSecretKey());
   await AuthClient.login(client, undefined);

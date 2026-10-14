@@ -1,16 +1,30 @@
 """Tests for book subscription identity and wire mapping with aggregation."""
 
+import json
+
 import pytest
 
-from lightcone_sdk.domain.orderbook.aggregation import BookAggregation, FULL_PRECISION
+from lightcone_sdk.domain.orderbook.aggregation import FULL_PRECISION, BookAggregation
 from lightcone_sdk.domain.orderbook.wire import WsOrderBook
-from lightcone_sdk.ws import subscribe_books, unsubscribe_books, WsErrorData
+from lightcone_sdk.error import DeserializationError
+from lightcone_sdk.ws import (
+    WsErrorData,
+    parse_message_in,
+    subscribe_books,
+    subscribe_wallet_deposit_balances,
+    unsubscribe_books,
+    unsubscribe_wallet_deposit_balances,
+)
 from lightcone_sdk.ws.client import (
+    WsClient,
     _subscribe_params_to_message,
     _unsubscribe_params_to_message,
 )
 from lightcone_sdk.ws.subscriptions import (
     BookUpdateParams,
+    TickerParams,
+    UserParams,
+    WalletDepositBalancesParams,
     subscription_key,
     unsubscribe_matches,
 )
@@ -22,7 +36,9 @@ class TestBookAggregation:
         assert BookAggregation.validate(3) == BookAggregation(n_sig_figs=3)
         # (5, None) normalizes to (5, 1).
         assert BookAggregation.validate(5) == BookAggregation(n_sig_figs=5, mantissa=1)
-        assert BookAggregation.validate(5, 5) == BookAggregation(n_sig_figs=5, mantissa=5)
+        assert BookAggregation.validate(5, 5) == BookAggregation(
+            n_sig_figs=5, mantissa=5
+        )
 
         for invalid in [(1, None), (6, None), (4, 2), (None, 2), (5, 3), (5, 0)]:
             with pytest.raises(ValueError):
@@ -103,6 +119,35 @@ class TestWireMapping:
         assert ungrouped["params"]["nSigFigs"] == 3
         assert "mantissa" not in ungrouped["params"]
 
+    def test_wallet_balance_subscription_wire_and_identity(self):
+        params = WalletDepositBalancesParams(wallet_address="wallet-a")
+        assert subscription_key(params) == "wallet_deposit_balances:wallet-a"
+        assert _subscribe_params_to_message(params) == (
+            subscribe_wallet_deposit_balances("wallet-a")
+        )
+        assert _unsubscribe_params_to_message(params) == (
+            unsubscribe_wallet_deposit_balances("wallet-a")
+        )
+
+    @pytest.mark.asyncio
+    async def test_auth_cleanup_removes_active_and_queued_wallet_channels(self):
+        client = WsClient()
+        await client.subscribe(UserParams(wallet_address="wallet-a"))
+        await client.subscribe(WalletDepositBalancesParams(wallet_address="wallet-a"))
+        await client.subscribe(TickerParams(orderbook_ids=["book-a"]))
+
+        client.clear_authed_subscriptions()
+
+        assert client._active_subscriptions == [  # noqa: SLF001
+            TickerParams(orderbook_ids=["book-a"])
+        ]
+        assert client._pending_messages == [  # noqa: SLF001
+            {
+                "method": "subscribe",
+                "params": {"type": "ticker", "orderbook_ids": ["book-a"]},
+            }
+        ]
+
 
 class TestFrameTags:
     def test_frame_aggregation_from_tags(self):
@@ -121,7 +166,13 @@ class TestFrameTags:
 
         # Untagged frames (old backends / full precision) are full precision.
         untagged = WsOrderBook.from_dict(
-            {"orderbook_id": "ob1", "is_snapshot": True, "seq": 0, "bids": [], "asks": []}
+            {
+                "orderbook_id": "ob1",
+                "is_snapshot": True,
+                "seq": 0,
+                "bids": [],
+                "asks": [],
+            }
         )
         assert untagged.aggregation().is_full()
 
@@ -136,3 +187,97 @@ class TestFrameTags:
         )
         assert error.orderbook_id == "ob1"
         assert error.aggregation() == BookAggregation(n_sig_figs=4)
+
+
+class TestBookQuoteNotional:
+    def test_decodes_exact_full_and_grouped_bid_ask_levels(self):
+        full = parse_message_in(
+            json.dumps(
+                {
+                    "type": "book_update",
+                    "version": 0.1,
+                    "data": {
+                        "orderbook_id": "ob1",
+                        "is_snapshot": True,
+                        "seq": 10,
+                        "bids": [
+                            {
+                                "side": "bid",
+                                "price": "65000",
+                                "size": "0.03",
+                                "quote_notional": "1948.01",
+                            }
+                        ],
+                        "asks": [
+                            {
+                                "side": "ask",
+                                "price": "65001",
+                                "size": "0.02",
+                                "quote_notional": "1300.02",
+                            }
+                        ],
+                    },
+                }
+            )
+        )
+        assert isinstance(full.data, WsOrderBook)
+        assert full.data.bids[0].quote_notional == "1948.01"
+        assert full.data.asks[0].quote_notional == "1300.02"
+
+        grouped = parse_message_in(
+            json.dumps(
+                {
+                    "type": "book_update",
+                    "version": 0.1,
+                    "data": {
+                        "orderbook_id": "ob1",
+                        "is_snapshot": False,
+                        "seq": 11,
+                        "n_sig_figs": 5,
+                        "mantissa": 2,
+                        "bids": [
+                            {
+                                "side": "bid",
+                                "price": "100",
+                                "size": "2",
+                                "quote_notional": "199",
+                            }
+                        ],
+                        "asks": [
+                            {
+                                "side": "ask",
+                                "price": "101",
+                                "size": "3",
+                                "quote_notional": "304",
+                            }
+                        ],
+                    },
+                }
+            )
+        )
+        assert isinstance(grouped.data, WsOrderBook)
+        assert grouped.data.bids[0].quote_notional == "199"
+        assert grouped.data.bids[0].quote_notional != "200"
+        assert grouped.data.asks[0].quote_notional == "304"
+        assert grouped.data.asks[0].quote_notional != "303"
+
+    @pytest.mark.parametrize("quote_notional", [None, 2])
+    def test_rejects_missing_or_non_string_quote_notional(self, quote_notional):
+        level = {"side": "bid", "price": "1", "size": "2"}
+        if quote_notional is not None:
+            level["quote_notional"] = quote_notional
+        with pytest.raises(DeserializationError):
+            parse_message_in(
+                json.dumps(
+                    {
+                        "type": "book_update",
+                        "version": 0.1,
+                        "data": {
+                            "orderbook_id": "ob1",
+                            "seq": 1,
+                            "bids": [level],
+                            "asks": [],
+                        },
+                    }
+                )
+            )

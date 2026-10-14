@@ -47,7 +47,9 @@ type pdaSeedsInput = {programAddress: address, seeds: array<Uint8Array.t>}
 
 // kit AccountRole is an int enum: 0 READONLY, 1 WRITABLE, 2 READONLY_SIGNER,
 // 3 WRITABLE_SIGNER.
+@genType
 type accountMeta = {address: address, role: int}
+@genType
 type instruction = {programAddress: address, accounts: array<accountMeta>, data: Uint8Array.t}
 
 module Role = {
@@ -56,3 +58,4 @@ module Role = {
   let readonlySigner = 2
   let writableSigner = 3
 }
+@module("@solana/kit") external isOffCurveAddress: address => bool = "isOffCurveAddress"

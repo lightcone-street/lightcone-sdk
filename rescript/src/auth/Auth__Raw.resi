@@ -15,3 +15,5 @@ module SignedLogin: {
   // The login_or_register_with_message request body.
   let toJson: (Auth__Model.SignedLogin.t, ~useEmbeddedWallet: option<bool>) => JSON.t
 }
+
+let registerPrivyJson: Auth__Model.RegisterPrivyRequest.t => JSON.t

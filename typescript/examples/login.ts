@@ -1,4 +1,10 @@
-import { tradingWallet, displayName, identityText, signLoginMessage } from "../src/auth";
+import {
+  tradingWallet,
+  displayName,
+  identityText,
+  signLoginMessage,
+  walletDisplayName,
+} from "../src/auth";
 import { restClient, getKeypair, runExample } from "./common";
 
 async function main() {
@@ -16,6 +22,7 @@ async function main() {
   console.log(`logged in: ${session.user.user_id} (${wallet})`);
   console.log("identity:", identityText(session.user.identity));
   console.log("display name:", displayName(session.user));
+  console.log("wallet display name:", walletDisplayName(session.user, session.auth_method));
   console.log("cached auth state:", client.auth().isAuthenticated());
   const me = await client.auth().checkSession();
   console.log("session wallet:", tradingWallet(me.user, me.auth_method));

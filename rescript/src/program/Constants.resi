@@ -3,7 +3,6 @@
 // sizes. Every binding here is a public named constant (no internal helpers).
 
 // ── Well-known program addresses ──────────────────────────────────────────────
-let altProgram: SolanaKit.address
 let systemProgram: SolanaKit.address
 let rentSysvar: SolanaKit.address
 let mplTokenMetadataProgram: SolanaKit.address
@@ -36,12 +35,9 @@ module Instruction: {
   let globalToMarketDeposit: int
   let initPositionTokens: int
   let depositAndSwap: int
-  let extendPositionTokens: int
   let withdrawFromGlobal: int
-  let closePositionAlt: int
   let closeOrderStatus: int
   let closePositionTokenAccounts: int
-  let closeOrderbookAlt: int
   let closeOrderbook: int
   let setManager: int
   let setMarketFees: int
@@ -49,7 +45,6 @@ module Instruction: {
   let createConditionalMetadata: int
   let updateConditionalMetadata: int
   let setOracle: int
-  let refreshOrderbookAlt: int
   let acceptAuthority: int
   let acceptManager: int
   let acceptOperator: int
@@ -74,3 +69,6 @@ let signatureSize: int
 let maxOutcomes: int
 let minOutcomes: int
 let maxMakers: int
+
+let maxDepositMints: int
+let initializeAuthority: SolanaKit.address

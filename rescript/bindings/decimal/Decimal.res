@@ -47,3 +47,5 @@ let roundHalfEven = 6
 @send external toString: t => string = "toString"
 @send external toNumber: t => float = "toNumber"
 @send external toSignificantDigits: (t, int) => t = "toSignificantDigits"
+@send external isFinite: t => bool = "isFinite"
+@send external toFixedExact: t => string = "toFixed"

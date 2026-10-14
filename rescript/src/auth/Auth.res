@@ -14,3 +14,17 @@ module SignedLogin = Auth__Model.SignedLogin
 module Raw = Auth__Raw
 module Native = Auth__Native
 module Client = Auth__Client
+
+module EmailAccount = Auth__Model.EmailAccount
+module LinkedIdentity = Auth__Model.LinkedIdentity
+module LinkedIdentitySelector = Auth__Model.LinkedIdentitySelector
+module RegisterPrivyRequest = Auth__Model.RegisterPrivyRequest
+module Credentials = Auth__Model.Credentials
+module RegisterPrivyConflict = Auth__Model.RegisterPrivyConflict
+
+let tradingWallet = Auth__Model.tradingWallet
+let credentialsFromSession = Auth__Model.credentialsFromSession
+let walletDisplayName = Auth__Model.walletDisplayName
+let displayName = Auth__Model.displayName
+let avatarUrl = Auth__Model.avatarUrl
+let classifyRegisterPrivyConflict = Auth__Model.classifyRegisterPrivyConflict

@@ -2,28 +2,41 @@
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import base58
 from nacl.signing import SigningKey
 from solders.keypair import Keypair
 
+from ..error import (
+    DeserializationError,
+    _require,
+    is_privy_verification_unavailable,
+    is_unauthorized,
+)
+from ..http.retry import RetryPolicy
 from . import (
     AuthCredentials,
+    EmailAccountData,
+    EmailIdentity,
+    EmailLinkedIdentity,
     GoogleAccountData,
     GoogleIdentity,
+    GoogleLinkedIdentity,
+    LinkedIdentity,
     PrivyEmbeddedWallet,
+    RegisterPrivyRequest,
     SessionResponse,
     User,
     UserIdentity,
     UserPrivyData,
     WalletIdentity,
+    WalletLinkedIdentity,
     XAccountData,
     XIdentity,
+    XLinkedIdentity,
     generate_signin_message,
 )
-from ..error import DeserializationError, _require
-from ..http.retry import RetryPolicy
 
 if TYPE_CHECKING:
     from ..client import LightconeClient
@@ -40,13 +53,13 @@ class Auth:
 
     def __init__(
         self,
-        client: "LightconeClient",
-        credentials: Optional[AuthCredentials] = None,
+        client: LightconeClient,
+        credentials: AuthCredentials | None = None,
     ):
         self._client = client
-        self._credentials: Optional[AuthCredentials] = credentials
+        self._credentials: AuthCredentials | None = credentials
 
-    def credentials(self) -> Optional[AuthCredentials]:
+    def credentials(self) -> AuthCredentials | None:
         """Get current credentials."""
         return self._credentials
 
@@ -62,7 +75,9 @@ class Auth:
         Returns:
             The nonce string
         """
-        data = await self._client._http.get("/api/auth/nonce", retry_policy=RetryPolicy.NONE)
+        data = await self._client._http.get(
+            "/api/auth/nonce", retry_policy=RetryPolicy.NONE
+        )
         return data.get("nonce", "")
 
     async def login_with_message(
@@ -70,7 +85,7 @@ class Auth:
         message: str,
         signature_bs58: str,
         pubkey_bytes: list[int],
-        use_embedded_wallet: Optional[bool] = None,
+        use_embedded_wallet: bool | None = None,
     ) -> SessionResponse:
         """Login with a pre-signed message and return the session envelope.
 
@@ -91,10 +106,15 @@ class Auth:
         if use_embedded_wallet is not None:
             body["use_embedded_wallet"] = use_embedded_wallet
 
+        # Credential-management endpoint: opts out of the transport's 401
+        # restore-and-replay. The backend consumes the login nonce before
+        # verifying the signature, so a replayed login deterministically
+        # fails — and restoring credentials in order to log in is circular.
         data = await self._client._http.post(
             "/api/auth/login_or_register_with_message",
             body,
             retry_policy=RetryPolicy.NONE,
+            allow_credential_restore=False,
         )
 
         session = _session_from_dict(data)
@@ -119,15 +139,14 @@ class Auth:
         message, signature_b58, pubkey_bytes = sign_login_message(keypair, nonce)
 
         # Step 3: Login
-        return await self.login_with_message(
-            message, signature_b58, pubkey_bytes
-        )
+        return await self.login_with_message(message, signature_b58, pubkey_bytes)
 
     async def check_session(self) -> SessionResponse:
         """Validate the current session and return the session envelope.
 
         On success, updates internal credentials. On failure, clears
-        credentials and re-raises the error.
+        credentials and re-raises the error, except temporary Privy unavailability
+        retains credentials for a manual retry.
 
         Returns:
             The session envelope with the full user profile
@@ -142,8 +161,9 @@ class Auth:
             )
             session = _session_from_dict(data)
             credentials = _credentials_from_session(session)
-        except Exception:
-            self._credentials = None
+        except Exception as error:
+            if not is_privy_verification_unavailable(error):
+                self._credentials = None
             raise
 
         self._credentials = credentials
@@ -151,24 +171,69 @@ class Auth:
         return session
 
     async def logout(self) -> None:
-        """Logout — clears server-side cookie, internal token, and credentials."""
+        """Log out the native client's Lightcone session and clear local credentials.
+
+        Local state is cleared even when the server call fails — the caller
+        asked to be signed out locally regardless — but the failure is then
+        re-raised: callers gating security decisions on teardown (e.g. whether
+        an app may restart an authenticated transport) must be able to see
+        whether revocation is unconfirmed or a revoked token still awaits
+        remote WebSocket teardown. Refer to the authentication guide in README.
+        A 401 counts as
+        success: it means "already logged out".
+        """
+        logout_error: Exception | None = None
         try:
+            # Credential-management endpoint: opts out of the transport's 401
+            # restore-and-replay — a 401 here means "already logged out".
             await self._client._http.post(
-                "/api/auth/logout", {},
+                "/api/auth/logout",
+                {},
                 retry_policy=RetryPolicy.NONE,
+                allow_credential_restore=False,
             )
-        except Exception:
-            pass
+        except Exception as error:
+            if not is_unauthorized(error):
+                logout_error = error
 
         self._client._http.clear_auth_token()
         self._credentials = None
 
+        if logout_error is not None:
+            raise logout_error
+
     async def disconnect_x(self) -> None:
         """Disconnect the user's linked X (Twitter) account."""
         await self._client._http.post(
-            "/api/auth/disconnect_x", {},
+            "/api/auth/disconnect_x",
+            {},
             retry_policy=RetryPolicy.NONE,
         )
+
+    async def register_privy(self, request: RegisterPrivyRequest) -> SessionResponse:
+        """Create or synchronize a Privy Account and install its session."""
+        data = await self._client._http.post(
+            "/api/auth/register-privy",
+            request.to_dict(),
+            retry_policy=RetryPolicy.IDEMPOTENT,
+        )
+        session = _session_from_dict(data)
+        self._credentials = _credentials_from_session(session)
+        return session
+
+    async def update_max_slippage_preference(self, max_slippage_preference: str) -> str:
+        """Persist an account-wide max-slippage preference strictly below 10%."""
+        data = await self._client._http.post(
+            "/api/auth/max_slippage_preference",
+            {"max_slippage_preference": max_slippage_preference},
+            retry_policy=RetryPolicy.IDEMPOTENT,
+        )
+        persisted = _require(data, "max_slippage_preference", "max slippage response")
+        if not isinstance(persisted, str):
+            raise DeserializationError(
+                "max slippage response has malformed max_slippage_preference"
+            )
+        return persisted
 
     def connect_x_url(self) -> str:
         """Get the URL for linking an X (Twitter) account via OAuth."""
@@ -213,8 +278,22 @@ def _google_account_from_dict(d: dict) -> GoogleAccountData:
     )
 
 
+def _email_account_from_dict(d: dict) -> EmailAccountData:
+    """Decode the canonical address carried by an Email Identity."""
+    return EmailAccountData(email=str(_require(d, "email", "email account")))
+
+
 def _identity_from_dict(d: dict) -> UserIdentity:
     identity_type = _require(d, "type", "identity")
+    if identity_type == "email":
+        account = _require(d, "account", "email identity")
+        privy = _require(d, "privy", "email identity")
+        if not isinstance(account, dict) or not isinstance(privy, dict):
+            raise DeserializationError("email identity has malformed account/privy")
+        return EmailIdentity(
+            account=_email_account_from_dict(account),
+            privy=_privy_from_dict(privy),
+        )
     if identity_type == "google":
         account = _require(d, "account", "google identity")
         privy = _require(d, "privy", "google identity")
@@ -244,6 +323,32 @@ def _identity_from_dict(d: dict) -> UserIdentity:
     raise DeserializationError(f"unknown identity type: {identity_type!r}")
 
 
+def _linked_identity_from_dict(d: dict) -> LinkedIdentity:
+    """Decode one lightweight Connected Login Identity from a profile."""
+    identity_type = _require(d, "type", "linked identity")
+    if identity_type == "email":
+        account = _require(d, "account", "linked email identity")
+        if not isinstance(account, dict):
+            raise DeserializationError("linked email identity has malformed account")
+        return EmailLinkedIdentity(account=_email_account_from_dict(account))
+    if identity_type == "google":
+        account = _require(d, "account", "linked google identity")
+        if not isinstance(account, dict):
+            raise DeserializationError("linked google identity has malformed account")
+        return GoogleLinkedIdentity(account=_google_account_from_dict(account))
+    if identity_type == "x":
+        account = _require(d, "account", "linked x identity")
+        if not isinstance(account, dict):
+            raise DeserializationError("linked x identity has malformed account")
+        return XLinkedIdentity(account=_x_account_from_dict(account))
+    if identity_type == "wallet":
+        return WalletLinkedIdentity(
+            address=str(_require(d, "address", "linked wallet identity")),
+            chain=_require(d, "chain", "linked wallet identity"),  # type: ignore[arg-type]
+        )
+    raise DeserializationError(f"unknown linked identity type: {identity_type!r}")
+
+
 def _user_from_dict(d: dict) -> User:
     """Parse a User from the session envelope's `user` object."""
     identity_dict = _require(d, "identity", "user")
@@ -255,10 +360,37 @@ def _user_from_dict(d: dict) -> User:
     if isinstance(connected_x_dict, dict):
         connected_x = _x_account_from_dict(connected_x_dict)
 
+    linked_identities_dict = d.get("linked_identities", [])
+    if not isinstance(linked_identities_dict, list) or not all(
+        isinstance(identity, dict) for identity in linked_identities_dict
+    ):
+        raise DeserializationError("user has malformed linked_identities")
+    linked_identities = [
+        _linked_identity_from_dict(identity) for identity in linked_identities_dict
+    ]
+
+    # Older backend versions omit this newly added field. Normalize that rollout
+    # state to unset while retaining strict validation when the key is present.
+    max_slippage_preference = d.get("max_slippage_preference")
+    if max_slippage_preference is not None and not isinstance(
+        max_slippage_preference, str
+    ):
+        raise DeserializationError("user has malformed max_slippage_preference")
+
+    # A missing key (older backend) and an explicit null (Account without an
+    # invite) both mean no invite. The error never includes the value, because
+    # the URL is a secret of the Account.
+    telegram_invite_url = d.get("telegram_invite_url")
+    if telegram_invite_url is not None and not isinstance(telegram_invite_url, str):
+        raise DeserializationError("user has malformed telegram_invite_url")
+
     return User(
         user_id=str(_require(d, "user_id", "user")),
         identity=_identity_from_dict(identity_dict),
+        max_slippage_preference=max_slippage_preference,
+        linked_identities=linked_identities,
         connected_x=connected_x,
+        telegram_invite_url=telegram_invite_url,
     )
 
 

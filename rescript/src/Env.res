@@ -21,8 +21,8 @@ let apiUrl = (env: t): string =>
   | Some(url) => url
   | None =>
     switch env {
-    | Local => "https://api.local.lightcone.xyz"
-    | Staging => "https://api.staging.lightcone.xyz"
+    | Local => "https://api.local.internalcone.com"
+    | Staging => "https://api.staging.internalcone.com"
     | Prod => "https://api.lightcone.xyz"
     }
   }
@@ -32,8 +32,8 @@ let wsUrl = (env: t): string =>
   | Some(url) => url
   | None =>
     switch env {
-    | Local => "wss://ws.local.lightcone.xyz/ws"
-    | Staging => "wss://ws.staging.lightcone.xyz/ws"
+    | Local => "wss://ws.local.internalcone.com/ws"
+    | Staging => "wss://ws.staging.internalcone.com/ws"
     | Prod => "wss://ws.lightcone.xyz/ws"
     }
   }
@@ -57,7 +57,7 @@ let programId = (env: t): string =>
     switch env {
     | Local => "HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago"
     | Staging => "5G2fWZGHB5BA8gbABVBuR1bU4Ziri9cRxFoojz5C5Rxk"
-    | Prod => "B9rCvafkkjh749284jfDu5UB268pHeRLkzFpFf7t4mxK"
+    | Prod => "F5zrhPGL9REfsQ4vHR3ESYo9zaqiVvmHoHjqRwd8cPrz"
     }
   }
 

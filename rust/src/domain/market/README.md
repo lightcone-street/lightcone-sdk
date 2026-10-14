@@ -24,23 +24,29 @@ A fully validated market with all nested domain types.
 | `name` | `String` | Market title (e.g., "Who wins the 2024 election?") |
 | `slug` | `String` | URL-friendly identifier |
 | `status` | `Status` | Lifecycle status |
-| `description` | `String` | Detailed market description |
+| `maker_fee_bps` | `i16` | Maker fee in signed basis points (negative = rebate) |
+| `taker_fee_bps` | `i16` | Taker fee in signed basis points (negative = rebate) |
+| `description` | `Option<String>` | Detailed market description |
 | `definition` | `String` | Resolution criteria |
 | `category` | `Option<String>` | Market category |
-| `tags` | `Vec<String>` | Searchable tags |
+| `subcategory` | `Option<String>` | Market subcategory |
+| `tags` | `Vec<String>` | Searchable tags (empty if unset) |
+| `num_outcomes` | `u8` | Authoritative protocol outcome count from the market record |
 | `deposit_assets` | `Vec<DepositAsset>` | Accepted collateral tokens |
 | `conditional_tokens` | `Vec<ConditionalToken>` | One per outcome |
 | `outcomes` | `Vec<Outcome>` | Outcome definitions with metadata |
 | `orderbook_pairs` | `Vec<OrderBookPair>` | Tradable pairs for this market |
 | `orderbook_ids` | `Vec<OrderBookId>` | Convenience list of orderbook IDs |
 | `token_metadata` | `HashMap<PubkeyStr, TokenMetadata>` | Metadata keyed by token mint |
-| `banner_image_url_low` | `String` | Market banner image (low quality) |
-| `banner_image_url_medium` | `String` | Market banner image (medium quality) |
-| `banner_image_url_high` | `String` | Market banner image (high quality) |
+| `banner_image_url_low` | `Option<String>` | Market banner image (low quality) |
+| `banner_image_url_medium` | `Option<String>` | Market banner image (medium quality) |
+| `banner_image_url_high` | `Option<String>` | Market banner image (high quality) |
 | `icon_url_low` | `String` | Market thumbnail (low quality) |
 | `icon_url_medium` | `String` | Market thumbnail (medium quality) |
 | `icon_url_high` | `String` | Market thumbnail (high quality) |
 | `featured_rank` | `Option<i16>` | Featured position (if featured) |
+
+`outcomes` is display metadata and can be empty when metadata is incomplete. Use `num_outcomes` for instruction validation and account derivation.
 | `created_at` | `DateTime<Utc>` | Creation timestamp |
 | `activated_at` | `Option<DateTime<Utc>>` | When market became active |
 | `settled_at` | `Option<DateTime<Utc>>` | When market was resolved |
@@ -80,9 +86,11 @@ An individual outcome within a market.
 |-------|------|-------------|
 | `index` | `i16` | Outcome index (0-based) |
 | `name` | `String` | Outcome name (e.g., "Yes", "No") |
-| `icon_url_low` | `String` | Outcome-specific icon (low quality) |
-| `icon_url_medium` | `String` | Outcome-specific icon (medium quality) |
-| `icon_url_high` | `String` | Outcome-specific icon (high quality) |
+| `icon_url_low` | `Option<String>` | Optional outcome-specific icon (low quality) |
+| `icon_url_medium` | `Option<String>` | Optional outcome-specific icon (medium quality) |
+| `icon_url_high` | `Option<String>` | Optional outcome-specific icon (high quality) |
+
+Missing, empty, and whitespace-only outcome icon values are absent. When any quality is present, it cross-fills missing qualities; otherwise all three fields are `None` and the outcome remains valid.
 
 ### `ConditionalToken`
 
@@ -217,6 +225,10 @@ async fn global_deposit_assets(&self) -> Result<GlobalDepositAssetsResult, SdkEr
 ```
 
 Fetch the active global deposit asset whitelist (platform-scoped, not market-bound). Assets that fail validation are skipped with their errors in `validation_errors`.
+
+### Favorite markets
+
+`favorite_markets(limit, cursor)` lists one page of the authenticated user's favorite market pubkeys and returns `next_cursor` plus `has_more`. The backend defaults to 100 items and clamps limits to 1000. `add_favorite_market(market_pubkey)` and `remove_favorite_market(market_pubkey)` update one favorite and return `FavoriteMarketUpdate { market_pubkey, favorited }`. Each method has a `_with_cookies(limit, cursor, cookie_header)` variant for forwarding a per-request cookie from SSR or server-function callers. Add and remove are idempotent set operations, so the SDK may safely replay them after supported credential restoration or transient transport failures. Cookie-forwarding variants retry transient failures with the supplied cookie but never invoke the process-wide credential restorer.
 
 ### Market Helpers
 

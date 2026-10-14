@@ -49,6 +49,10 @@ type t = {
   rpcFailover: RpcFailover.t,
   mutable depositSource: Shared.DepositSource.t,
   mutable orderNonce: option<bigint>,
+  mutable credentials: option<Auth__Model.Credentials.t>,
+  orderbookRules: Dict.t<promise<result<Scaling.OrderbookRules.t, SdkError.t>>>,
+  mutable transactionResources: option<V1Transaction.Resources.t>,
+  mutable sponsorshipEnabled: bool,
   mutable signingStrategy: option<SigningStrategy.t>,
 }
 
@@ -62,6 +66,8 @@ let make = (
   ~backupRpcUrl: option<string>=?,
   ~programId: option<string>=?,
   ~depositSource: Shared.DepositSource.t=Global,
+  ~transactionResources: option<V1Transaction.Resources.t>=?,
+  ~sponsorshipEnabled=false,
   (),
 ): t => {
   let resolvedRpcUrl = rpcUrl->Option.getOr(Env.rpcUrl(env))
@@ -78,7 +84,11 @@ let make = (
     rpcFailover: RpcFailover.make(),
     depositSource,
     orderNonce: None,
+    credentials: None,
+    orderbookRules: Dict.make(),
     signingStrategy: None,
+    transactionResources,
+    sponsorshipEnabled,
   }
 }
 
@@ -104,7 +114,9 @@ let signerAddress = (client: t): option<SolanaKit.address> =>
 let useNativeSigner = async (client: t, secretKey: Uint8Array.t): unit => {
   let keypair = await SolanaKitKeys.createKeyPairFromBytes(secretKey)
   let signer = await SolanaKitKeys.createKeyPairSignerFromBytes(secretKey)
-  client.signingStrategy = Some(NativeSigner({keypair, signer, address: SolanaKitKeys.signerAddress(signer)}))
+  client.signingStrategy = Some(
+    NativeSigner({keypair, signer, address: SolanaKitKeys.signerAddress(signer)}),
+  )
 }
 
 // Attach an external wallet signer (browser wallet adapter): the wallet's
@@ -121,7 +133,12 @@ let clearSigningStrategy = (client: t): unit => client.signingStrategy = None
 // Sign raw message bytes with the configured strategy (orders, cancels, and the
 // login message all sign this way). External-signer exceptions surface as
 // `Signing` errors.
-let signMessageBytes = async (client: t, message: Uint8Array.t): result<Uint8Array.t, SdkError.t> =>
+let copyMessage: Uint8Array.t => Uint8Array.t = %raw(`value => Uint8Array.from(value)`)
+let signMessageBytes = async (client: t, message: Uint8Array.t): result<
+  Uint8Array.t,
+  SdkError.t,
+> => {
+  let message = copyMessage(message)
   switch client.signingStrategy {
   | None =>
     Error(
@@ -130,13 +147,27 @@ let signMessageBytes = async (client: t, message: Uint8Array.t): result<Uint8Arr
       ),
     )
   | Some(NativeSigner({keypair})) => Ok(await SolanaKitKeys.signBytes(keypair.privateKey, message))
-  | Some(ExternalSigner({signMessage})) =>
-    switch await signMessage(message) {
-    | signature => Ok(signature)
+  | Some(ExternalSigner({signMessage, address})) =>
+    switch await signMessage(copyMessage(message)) {
+    | signature =>
+      let publicKey = SolanaKitCodec.encode(SolanaKitCodec.getAddressEncoder(), address)
+      if await StrictEd25519.verify(signature, message, publicKey) {
+        Ok(signature)
+      } else {
+        Error(SdkError.Signing("wallet returned an invalid message signature"))
+      }
     | exception JsExn(error) =>
-      Error(SdkError.Signing(error->JsExn.message->Option.getOr("external signer failed to sign message")))
+      Error(
+        SdkError.Signing(
+          error->JsExn.message->Option.getOr("external signer failed to sign message"),
+        ),
+      )
     }
   }
+}
 
-let clearAuth = (client: t): unit => Http.clearAuthToken(client.http)
+let clearAuth = (client: t): unit => {
+  Http.clearAuthToken(client.http)
+  client.credentials = None
+}
 let authToken = (client: t): option<string> => Http.authToken(client.http)

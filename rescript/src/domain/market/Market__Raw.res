@@ -12,7 +12,7 @@ let parseTimestampOpt = (isoTimestamp: option<string>): option<float> =>
 
 let formatValidationErrors = (label: string, identifier: string, messages: array<string>): string =>
   `${label} validation errors (${identifier}):\n` ++
-    messages->Array.map(message => `  - ${message}`)->Array.join("\n")
+  messages->Array.map(message => `  - ${message}`)->Array.join("\n")
 
 // ── Wire types ────────────────────────────────────────────────────────────────
 module OutcomeResponse = {
@@ -27,23 +27,22 @@ module OutcomeResponse = {
   }
 
   // Wire → domain outcome (resi-internal).
-  let toOutcome = (source: t): result<Market__Model.Outcome.t, array<string>> =>
-    switch Market__Model.resolveIconUrls(
-      source.iconUrlLow,
-      source.iconUrlMedium,
-      source.iconUrlHigh,
-    ) {
-    | None => Error([`Missing icon URL for outcome: ${source.name}`])
-    | Some((low, medium, high)) =>
-      Ok({
-        index: source.index,
-        iconUrlLow: low,
-        iconUrlMedium: medium,
-        iconUrlHigh: high,
-        name: source.name,
-        nameLong: ?source.nameLong,
-      })
-    }
+  let toOutcome = (source: t): result<Market__Model.Outcome.t, array<string>> => {
+    let nonblank = value => value->Option.filter(value => String.trim(value) != "")
+    let icons = Market__Model.resolveIconUrls(
+      nonblank(source.iconUrlLow),
+      nonblank(source.iconUrlMedium),
+      nonblank(source.iconUrlHigh),
+    )
+    Ok({
+      index: source.index,
+      name: source.name,
+      nameLong: ?source.nameLong,
+      iconUrlLow: ?(icons->Option.map(((low, _, _)) => low)),
+      iconUrlMedium: ?(icons->Option.map(((_, medium, _)) => medium)),
+      iconUrlHigh: ?(icons->Option.map(((_, _, high)) => high)),
+    })
+  }
 }
 
 module ConditionalTokenResponse = {
@@ -162,7 +161,9 @@ module DepositAssetResponse = {
           0.0
         }
       }
-      let conditionalShortSymbol = switch conditional.shortSymbol->Option.orElse(conditional.symbol) {
+      let conditionalShortSymbol = switch conditional.shortSymbol->Option.orElse(
+        conditional.symbol,
+      ) {
       | Some(value) => value
       | None => {
           Array.push(conditionalErrors, `Missing short symbol: ${conditionalPubkey}`)
@@ -183,7 +184,11 @@ module DepositAssetResponse = {
       } else {
         // Cross-fallback within the conditional's own icons, then fall back to the
         // parent deposit asset's icons.
-        let (conditionalLow, conditionalMedium, conditionalHigh) = switch Market__Model.resolveIconUrls(
+        let (
+          conditionalLow,
+          conditionalMedium,
+          conditionalHigh,
+        ) = switch Market__Model.resolveIconUrls(
           conditional.iconUrlLow,
           conditional.iconUrlMedium,
           conditional.iconUrlHigh,
@@ -290,10 +295,10 @@ module OrderbookResponse = {
 
   // Match the orderbook's base/quote mints against the market's conditional
   // tokens (resi-internal).
-  let toOrderBookPair = (
-    source: t,
-    tokens: array<Market__Model.ConditionalToken.t>,
-  ): result<Market__Model.OrderBookPair.t, array<string>> => {
+  let toOrderBookPair = (source: t, tokens: array<Market__Model.ConditionalToken.t>): result<
+    Market__Model.OrderBookPair.t,
+    array<string>,
+  > => {
     let errors: array<string> = []
     let baseMint = source.baseToken
     let quoteMint = source.quoteToken
@@ -302,12 +307,18 @@ module OrderbookResponse = {
 
     switch base {
     | None =>
-      Array.push(errors, `Base token not found: orderbook: ${source.orderbookId}, base: ${baseMint}`)
+      Array.push(
+        errors,
+        `Base token not found: orderbook: ${source.orderbookId}, base: ${baseMint}`,
+      )
     | Some(_) => ()
     }
     switch quote {
     | None =>
-      Array.push(errors, `Quote token not found: orderbook: ${source.orderbookId}, quote: ${quoteMint}`)
+      Array.push(
+        errors,
+        `Quote token not found: orderbook: ${source.orderbookId}, quote: ${quoteMint}`,
+      )
     | Some(_) => ()
     }
 
@@ -368,6 +379,7 @@ module MarketSearchResult = {
     @spice.key("market_name") marketName: string,
     @spice.key("market_status") marketStatus: Market__Model.Status.t,
     category?: string,
+    @spice.key("resolution_by") resolutionBy?: ProtocolInt.I64.t,
     @spice.default([]) tags: array<string>,
     @spice.key("featured_rank") featuredRank: float,
     description?: string,
@@ -389,9 +401,9 @@ let displayPriority = (symbol: string): int =>
   }
 
 // Order deposit-asset pairs by base-token display priority, then alphabetically.
-let sortPairsByDisplayPriority = (
-  pairs: array<Market__Model.DepositAssetPair.t>,
-): array<Market__Model.DepositAssetPair.t> =>
+let sortPairsByDisplayPriority = (pairs: array<Market__Model.DepositAssetPair.t>): array<
+  Market__Model.DepositAssetPair.t,
+> =>
   pairs->Array.toSorted((left, right) => {
     let leftPriority = displayPriority(left.base.symbol)
     let rightPriority = displayPriority(right.base.symbol)
@@ -443,6 +455,11 @@ module MarketResponse = {
     @spice.key("icon_url_medium") iconUrlMedium?: string,
     @spice.key("icon_url_high") iconUrlHigh?: string,
     category?: string,
+    subcategory?: string,
+    @spice.key("num_outcomes") numOutcomes?: int,
+    @spice.key("maker_fee_bps") makerFeeBps?: int,
+    @spice.key("taker_fee_bps") takerFeeBps?: int,
+    @spice.key("resolution_by") resolutionBy?: ProtocolInt.I64.t,
     tags?: array<string>,
     @spice.key("featured_rank") featuredRank?: float,
     @spice.key("market_pubkey") marketPubkey: Shared.pubkeyStr,
@@ -489,17 +506,16 @@ module MarketResponse = {
           ->Dict.toArray
           ->Array.forEach(((key, value)) => Dict.set(tokenMetadata, key, value))
         }
-      | Error(messages) => messages->Array.forEach(message => Array.push(errors, `Token: ${message}`))
+      | Error(messages) =>
+        messages->Array.forEach(message => Array.push(errors, `Token: ${message}`))
       }
     )
 
     // Sort deposit assets and conditional tokens by symbol.
-    let depositAssets = depositAssets->Array.toSorted((left, right) =>
-      String.compare(left.symbol, right.symbol)
-    )
-    let conditionalTokens = conditionalTokens->Array.toSorted((left, right) =>
-      String.compare(left.symbol, right.symbol)
-    )
+    let depositAssets =
+      depositAssets->Array.toSorted((left, right) => String.compare(left.symbol, right.symbol))
+    let conditionalTokens =
+      conditionalTokens->Array.toSorted((left, right) => String.compare(left.symbol, right.symbol))
 
     // Orderbooks (resolved against the sorted conditional tokens).
     let orderbookPairs: array<Market__Model.OrderBookPair.t> = []
@@ -532,16 +548,9 @@ module MarketResponse = {
         Market__Model.Status.Pending
       }
     }
-    let description = switch source.description {
-    | Some(value) => value
-    | None => {
-        Array.push(errors, "Missing description")
-        ""
-      }
-    }
     let definition = switch source.definition {
-    | Some(value) => value
-    | None => {
+    | Some(value) if value != "" => value
+    | _ => {
         Array.push(errors, "Missing definition")
         ""
       }
@@ -557,16 +566,28 @@ module MarketResponse = {
         ("", "", "")
       }
     }
-    let (bannerLow, bannerMedium, bannerHigh) = switch Market__Model.resolveIconUrls(
+    let banners = Market__Model.resolveIconUrls(
       source.bannerImageUrlLow,
       source.bannerImageUrlMedium,
       source.bannerImageUrlHigh,
-    ) {
-    | Some(icons) => icons
-    | None => {
-        Array.push(errors, "Missing banner URL")
-        ("", "", "")
+    )
+    let numOutcomes = source.numOutcomes->Option.getOr(
+      source.depositAssets
+      ->Array.get(0)
+      ->Option.mapOr(0, asset => Float.toInt(asset.numOutcomes)),
+    )
+    if numOutcomes < 2 || numOutcomes > 6 {
+      Array.push(errors, "Invalid outcome count")
+    }
+    source.depositAssets->Array.forEach(asset => {
+      if asset.numOutcomes != Int.toFloat(numOutcomes) {
+        Array.push(errors, "Inconsistent outcome counts")
       }
+    })
+    let makerFeeBps = source.makerFeeBps->Option.getOr(0)
+    let takerFeeBps = source.takerFeeBps->Option.getOr(0)
+    if makerFeeBps < -32768 || makerFeeBps > 32767 || takerFeeBps < -32768 || takerFeeBps > 32767 {
+      Array.push(errors, "Fee basis points out of i16 range")
     }
 
     let depositAssetPairs = sortPairsByDisplayPriority(
@@ -590,16 +611,21 @@ module MarketResponse = {
         activatedAt: ?parseTimestampOpt(source.activatedAt),
         settledAt: ?parseTimestampOpt(source.settledAt),
         resolution: ?source.resolution,
-        description,
+        description: ?source.description,
         definition,
+        numOutcomes,
+        makerFeeBps,
+        takerFeeBps,
+        resolutionBy: ?source.resolutionBy,
+        subcategory: ?source.subcategory,
         tags: source.tags->Option.getOr([]),
         outcomes,
         iconUrlLow: iconLow,
         iconUrlMedium: iconMedium,
         iconUrlHigh: iconHigh,
-        bannerImageUrlLow: bannerLow,
-        bannerImageUrlMedium: bannerMedium,
-        bannerImageUrlHigh: bannerHigh,
+        bannerImageUrlLow: ?(banners->Option.map(((low, _, _)) => low)),
+        bannerImageUrlMedium: ?(banners->Option.map(((_, medium, _)) => medium)),
+        bannerImageUrlHigh: ?(banners->Option.map(((_, _, high)) => high)),
         category: ?source.category,
         orderbookIds: orderbookPairs->Array.map(pair => pair.orderbookId),
         orderbookPairs,

@@ -64,7 +64,7 @@ let main = async () => {
               } else {
                 hits := hits.contents + 1
                 Console.log(
-                  `book[${Orderbook.Aggregation.keySuffix(aggregation)}]: seq=${Float.toString(
+                  `book[${Orderbook.Aggregation.keySuffix(aggregation)}]: seq=${BigInt.toString(
                       book.seq,
                     )} bid=${topPrice(book.bids)} ask=${topPrice(book.asks)}`,
                 )
@@ -72,9 +72,9 @@ let main = async () => {
             | Trades(trade) =>
               hits := hits.contents + 1
               Console.log(
-                `trade: ${trade.size} ${Shared.Side.toString(trade.side)} @ ${trade.price} seq=${Float.toString(
-                    trade.sequence,
-                  )}`,
+                `trade: ${trade.size} ${Shared.Side.toString(
+                    trade.side,
+                  )} @ ${trade.price} seq=${Float.toString(trade.sequence)}`,
               )
             | _ => ()
             },
@@ -85,10 +85,17 @@ let main = async () => {
         // One connection, two book views: full precision (pricing) + a grouped view
         // (5 sig figs, mantissa 2 — display), plus the trade tape. Subscriptions are
         // tracked and (re)sent on open, so issuing them now is fine.
-        Ws.subscribe(connection, Subscriptions.SubscribeParams.Books({orderbookIds: [orderbookId]}))->ignore
         Ws.subscribe(
           connection,
-          Subscriptions.SubscribeParams.Books({orderbookIds: [orderbookId], nSigFigs: 5, mantissa: 2}),
+          Subscriptions.SubscribeParams.Books({orderbookIds: [orderbookId]}),
+        )->ignore
+        Ws.subscribe(
+          connection,
+          Subscriptions.SubscribeParams.Books({
+            orderbookIds: [orderbookId],
+            nSigFigs: 5,
+            mantissa: 2,
+          }),
         )->ignore
         Ws.subscribe(connection, Subscriptions.SubscribeParams.Trades([orderbookId]))->ignore
 

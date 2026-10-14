@@ -15,16 +15,95 @@ Python SDK for the Lightcone impact market protocol on Solana.
 - [Examples](#examples)
 - [Authentication](#authentication)
 - [Error Handling](#error-handling)
+- [Transaction Fee Funding](#transaction-fee-funding)
 - [Retry Strategy](#retry-strategy)
 
 ## Installation
+
+Requires Python 3.11 or newer. Official v1 bindings require `solders>=0.29,<0.30` and `solana>=0.40,<0.41`; solana 0.40 requires Python 3.11.
 
 ```bash
 pip install git+https://github.com/lightcone-street/lightcone-sdk.git@prod#subdirectory=python
 ```
 
+## Transaction Fee Funding
+
+Shared on-chain submission checks the exact prepared message fee and declared
+fee-payer Native SOL Balance before signing when both RPC facts are available.
+A proven shortfall raises `InsufficientSolForTransactionFees` with integer
+`available_lamports` and `required_lamports` fields and the canonical deposit-SOL
+message. Fee or balance lookup failure continues through the existing submission
+path; planner-owned SOL actions retain fail-closed live fee, rent, and reserve
+checks.
+
+`LightconeClientBuilder().transaction_sponsorship(True)` and
+`client.set_transaction_sponsorship_enabled(True)` are trusted application
+assertions for external signing. The default is false, each transaction captures
+its signer and capability before asynchronous RPC work, and local-keypair
+submission rejects an enabled capability. Off-chain order-message signing remains
+outside this contract. Privy's backend transaction endpoint cannot expose its final
+signed bytes and is rejected by both shared submission and `Privy.sign_and_send_tx`.
+
+## Solana v1 transactions
+
+Every transaction builder and submission API accepts only `V1Transaction`.
+Legacy/v0 imports, ComputeBudget instructions, messages with more than 64 distinct
+accounts, and wire transactions larger than 4096 bytes (including every signature)
+are rejected. Instruction encoders continue to return solders `Instruction` values.
+
+The following async usage excerpt assumes an initialized, funded `keypair` and
+runs inside your application's async function.
+
+```python
+from lightcone_sdk import LightconeClientBuilder, V1ResourceConfig, V1Transaction
+
+# Explicit example limits; select budgets for your own workload.
+resources = V1ResourceConfig(
+    compute_unit_limit=200_000,
+    loaded_accounts_data_size_limit=1_048_576,
+    priority_fee_lamports=0,  # Total lamports, not micro-lamports per compute unit.
+)
+client = (LightconeClientBuilder().native_signer(keypair)
+          .transaction_resources(resources).build())
+context = await client.transaction_context()
+tx = client.orders().increment_nonce_tx(keypair.pubkey(), context)
+# Fluent builders use .build_tx(context); .sign_and_submit() obtains configured context.
+confirmed = await client.sign_and_submit_tx_confirmed_with_slot(tx)
+```
+
+Offline compilation uses `V1Transaction.compile(instructions, payer, context)`.
+`V1TransactionContext` stores the blockhash and last valid block height returned
+by one `getLatestBlockhash` response. `client.transaction_context_with_resources`
+fetches a context for a specific explicit budget. No SDK resource defaults are
+selected. Optional `heap_size` is bytes, 32–256 KiB in 1-KiB steps.
+
+Transactions and contexts are immutable. `tx.sign(keypairs)` returns a new signed
+transaction and requires every signer; it never changes the original transaction.
+Use `tx.to_wire_bytes()` for canonical version-prefixed wire encoding and
+`tx.message_bytes()` for signing/fee bytes. `from_wire_bytes(wire, context)` rejects
+noncanonical encodings, legacy/v0 data, and context mismatches. An external signer's
+`sign_transaction(bytes)` must return valid signatures over the exact original
+message; changing budgets, instructions, accounts, payer, or blockhash is rejected.
+
+Submission requires active runtime v1 support, verifies all signatures, simulates
+the exact signed bytes with signature verification and no blockhash replacement,
+and sends once with preflight and `maxRetries=0`. It never retries or changes
+endpoints after an uncertain send. Definite request or preflight rejections raise
+`SubmissionRejected` with the signature, RPC code, and reason. `AlreadyProcessed`
+and uncertain sends raise `SubmissionUnknown`, which retains `signature`,
+`last_valid_block_height`, and `reason`; reconcile the signature before another
+attempt. Confirmation retains the original expiry for ordinary and SOL-prepared
+transactions. A changed budget requires a fresh plan and signatures.
+
+The Privy backend only returns a submission hash, so it cannot satisfy these
+checks. Use a v1-capable `ExternalSigner` that returns signed bytes; Privy off-chain
+order signing remains available. See the [v1 ADR](../docs/adr/0004-solana-v1.md).
+
+
 
 ## Quick Start
+
+This example authenticates and subscribes to public market data. For funded order submission, use the [trading example](examples/submit_order.py).
 
 ```python
 import asyncio
@@ -58,25 +137,19 @@ async def main():
     )
 
     # 2. Find a market
-    market = await client.markets().get_by_slug("some-market")
+    markets = await client.markets().get(limit=1)
+    if not markets.markets:
+        raise RuntimeError("No markets returned by the API")
+    market = markets.markets[0]
+    if not market.orderbook_pairs:
+        raise RuntimeError("Market has no orderbooks")
     orderbook = market.orderbook_pairs[0]
 
-    # 3. Build, sign, and submit a limit order (scaling is automatic)
-    #    market, base_mint, quote_mint, and nonce are auto-filled from the orderbook.
-    response = await (
-        client.orders().limit_order()
-        .maker(keypair.pubkey())
-        .bid()
-        .price("0.55")
-        .size("100")
-        .submit(client, orderbook)
-    )
-    print("Order submitted:", response)
-
-    # 4. Stream real-time updates
+    # 3. Subscribe to real-time updates for ten seconds.
     ws = client.ws()
     await ws.connect()
     await ws.subscribe(BookUpdateParams(orderbook_ids=[orderbook.orderbook_id]))
+    await asyncio.sleep(10)
 
     await ws.disconnect()
     await client.close()
@@ -87,6 +160,8 @@ asyncio.run(main())
 
 ## Start Trading
 
+Run these excerpts inside an async function. Use a funded keypair for the selected environment. The [submit example](examples/submit_order.py) confirms the deposit and waits for the API balance before ordering.
+
 ```python
 import json
 from pathlib import Path
@@ -94,7 +169,8 @@ from pathlib import Path
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from lightcone_sdk import LightconeClientBuilder
+from lightcone_sdk import LightconeClientBuilder, V1ResourceConfig
+from lightcone_sdk.auth.client import sign_login_message
 
 with Path("~/.config/solana/id.json").expanduser().open() as f:
     secret = json.load(f)
@@ -103,9 +179,39 @@ keypair = Keypair.from_bytes(bytes(secret))
 client = (
     LightconeClientBuilder()
     .native_signer(keypair)
+    .transaction_resources(V1ResourceConfig(
+        compute_unit_limit=200_000,
+        loaded_accounts_data_size_limit=1_048_576,
+        priority_fee_lamports=0,
+    ))
+    .build()
+)
+nonce = await client.auth().get_nonce()
+message, signature_bs58, pubkey_bytes = sign_login_message(keypair, nonce)
+await client.auth().login_with_message(message, signature_bs58, pubkey_bytes)
+client.set_order_nonce(await client.orders().current_nonce(keypair.pubkey()))
+```
+
+## API Key
+
+Configure an API key for native or server-side submit, cancel, and cancel-all requests. Public reads and authentication need no API key. The key identifies an API Consumer; user authentication, wallet ownership, and signed-order validation still apply.
+
+```python
+import os
+
+from lightcone_sdk import LightconeClientBuilder, LightconeEnv
+
+client = (
+    LightconeClientBuilder()
+    .env(LightconeEnv.STAGING)
+    .api_key(os.environ["LIGHTCONE_API_KEY"])
     .build()
 )
 ```
+
+The SDK attaches `x-lightcone-api-key` only to POST `/api/orders/submit`, `/api/orders/cancel`, and `/api/orders/cancel-all` on the configured API origin. It never forwards the key to another origin or logs it. HTTPS is required except for loopback development. Keep keys out of source control and browsers.
+
+Cloudflare limits these trading attempts by public source IP, not by API key: direct API callers share 500 attempts per 10-second window per IP. A 429 response does not revoke credentials. Public reads and WebSocket messages are outside this trading limit. Revocation reaches all backend process caches within 24 hours; new keys work immediately through a database lookup on cache miss.
 
 ## Environment Configuration
 
@@ -148,14 +254,45 @@ orderbook = next(
 
 ### Step 2: Deposit Collateral
 
+The amount is in the deposit mint's smallest units. Instruction construction alone does not transfer collateral. Submit and confirm the transaction, then wait for the API balance to cover the order. Select the deposit mint backing the orderbook's quote token, as shown in the [submit example](examples/submit_order.py).
+
+Calculate the deposit from the same price and size used by the order. Poll at most 15 times, with two seconds between unsuccessful reads. A timeout or read failure stops before order submission. Check the confirmed deposit before repeating this step.
+
 ```python
-deposit_mint = Pubkey.from_string(market.deposit_assets[0].deposit_asset)
-deposit_ix = (client.positions().deposit()
+import asyncio
+
+from lightcone_sdk.program.types import OrderSide
+from lightcone_sdk.shared.scaling import exact_scaled_integer, scale_price_size
+
+rules = await client.orderbooks().decimals(orderbook.orderbook_id)
+order_price = "0.55"  # Quote tokens per base token.
+order_size = "2"  # Base tokens.
+quote_atoms = scale_price_size(
+    order_price, order_size, int(OrderSide.BID), rules
+).quote_atoms
+deposit_mint = Pubkey.from_string(orderbook.quote.deposit_asset)
+deposit_context = await client.transaction_context()
+deposit_tx = (client.positions().deposit()
     .user(keypair.pubkey())
     .mint(deposit_mint)
-    .amount(1_000_000)
-    .market(market)
-    .build_ix())
+    .amount(quote_atoms)
+    .build_tx(deposit_context))
+await client.sign_and_submit_tx_confirmed_with_slot(deposit_tx)
+
+# Confirmation can precede indexing. Check the available global collateral.
+for attempt in range(15):
+    snapshot = await client.positions().deposit_token_balances()
+    entry = next(
+        (balance for balance in snapshot.balances.values()
+         if balance.mint == str(deposit_mint)),
+        None,
+    )
+    idle_atoms = exact_scaled_integer(entry.idle, rules.quote_decimals) if entry else 0
+    if idle_atoms >= quote_atoms:
+        break
+    if attempt == 14:
+        raise TimeoutError("Global collateral is not indexed yet; order was not submitted")
+    await asyncio.sleep(2)
 ```
 
 ### Step 3: Place an Order
@@ -165,8 +302,8 @@ order = await (
     client.orders().limit_order()
     .maker(keypair.pubkey())
     .bid()
-    .price("0.55")
-    .size("2")
+    .price(order_price)
+    .size(order_size)
     .submit(client, orderbook)
 )
 ```
@@ -176,14 +313,38 @@ order = await (
 ```python
 from lightcone_sdk.ws.subscriptions import BookUpdateParams, UserParams
 
-open_orders = await client.orders().get_user_orders(str(keypair.pubkey()), 50)
+open_orders = await client.orders().get_user_orders(limit=50)
 ws = client.ws()
 await ws.connect()
 await ws.subscribe(BookUpdateParams(orderbook_ids=[orderbook.orderbook_id]))
 await ws.subscribe(UserParams(wallet_address=str(keypair.pubkey())))
 ```
 
-Book streams are snapshot-only: every `book_update` frame carries the full top-20 levels per side (~50ms conflation) and replaces the previous book wholesale (`OrderbookState` handles this; never gate on `seq` — the initial snapshot after every (re)subscribe is `seq: 0`). Subscriptions accept an optional Hyperliquid-style aggregation (`n_sig_figs` 2–5, `mantissa` 1/2/5 only with `n_sig_figs=5`; validate with `BookAggregation.validate`; sent on the wire as camelCase `nSigFigs` with `None` fields omitted). Each `(orderbook, aggregation)` pair is a distinct subscription, so one connection can hold the full-precision and a grouped view of the same book simultaneously — incoming frames are tagged (absent = full precision); key state by `frame.aggregation()`. See [`examples/ws_book_and_trades.py`](examples/ws_book_and_trades.py).
+Book streams are snapshot-only: every accepted `book_update` replaces the full
+top-20 view. `OrderbookState` discards equal/older `seq` values within a
+subscription generation and accepts forward gaps. Call `begin_generation()` on
+reconnect/resubscribe; `resync: true` requires unsubscribe/resubscribe with the
+same aggregation. Each `(orderbook, aggregation)` pair needs its own state.
+Truncation flags are preserved and mean that side is not exhaustive. See
+[`examples/ws_book_and_trades.py`](examples/ws_book_and_trades.py).
+Each decoded bid and ask level includes exact decimal-string `quote_notional`.
+For grouped books, `price` is a display bucket boundary, so quote liquidity
+and totals must use `quote_notional` rather than `price * size`. The
+price-to-base-size `OrderbookState` dictionaries do not retain quote notional;
+read it from the decoded `WsOrderBook` levels.
+Ticker consumers should use the supplied `mid_price`; it is
+engine-authoritative and may use one-sided-book or last-trade fallback.
+REST depth is a coherent projection that may briefly lag a mutation. Use its
+`revision` and `captured_at_ms` metadata, and expect revision gaps.
+
+Order submission accepts strings or exact `Decimal` values and uses Python
+integer arithmetic. `submit()` fetches and caches
+`/api/orderbooks/{id}/decimals` before invoking a signer. Direct
+`sign()`/`finalize()` calls require the returned `OrderbookRules`. Raw amounts,
+explicit salts, and derived prices are checked against the same signed-64-bit
+rules; no tick or size normalization is implicit.
+
+The envelope generates a salt when omitted. The price is quote tokens per base token, and the size is base tokens. Example values must satisfy the selected orderbook's trading rules and available collateral.
 
 ```python
 await ws.subscribe(BookUpdateParams(orderbook_ids=[orderbook.orderbook_id], n_sig_figs=5, mantissa=2))
@@ -207,6 +368,8 @@ await client.orders().cancel(
 
 ### Step 6: Exit a Position
 
+Merge only when the wallet holds a complete set of outcome tokens for this deposit mint. Cancelling an unfilled order does not create that set. Refer to the [cancel example](examples/cancel_order.py) to withdraw unused global collateral.
+
 ```python
 # sign_and_submit builds the tx, signs it using the client's signing strategy, and submits
 tx_hash = await (client.positions().merge()
@@ -217,42 +380,217 @@ tx_hash = await (client.positions().merge()
     .sign_and_submit())
 ```
 
+`market.num_outcomes` is the validated protocol outcome count. Market deposit, merge, and unified withdrawal use it instead of the length of display outcome metadata. The pubkey-only `withdraw_from_position()` builder requires `.num_outcomes(market.num_outcomes)` before building.
+
 ## Authentication
-Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token.
+
+Native client session teardown and WebSocket recovery follow the [native client recovery guide](../docs/auth-session-recovery.md). It explains per-token logout, incomplete teardown, anonymous public continuity, and finite reconnect budgets.
+
+Authentication is required for user-specific endpoints. Native clients using Lightcone sessions fetch `/api/auth/nonce`. Sign the exact message `Sign in to Lightcone\nNonce: {nonce}` with ED25519. Use `sign_login_message` to construct this challenge, then exchange the signed message for a session. Do not sign a timestamp or the nonce alone. Browser clients authenticate through Privy.
+
+Authenticate before calling `client.ws()`, which copies the current session token. The WebSocket sends that token as a cookie during the upgrade. Private user subscriptions require `wallet_address`. Derive the Trading Wallet with `session.user.trading_wallet(session.auth_method)`. After a session change, disconnect and create a new WebSocket client. Refer to the [authenticated streaming example](examples/ws_user_and_market.py).
+
+Privy hosts can also authenticate with passwordless Email, Google, X, or Wallet. After every interactive success, call `await client.auth().register_privy(RegisterPrivyRequest(...))`. The backend validates the exact selector against Privy's verified methods, creates or synchronizes the Account, and changes the Primary Login Identity only for a new Account. `session.user.identity` is that stable primary; `session.user.linked_identities` contains every connected method with primary first.
+
+Use `session.user.wallet_display_name(session.auth_method)` to show a shortened
+label for the wallet the session trades with, regardless of login identity.
+
+`session.user.max_slippage_preference` is an exact decimal string strictly below
+`10`, or `None` until one is stored. Persist a value greater than zero and less
+than 10 using `await client.auth().update_max_slippage_preference(value)`; the
+method returns the canonical exact decimal string. Values at or above 10%
+remain valid order protection but are not remembered through this API.
+
+`session.user.telegram_invite_url` is the single-use Telegram group invite URL that the backend assigned to the Account. It is `None` when the Account holds no invite or when an older backend omits the field. The URL is a secret of the Account. Do not log it and do not send it to analytics.
 
 ### Cookie handling
 
 After login succeeds, the SDK stores the session token internally and attaches it as `Cookie: lightcone-token=…` on every authenticated request. The token lives on the `LightconeHttp` instance and is added per request.
 
-### Server-side cookie forwarding (`*_with_auth` variants)
+### Server-side cookie forwarding (`*_with_cookies` variants)
 
-> **Naming note.** The `_with_auth` suffix does **not** mean other methods are unauthed — most SDK methods that talk to authed endpoints (e.g. `positions().positions()`, `metrics().user()`) read auth from the SDK's process-wide token store automatically; that's the typical client-side path. The `*_with_auth(auth_token)` siblings exist for **server-side rendering (SSR) and route-handler callers** where the per-request browser cookie can't propagate to the shared client. Those callers extract the token from the incoming request and pass it explicitly. Same wire contract, different credentials path.
+Ordinary authenticated methods use the client's session. Server route handlers must pass the incoming raw `Cookie` header to the corresponding `*_with_cookies` method.
 
-When the SDK runs on a server (FastAPI, Starlette, etc.) and the *user's* `auth_token` cookie arrives on an incoming HTTP request, the SDK's process-wide token store is the wrong place to route it through — the store is shared across all users of that server process.
+The cookie name is `lightcone-token`. Do not install a user's token on a client shared between requests from different users.
 
-For these cases, authed methods that need per-call forwarding ship a `*_with_auth(auth_token)` sibling that injects the cookie just for that one call. The token is used only for that call and is **not** written back to the shared store, even if the backend rotates the cookie via `Set-Cookie`:
+These methods forward the supplied header for one call. They do not update the shared token store, even if the backend rotates the cookie through `Set-Cookie`:
 
 ```python
-# Inside a server route handler, after extracting the auth_token cookie
-# from the incoming request:
-balances = await client.positions().deposit_token_balances_with_auth(
-    auth_token=auth_token,
+# cookie_header is the incoming raw Cookie header, including lightcone-token=...
+snapshot = await client.positions().deposit_token_balances_with_cookies(
+    None,
+    cookie_header,
 )
+print(f"snapshot slot {snapshot.context_slot}: {len(snapshot.balances)} balances")
 
-positions = await client.positions().positions_with_auth(
-    auth_token=auth_token,
+positions = await client.positions().positions_with_cookies(
+    cookie_header=cookie_header,
 )
 ```
 
+### External wallet SOL balances
+
+`deposit_token_balances()` returns a complete external-wallet snapshot. Native
+SOL is the required exact nine-decimal `native_sol_balance` string and remains
+separate from the mint-keyed SPL `balances` mapping. Use
+`WalletDepositBalancesState` to apply REST snapshots and nested
+`wallet_deposit_balances` WebSocket events, and to derive exact native plus
+canonical WSOL without floating-point arithmetic:
+
+The reducer methods accept an optional `minimum_snapshot_slot`; only a complete
+REST or stream snapshot below that floor is ignored without mutation. Equal-slot
+snapshots and all individual balance/status events keep their existing behavior. Without
+a floor, the nested `wallet_deposit_balance_snapshot` replaces all stored SPL and
+native state even after a higher individual balance slot. `wallet_deposit_balance_update`
+replaces one absolute SPL balance and removes explicit zero, while
+`wallet_native_sol_balance_update` replaces the absolute native value rather
+than applying a delta. Pre-baseline updates, wrong-wallet updates, and
+`wallet_deposit_balance_status` do not mutate state. `context_slot` records the
+latest accepted balance observation rather than enforcing global monotonicity.
+Matching SPL updates with invalid or negative idle balances return `REJECTED`
+without changing balances or the context slot.
+
+```python
+import asyncio
+
+from lightcone_sdk import WalletDepositBalancesState, WsEventType
+from lightcone_sdk.ws.subscriptions import WalletDepositBalancesParams
+
+snapshot = await client.positions().deposit_token_balances()
+state = WalletDepositBalancesState()
+state.apply_rest_snapshot(wallet_address, snapshot)
+print(state.combined_sol_balance())
+
+ws = client.ws()
+params = WalletDepositBalancesParams(wallet_address=wallet_address)
+updated = asyncio.Event()
+
+def apply_wallet_event(event):
+    if (
+        event.type is WsEventType.MESSAGE
+        and event.message is not None
+        and event.message.type == "wallet_deposit_balances"
+    ):
+        state.apply_event(event.message.data)
+        updated.set()
+
+remove_listener = ws.on(apply_wallet_event)
+try:
+    await ws.connect()
+    await ws.subscribe(params)
+    await asyncio.wait_for(updated.wait(), timeout=10)
+finally:
+    remove_listener()
+    await ws.disconnect()
+```
+
+`plan_sol_split`, `plan_sol_merge`, `plan_sol_redeem`, and
+`plan_native_sol_withdrawal` return unsigned ordinary-action plans with live
+fee/rent costs, the action-specific reserve and spendable balance, and separate
+expected native and canonical WSOL deltas. Each planner requires complete
+matching-wallet state and fails closed when an account check, estimate, or native
+reserve is unavailable. Unsponsored ordinary actions reserve the greater of live
+costs and the applicable 0.001 SOL or 0.0035 SOL floor. Sponsored planning is
+rejected until a concrete sponsor owns transaction fees and account rent.
+
+An occupied canonical address is accepted only when it decodes as the wallet's
+initialized, unfrozen Tokenkeg native-mint account. The public
+`canonical_wsol_account_exists` boolean remains available; use
+`canonical_wsol_account_info` when exact live facts are required. Its
+`CanonicalWsolAccountInfo` reports the full account balance, decoded token
+amount, and decoded native-account rent reserve as integer lamports after
+validating wallet and close authority. The full account balance can exceed token
+amount plus reserve when native lamports were donated without `SyncNative`, the
+Token Program instruction that recalculates the WSOL token amount from account
+lamports.
+
+Ordinary split plans consume canonical WSOL first and wrap only a shortfall in
+the same transaction. Merge and redeem retain proceeds in the persistent
+canonical account. Native withdrawal transfers directly when possible;
+otherwise it moves only the shortfall through a bounded seeded temporary
+Tokenkeg account and closes that temporary account before sending the exact
+native amount to the recipient. No ordinary planner closes the canonical
+account.
+
+Native-keypair clients have two explicit self-custody conversion planners.
+`plan_wrap_sol(amount_lamports, state)` wraps one positive exact amount by
+creating the canonical ATA when missing, transferring native lamports, and
+running `SyncNative`; normal reserve floors apply, and its delta includes only
+the amount, live fee, and any new-account rent. For an existing account, planning
+requires full account lamports to equal decoded token amount plus native reserve.
+Unsynchronized donated lamports are rejected before transaction construction or
+fee estimation because `SyncNative` would otherwise add them to the token amount
+and make the exact delta false.
+`plan_unwrap_wsol_all(state)` accepts no amount and closes the complete canonical
+account to and under the same Trading Wallet. Positive authoritative WSOL must
+match the live token amount exactly. Unlike exact wrap, unwrap-all accepts
+unsynchronized excess because close returns it directly without changing the
+token amount. Its `SolActionCosts` fields are always the live fee, zero upfront rent, no
+account creation, and no sponsorship. Availability is the unchanged
+native/canonical balance breakdown with displayed SOL checked in the common
+unsigned 64-bit range, reserve equal to the fee only, and spendable equal to
+displayed minus fee after native SOL proves it can pay that fee. The native delta
+is the complete account balance minus fee; the canonical delta removes the full
+token amount. These explicit conversion planners require native-keypair signing.
+Ordinary SOL planning keeps its separate wallet-identity rules, and v1-capable
+external signers can submit ordinary plans. All Privy transaction submission is
+rejected because its backend cannot expose the final signed bytes for validation.
+
+`SolBalanceAvailability.from_unwrap_all_costs(breakdown, costs)` is the
+conversion-specific fee-only constructor. It accepts the complete factual cost
+tuple and rejects any nonzero upfront rent, canonical-account creation, or
+sponsorship before deriving the exact fee reserve; ordinary availability keeps
+using `from_costs` and its configured reserve floors.
+
+Rebuild every plan immediately before signing, submit with
+`sign_and_submit_prepared_tx_confirmed_with_slot` so the fee-estimated message is
+preserved, hold its balance projection frozen, and refresh a complete snapshot
+covering the confirmed slot before restoring action authority. After unwrap-all,
+that refresh is mandatory before another attempt because the canonical account
+no longer exists. Prepared submission is unavailable for Privy because its final
+signed bytes cannot be verified by the SDK. Atomic execution does not resolve an
+uncertain submission or confirmation error; inspect the signature and
+authoritative balances rather than retrying automatically. See the
+[persistent canonical WSOL ADR](../docs/adr/0001-persistent-canonical-wsol.md).
+
+WebSocket clients are owned independently from `Auth`; logout does not clean them
+up. For each retained client, `clear_authed_subscriptions()` purges User/wallet
+reconnect tracking and queued authenticated messages. It does not stop an
+already-open server stream; send the matching unsubscribe or disconnect for live
+teardown.
+
+The `deposit_token_balances` example is manual-only and runs with
+`LIGHTCONE_ENV=local` or `staging` only when `SDK_API_URL`, `SDK_WS_URL`,
+`SDK_RPC_URL`, and `SDK_PROGRAM_ID` are all unset. It sends 0.001 SOL to the Rust
+SDK wallet configured by `LIGHTCONE_WALLET_PATH` from the distinct sender
+configured by `LIGHTCONE_WALLET_PATH_PYTHON`, confirms with a slot, and refreshes
+a complete snapshot at that slot. Running it moves funds. If it fails after
+submission, inspect authoritative balances before retrying because funds may
+already have moved.
+
+The `wsol_conversion` example runs with `LIGHTCONE_WALLET_PATH_PYTHON`'s native
+Trading Wallet in local aggregate runs and is included when the globally gated
+stateful example workflow is enabled for staging CI; that workflow currently
+disables all stateful CI jobs. Local runs may use a paid RPC while retaining
+built-in API, WebSocket, and program identity; an enabled staging-CI run may
+supply its managed endpoints. Direct staging runs remain override-free. The
+example previews then rebuilds an exact 0.001 SOL wrap, publishes only a complete
+snapshot covering its confirmed slot, warns that unwrap-all closes and returns
+the full canonical account (including rent or extra lamports), rebuilds and
+submits the close without pausing, and publishes only the final covering
+snapshot. It never retries an uncertain transaction automatically.
+
 ## Examples
 All examples are runnable with `python examples/<name>.py`. Examples default to the production environment and read the wallet keypair from `~/.config/solana/id.json`. Set `LIGHTCONE_ENV=local|staging|prod` or `LIGHTCONE_WALLET_PATH=/path/to/keypair.json` to override.
+
+The authenticated markets client provides paginated `favorite_markets(limit=None, cursor=None)`, `add_favorite_market(market_pubkey)`, and `remove_favorite_market(market_pubkey)`, plus `_with_cookies` variants for server-side cookie forwarding. Favorite pages include `next_cursor` and `has_more`; the backend defaults to 100 items and clamps limits to 1000. Add and remove are idempotent set operations, so the SDK may safely replay them after supported credential restoration or transient transport failures. Cookie-forwarding variants retry transient failures with the supplied cookie but never invoke the process-wide credential restorer. [`with_cookies`](examples/with_cookies.py) exercises these methods and restores the original favorite state.
 
 ### Setup & Authentication
 
 | Example | Description |
 |---------|-------------|
 | [`login`](examples/login.py) | Full auth lifecycle: sign message, login, check session, logout |
-| [`with_auth`](examples/with_auth.py) | Per-call auth-token forwarding for SSR / route-handler consumers — logs in, captures the token via `client.auth_token`, clears the SDK's internal store, and exercises every `*_with_auth` variant |
+| [`with_cookies`](examples/with_cookies.py) | Per-call cookie forwarding for server route handlers, including authenticated positions and favorite markets |
 
 ### Market Discovery & Data
 
@@ -263,13 +601,15 @@ All examples are runnable with `python examples/<name>.py`. Examples default to 
 | [`trades`](examples/trades.py) | Recent trade history with cursor-based pagination (per-orderbook and market-wide) |
 | [`price_history`](examples/price_history.py) | Historical price history line data at various resolutions |
 | [`positions`](examples/positions.py) | User positions across all markets and per-market |
+| [`deposit_token_balances`](examples/deposit_token_balances.py) | WebSocket-backed exact SOL balances and slot-confirmed 0.001 SOL native withdrawal without closing canonical WSOL in non-production |
+| [`wsol_conversion`](examples/wsol_conversion.py) | Local-aggregate and eligible staging-CI exact native wrap followed by warned, slot-confirmed canonical WSOL unwrap-all using one native Trading Wallet |
 | [`metrics_all`](examples/metrics_all.py) | Exercise every endpoint on `client.metrics()` - platform, markets, categories, orderbook, leaderboard, history |
 
 ### Placing Orders
 
 | Example | Description |
 |---------|-------------|
-| [`submit_order`](examples/submit_order.py) | Deposit the quote amount into the global pool, then place a limit order via `client.orders().limit_order()` with human-readable price/size, auto-scaling, and fill tracking. Companion `cancel_order` cancels it and withdraws to stay net-neutral |
+| [`submit_order`](examples/submit_order.py) | Deposit collateral, then place an exactly validated limit order using cached trading rules. Companion `cancel_order` cancels it and withdraws to stay net-neutral |
 
 ### Cancelling Orders
 
@@ -282,9 +622,14 @@ All examples are runnable with `python examples/<name>.py`. Examples default to 
 
 | Example | Description |
 |---------|-------------|
-| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.py) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, withdraw from global, and merge back to keep the run net-neutral |
+| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.py) | Deposit to the global pool, move capital into a market, withdraw from global, and merge the complete set |
 | [`read_onchain`](examples/read_onchain.py) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.py) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
+
+Every instruction builder appends the program's event transport trailer (the
+event-authority PDA, then the program account) automatically, and public
+instructions require transaction-level invocation except for the governance CPI allowlist. See the
+[program module README](src/lightcone_sdk/program/README.md#event-transport-trailer).
 
 ### WebSocket Streaming
 
@@ -292,11 +637,12 @@ All examples are runnable with `python examples/<name>.py`. Examples default to 
 |---------|-------------|
 | [`ws_book_and_trades`](examples/ws_book_and_trades.py) | Live orderbook depth with `OrderbookState` state + rolling `TradeHistory` buffer |
 | [`ws_ticker_and_prices`](examples/ws_ticker_and_prices.py) | Best bid/ask ticker + price history line data with `PriceHistoryState` |
-| [`ws_user_and_market`](examples/ws_user_and_market.py) | Authenticated user stream (orders, balances) + market lifecycle events |
+| [`ws_user_and_market`](examples/ws_user_and_market.py) | Read-only authenticated user/market subscriptions plus one reduced Trading Wallet balance snapshot |
 
 ## Error Handling
 
-All SDK operations raise `SdkError` or one of its subclasses:
+Transport, authentication, signing, and transaction operations raise `SdkError`
+or one of its subclasses:
 
 | Variant | When |
 |---------|------|
@@ -308,7 +654,14 @@ All SDK operations raise `SdkError` or one of its subclasses:
 | `MissingMarketContext` | Market context not provided for operation requiring `DepositSource.MARKET` |
 | `SigningError` | Signing operation failures |
 | `UserCancelled` | User cancelled wallet signing prompt |
+| `SubmissionRejected` | RPC rejected the request or preflight before queuing; retains `signature`, `code`, and `reason` |
+| `SubmissionUnknown` | A send acknowledgement failed or was invalid; retains `signature`, `last_valid_block_height`, and `reason` for reconciliation before retrying |
 | `SdkError` | Catch-all for other SDK failures |
+
+Strict wallet-balance REST and nested WebSocket decoders raise `TypeError` for
+malformed payloads. Exact state arithmetic can raise `ScalingError` or `ValueError`.
+`WsClient` logs and drops malformed inbound frames instead of emitting them as a
+normal message or `WsEventType.ERROR`.
 
 ### API Rejections
 
@@ -321,6 +674,7 @@ When the backend rejects a request, the SDK raises `ApiRejected(details)` where 
 | `error_code` | `str \| None` | API-level error code such as `"NOT_FOUND"` |
 | `error_log_id` | `str \| None` | Backend support correlation ID (`LCERR_*`) |
 | `request_id` | `str \| None` | SDK-generated `x-request-id` header for tracing |
+| `existing_method` | `str \| None` | Primary method of the conflicting Account when identity ownership has one deterministic owner |
 
 Known rejection codes include `INSUFFICIENT_BALANCE`, `EXPIRED`, `NONCE_MISMATCH`, `SELF_TRADE`, `MARKET_INACTIVE`, `BELOW_MIN_ORDER_SIZE`, `INVALID_NONCE`, `BROADCAST_FAILURE`, `ORDER_NOT_FOUND`, `NOT_ORDER_MAKER`, `ORDER_ALREADY_FILLED`, `ORDER_ALREADY_CANCELLED`, `DUPLICATE_ORDER`, `POST_ONLY_WOULD_CROSS`, `FOK_NO_FILL`, `IOC_NO_FILL`, `WOULD_CROSS_UNAVAILABLE_LIQUIDITY`, `WOULD_CROSS_BOOK`, `MARKET_NOT_FOUND`, `ORDERBOOK_NOT_FOUND`, `TOKEN_PAIR_MISMATCH`, `INSUFFICIENT_MARKET_FEE_BUFFER`, and `SIGNATURE_EXPIRED`. Unknown codes are preserved verbatim for forward compatibility.
 
@@ -352,10 +706,30 @@ except ApiRejected as err:
 
 ## Retry Strategy
 
-- **GET requests**: `RetryPolicy.IDEMPOTENT` - retries on transport failures and 429/502/503/504 with exponential backoff + jitter.
-- **POST requests** (order submit, cancel, auth): `RetryPolicy.NONE` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
+- **Replay-safe requests**: GET and DELETE helpers default to `RetryPolicy.IDEMPOTENT`, and idempotent set operations such as favorite-market POSTs opt into it explicitly. This policy retries transport failures and 429/502/503/504 with exponential backoff + jitter. The exact `503 PRIVY_VERIFICATION_UNAVAILABLE` rejection returns immediately.
+- **Non-idempotent requests** (order submit, cancel, auth): `RetryPolicy.NONE` - no automatic retry, which prevents duplicate side effects.
 - Customizable per-call with `RetryPolicy.custom(RetryConfig(...))`. If you use `LightconeHttp` directly, pass a `RetryPolicy` per request.
 
-## Trigger Orders
+### Credential restoration (401 recovery)
 
-Trigger orders (stop-limit, take-profit-limit) are under development and not yet available. Internal types exist in the source for internal use only.
+Sessions built on short-lived tokens expire mid-run: the backend starts answering 401 even though the app could mint a fresh token (e.g. by re-running login). Rather than every caller hand-rolling "detect 401 → refresh → retry", the transport accepts a host-supplied async hook:
+
+```python
+async def restore_credentials() -> bool:
+    # e.g. re-run the login flow so the auth cookie is valid again
+    return await refresh_session()
+
+client.set_credential_restorer(restore_credentials)
+```
+
+When a request to the API origin fails with HTTP 401 and a restorer is registered, the transport consults it **at most once per logical request**, with concurrent 401s sharing one restoration (bounded by a 30-second timeout). A successful restoration replays the request once **only if it declared itself retry-safe** (an idempotent/custom retry policy); `RetryPolicy.NONE` requests — mutations like orders and cancels — are never auto-replayed: the restoration still heals the session for the caller's next attempt, but the original 401 propagates. Restoration is skipped for credential-management endpoints (login, logout) and for cookie-override/custom-session requests, redirects are never followed on the API transport, and without a registered restorer 401s propagate unchanged. A timed-out restoration is cancelled outright (asyncio task cancellation), so it can never keep running alongside the next one. The transport also disables aiohttp's ambient cookie jar (`DummyCookieJar`): cookies are managed explicitly, so a response's `Set-Cookie` can never silently ride a later request.
+
+The SDK stays credential-agnostic: what "restore" means belongs to the host. For classifying auth failures in your own code, use `lightcone_sdk.error.is_unauthorized(error)` — it covers both bare 401s and 401s carrying a structured rejection envelope (`ApiRejectedDetails.http_status`).
+
+### Temporary Privy verification failures
+
+Use `is_privy_verification_unavailable(error)` from the error module to identify the manual-retry rejection. `error.details.retry_after_ms` carries the optional delay in milliseconds. See the [SDK recovery contract](../README.md#manual-recovery-from-temporary-authentication-failures).
+
+## Supported order responses
+
+Refer to the [shared order-response contract](../README.md#supported-order-responses). `UserSnapshotOrder.from_dict` decodes a limit order. REST and WebSocket snapshots contain these orders alongside account metadata. Live order events contain `OrderUpdate`. The snapshot converter returns `UserOpenLimitOrders`.

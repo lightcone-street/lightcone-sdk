@@ -29,3 +29,11 @@ let getWithCookies: (
   ~depth: int=?,
   ~aggregation: Orderbook__Model.Aggregation.t=?,
 ) => promise<result<Orderbook__Raw.DepthResponse.t, SdkError.t>>
+
+// Fetch and cache validated admission rules for this exact orderbook.
+let decimals: (
+  Client.t,
+  ~orderbookId: string,
+) => promise<result<Scaling.OrderbookRules.t, SdkError.t>>
+let invalidateDecimals: (Client.t, ~orderbookId: string) => unit
+let clearDecimalsCache: Client.t => unit

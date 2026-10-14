@@ -1,23 +1,10 @@
-// Order envelopes — build + sign an order off-chain into a
-// `Order.Raw.SubmitRequest.t`: align price to tick → scale price/size to raw
-// u64 amounts (Scaling) → pack + keccak256 + ed25519-sign (OrderPayload) →
-// request. A trigger order is the same signed payload with the trigger fields
-// (`triggerPrice` / `triggerType`) added to the request.
-
-let randomSalt: unit => bigint = %raw(`() => BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER))`)
-
-let scalingErrorToMessage = (error: Scaling.Error.t): string =>
-  switch error {
-  | NonPositivePrice(value) => `price must be positive, got ${value}`
-  | NonPositiveSize(value) => `size must be positive, got ${value}`
-  | Overflow(context) => `overflow: ${context}`
-  | ZeroAmount => "computed amount is zero"
-  }
-
-// Build a signed limit order. `decimals` + the mints/market come from the
-// orderbook pair (the caller extracts them). `side` is 0 = Bid, 1 = Ask. `nonce`
-// defaults to 0; `salt` is random when omitted.
-let buildLimitOrder = async (
+// Offline order construction validates exact server rules before requesting a
+// signature. Client submission fetches those rules for the selected orderbook.
+let randomSalt: unit => bigint = %raw(`() => {
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  return new DataView(bytes.buffer).getBigUint64(0, true) & 0x7fffffffffffffffn;
+}`)
+let signedRequest = async (
   ~maker: SolanaKit.address,
   ~market: SolanaKit.address,
   ~baseMint: SolanaKit.address,
@@ -25,230 +12,35 @@ let buildLimitOrder = async (
   ~side: int,
   ~price: string,
   ~size: string,
-  ~decimals: Scaling.OrderbookDecimals.t,
+  ~rules: Scaling.OrderbookRules.t,
   ~orderbookId: string,
-  ~keypair: SolanaKit.cryptoKeyPair,
-  ~nonce: bigint=0n,
-  ~salt: option<bigint>=?,
-  ~expiration: bigint=0n,
-  ~timeInForce: option<Shared.TimeInForce.t>=?,
-  ~depositSource: option<Shared.DepositSource.t>=?,
-): result<Order.Raw.SubmitRequest.t, SdkError.t> => {
-  let alignedPrice = Scaling.alignPriceToTick(price, decimals)
-  switch Scaling.scalePriceSize(~price=alignedPrice, ~size, ~side, ~decimals) {
-  | Error(scalingError) => Error(Validation(scalingErrorToMessage(scalingError)))
-  | Ok({amountIn, amountOut}) =>
-    let resolvedSalt = switch salt {
-    | Some(value) => value
-    | None => randomSalt()
-    }
-    let order: OrderPayload.t = {
-      nonce,
-      salt: resolvedSalt,
-      maker,
-      market,
-      baseMint,
-      quoteMint,
-      side,
-      amountIn,
-      amountOut,
-      expiration,
-    }
-    let signature = await OrderPayload.sign(order, keypair)
-    Ok({
-      maker: SolanaKit.addressToString(maker),
-      nonce,
-      salt: resolvedSalt,
-      marketPubkey: SolanaKit.addressToString(market),
-      baseToken: SolanaKit.addressToString(baseMint),
-      quoteToken: SolanaKit.addressToString(quoteMint),
-      side,
-      amountIn,
-      amountOut,
-      expiration,
-      signatureHex: OrderPayload.signatureHex(signature),
-      orderbookId,
-      timeInForce: ?timeInForce,
-      depositSource: ?depositSource,
-    })
-  }
-}
-
-// Build a signed trigger (take-profit / stop-loss) order: the limit-order sign
-// flow plus the required trigger price + type on the request.
-let buildTriggerOrder = async (
-  ~maker: SolanaKit.address,
-  ~market: SolanaKit.address,
-  ~baseMint: SolanaKit.address,
-  ~quoteMint: SolanaKit.address,
-  ~side: int,
-  ~price: string,
-  ~size: string,
-  ~decimals: Scaling.OrderbookDecimals.t,
-  ~orderbookId: string,
-  ~keypair: SolanaKit.cryptoKeyPair,
-  ~triggerPrice: float,
-  ~triggerType: Shared.TriggerType.t,
-  ~nonce: bigint=0n,
-  ~salt: option<bigint>=?,
-  ~expiration: bigint=0n,
-  ~timeInForce: option<Shared.TimeInForce.t>=?,
-  ~depositSource: option<Shared.DepositSource.t>=?,
-): result<Order.Raw.SubmitRequest.t, SdkError.t> =>
-  switch await buildLimitOrder(
-    ~maker,
-    ~market,
-    ~baseMint,
-    ~quoteMint,
-    ~side,
-    ~price,
-    ~size,
-    ~decimals,
-    ~orderbookId,
-    ~keypair,
-    ~nonce,
-    ~salt?,
-    ~expiration,
-    ~timeInForce?,
-    ~depositSource?,
-  ) {
-  | Ok(request) => Ok({...request, triggerPrice, triggerType})
-  | Error(error) => Error(error)
-  }
-
-// Build + sign + submit in one step.
-let submitLimitOrder = async (
-  client: Client.t,
-  ~maker,
-  ~market,
-  ~baseMint,
-  ~quoteMint,
-  ~side,
-  ~price,
-  ~size,
-  ~decimals,
-  ~orderbookId,
-  ~keypair,
-  ~nonce: bigint=0n,
-  ~salt: option<bigint>=?,
-  ~expiration: bigint=0n,
-  ~timeInForce: option<Shared.TimeInForce.t>=?,
-  ~depositSource: option<Shared.DepositSource.t>=?,
-): result<Order.Raw.SubmitResponse.t, SdkError.t> =>
-  switch await buildLimitOrder(
-    ~maker,
-    ~market,
-    ~baseMint,
-    ~quoteMint,
-    ~side,
-    ~price,
-    ~size,
-    ~decimals,
-    ~orderbookId,
-    ~keypair,
-    ~nonce,
-    ~salt?,
-    ~expiration,
-    ~timeInForce?,
-    ~depositSource?,
-  ) {
-  | Ok(request) => await Order.Client.submit(client, request)
-  | Error(error) => Error(error)
-  }
-
-// Build + sign + submit a trigger order in one step.
-let submitTriggerOrder = async (
-  client: Client.t,
-  ~maker,
-  ~market,
-  ~baseMint,
-  ~quoteMint,
-  ~side,
-  ~price,
-  ~size,
-  ~decimals,
-  ~orderbookId,
-  ~keypair,
-  ~triggerPrice: float,
-  ~triggerType: Shared.TriggerType.t,
-  ~nonce: bigint=0n,
-  ~salt: option<bigint>=?,
-  ~expiration: bigint=0n,
-  ~timeInForce: option<Shared.TimeInForce.t>=?,
-  ~depositSource: option<Shared.DepositSource.t>=?,
-): result<Order.Raw.TriggerResponse.t, SdkError.t> =>
-  switch await buildTriggerOrder(
-    ~maker,
-    ~market,
-    ~baseMint,
-    ~quoteMint,
-    ~side,
-    ~price,
-    ~size,
-    ~decimals,
-    ~orderbookId,
-    ~keypair,
-    ~triggerPrice,
-    ~triggerType,
-    ~nonce,
-    ~salt?,
-    ~expiration,
-    ~timeInForce?,
-    ~depositSource?,
-  ) {
-  | Ok(request) => await Order.Client.submitTrigger(client, request)
-  | Error(error) => Error(error)
-  }
-
-// ── Strategy-signed submits ────────────────────────────────────────────────────
-// Build + sign with the client's configured strategy (native keypair or external
-// wallet adapter): the strategy's address is the maker, and an omitted nonce
-// falls back to the client's cached order nonce (an explicit one updates the
-// cache). Both strategies sign the same message — the UTF-8 bytes of the
-// payload's hex hash.
-let buildWithClientSigner = async (
-  client: Client.t,
-  ~market: SolanaKit.address,
-  ~baseMint: SolanaKit.address,
-  ~quoteMint: SolanaKit.address,
-  ~side: int,
-  ~price: string,
-  ~size: string,
-  ~decimals: Scaling.OrderbookDecimals.t,
-  ~orderbookId: string,
-  ~nonce: option<bigint>=?,
-  ~salt: option<bigint>=?,
-  ~expiration: bigint=0n,
-  ~timeInForce: option<Shared.TimeInForce.t>=?,
-  ~depositSource: option<Shared.DepositSource.t>=?,
-  ~triggerPrice: option<float>=?,
-  ~triggerType: option<Shared.TriggerType.t>=?,
-): result<Order.Raw.SubmitRequest.t, SdkError.t> =>
-  switch Client.signerAddress(client) {
-  | None =>
-    Error(
-      Signing(
-        "no signing strategy configured; call Client.useNativeSigner or Client.useExternalSigner first",
-      ),
+  ~nonce: bigint,
+  ~salt: bigint,
+  ~expiration: bigint,
+  ~timeInForce: option<Shared.TimeInForce.t>,
+  ~depositSource: option<Shared.DepositSource.t>,
+  ~sign: Uint8Array.t => promise<result<Uint8Array.t, SdkError.t>>,
+): result<Order__Raw.SubmitRequest.t, SdkError.t> => {
+  let admission =
+    Scaling.validateForOrderbook(rules, orderbookId)->Result.flatMap(() =>
+      Scaling.scalePriceSize(~price, ~size, ~side, ~rules)->Result.flatMap(amounts =>
+        Scaling.validateSignedFields(
+          ~amountIn=amounts.amountIn,
+          ~amountOut=amounts.amountOut,
+          ~salt,
+          ~nonce,
+        )->Result.map(() => amounts)
+      )
     )
-  | Some(maker) =>
-    let resolvedNonce = switch nonce {
-    | Some(value) =>
-      Client.setOrderNonce(client, value)
-      value
-    | None => Client.orderNonce(client)->Option.getOr(0n)
-    }
-    let alignedPrice = Scaling.alignPriceToTick(price, decimals)
-    switch Scaling.scalePriceSize(~price=alignedPrice, ~size, ~side, ~decimals) {
-    | Error(scalingError) => Error(Validation(scalingErrorToMessage(scalingError)))
-    | Ok({amountIn, amountOut}) =>
-      let resolvedSalt = switch salt {
-      | Some(value) => value
-      | None => randomSalt()
-      }
+  switch admission {
+  | Error(error) => Error(Scaling(error))
+  | Ok({amountIn, amountOut}) =>
+    if expiration < -9223372036854775808n || expiration > Scaling.i64Max {
+      Error(Validation("expiration must fit signed 64-bit seconds"))
+    } else {
       let order: OrderPayload.t = {
-        nonce: resolvedNonce,
-        salt: resolvedSalt,
+        nonce,
+        salt,
         maker,
         market,
         baseMint,
@@ -258,14 +50,17 @@ let buildWithClientSigner = async (
         amountOut,
         expiration,
       }
-      let message = SolanaKitCodec.encode(SolanaKitCodec.getUtf8Encoder(), OrderPayload.hashHex(order))
-      switch await Client.signMessageBytes(client, message) {
+      let message = SolanaKitCodec.encode(
+        SolanaKitCodec.getUtf8Encoder(),
+        OrderPayload.hashHex(order),
+      )
+      switch await sign(message) {
       | Error(error) => Error(error)
       | Ok(signature) =>
         Ok({
           maker: SolanaKit.addressToString(maker),
-          nonce: resolvedNonce,
-          salt: resolvedSalt,
+          nonce,
+          salt,
           marketPubkey: SolanaKit.addressToString(market),
           baseToken: SolanaKit.addressToString(baseMint),
           quoteToken: SolanaKit.addressToString(quoteMint),
@@ -275,16 +70,103 @@ let buildWithClientSigner = async (
           expiration,
           signatureHex: OrderPayload.signatureHex(signature),
           orderbookId,
-          timeInForce: ?timeInForce,
-          depositSource: ?depositSource,
-          triggerPrice: ?triggerPrice,
-          triggerType: ?triggerType,
+          ?timeInForce,
+          ?depositSource,
         })
       }
     }
   }
+}
 
-// Build + sign + submit a limit order with the client's signing strategy.
+// Native offline signing requires the supplied maker to control the keypair.
+let buildLimitOrder = async (
+  ~maker: SolanaKit.address,
+  ~market: SolanaKit.address,
+  ~baseMint: SolanaKit.address,
+  ~quoteMint: SolanaKit.address,
+  ~side: int,
+  ~price: string,
+  ~size: string,
+  ~rules: Scaling.OrderbookRules.t,
+  ~orderbookId: string,
+  ~keypair: SolanaKit.cryptoKeyPair,
+  ~nonce: bigint=0n,
+  ~salt: option<bigint>=?,
+  ~expiration: bigint=0n,
+  ~timeInForce: option<Shared.TimeInForce.t>=?,
+  ~depositSource: option<Shared.DepositSource.t>=?,
+): result<Order__Raw.SubmitRequest.t, SdkError.t> => {
+  let sign = async message => {
+    switch await SolanaKitKeys.getAddressFromPublicKey(keypair.publicKey) {
+    | address if address != maker => Error(SdkError.Signing("maker does not match signing key"))
+    | _ =>
+      switch await SolanaKitKeys.signBytes(keypair.privateKey, message) {
+      | signature => Ok(signature)
+      | exception _ => Error(SdkError.Signing("order signing failed"))
+      }
+    | exception _ => Error(SdkError.Signing("invalid signing key"))
+    }
+  }
+  await signedRequest(
+    ~maker,
+    ~market,
+    ~baseMint,
+    ~quoteMint,
+    ~side,
+    ~price,
+    ~size,
+    ~rules,
+    ~orderbookId,
+    ~nonce,
+    ~salt=salt->Option.getOr(randomSalt()),
+    ~expiration,
+    ~timeInForce,
+    ~depositSource,
+    ~sign,
+  )
+}
+
+let submitLimitOrder = async (
+  client: Client.t,
+  ~maker: SolanaKit.address,
+  ~market: SolanaKit.address,
+  ~baseMint: SolanaKit.address,
+  ~quoteMint: SolanaKit.address,
+  ~side: int,
+  ~price: string,
+  ~size: string,
+  ~rules: Scaling.OrderbookRules.t,
+  ~orderbookId: string,
+  ~keypair: SolanaKit.cryptoKeyPair,
+  ~nonce: bigint=0n,
+  ~salt: option<bigint>=?,
+  ~expiration: bigint=0n,
+  ~timeInForce: option<Shared.TimeInForce.t>=?,
+  ~depositSource: option<Shared.DepositSource.t>=?,
+): result<Order__Raw.SubmitResponse.t, SdkError.t> =>
+  switch await buildLimitOrder(
+    ~maker,
+    ~market,
+    ~baseMint,
+    ~quoteMint,
+    ~side,
+    ~price,
+    ~size,
+    ~rules,
+    ~orderbookId,
+    ~keypair,
+    ~nonce,
+    ~salt?,
+    ~expiration,
+    ~timeInForce?,
+    ~depositSource?,
+  ) {
+  | Error(error) => Error(error)
+  | Ok(request) => await Order__Client.submit(client, request)
+  }
+
+// Fetch current rules before wallet interaction. Resolve omitted nonces from the
+// client's cache, loading the on-chain nonce when the cache is empty.
 let submitLimitOrderSigned = async (
   client: Client.t,
   ~market: SolanaKit.address,
@@ -293,71 +175,62 @@ let submitLimitOrderSigned = async (
   ~side: int,
   ~price: string,
   ~size: string,
-  ~decimals: Scaling.OrderbookDecimals.t,
   ~orderbookId: string,
   ~nonce: option<bigint>=?,
   ~salt: option<bigint>=?,
   ~expiration: bigint=0n,
   ~timeInForce: option<Shared.TimeInForce.t>=?,
   ~depositSource: option<Shared.DepositSource.t>=?,
-): result<Order.Raw.SubmitResponse.t, SdkError.t> =>
-  switch await buildWithClientSigner(
-    client,
-    ~market,
-    ~baseMint,
-    ~quoteMint,
-    ~side,
-    ~price,
-    ~size,
-    ~decimals,
-    ~orderbookId,
-    ~nonce?,
-    ~salt?,
-    ~expiration,
-    ~timeInForce?,
-    ~depositSource?,
-  ) {
-  | Ok(request) => await Order.Client.submit(client, request)
-  | Error(error) => Error(error)
+): result<Order__Raw.SubmitResponse.t, SdkError.t> => {
+  switch Client.signerAddress(client) {
+  | None => Error(Signing("no signing strategy configured"))
+  | Some(maker) =>
+    let nonceResult = switch nonce->Option.orElse(Client.orderNonce(client)) {
+    | Some(value) => Ok(value)
+    | None =>
+      switch await Rpc.getNonce(client, ~user=maker) {
+      | Error(error) => Error(error)
+      | Ok(value) =>
+        switch BigInt.fromFloat(value) {
+        | Some(value) => Ok(value)
+        | None => Error(SdkError.Validation("invalid on-chain nonce"))
+        }
+      }
+    }
+    switch nonceResult {
+    | Error(error) => Error(error)
+    | Ok(nonce) =>
+      switch await Orderbook__Client.decimals(client, ~orderbookId) {
+      | Error(error) => Error(error)
+      | Ok(rules) =>
+        switch await signedRequest(
+          ~maker,
+          ~market,
+          ~baseMint,
+          ~quoteMint,
+          ~side,
+          ~price,
+          ~size,
+          ~rules,
+          ~orderbookId,
+          ~nonce,
+          ~salt=salt->Option.getOr(randomSalt()),
+          ~expiration,
+          ~timeInForce,
+          ~depositSource=depositSource->Option.orElse(Some(Client.depositSource(client))),
+          ~sign=message =>
+            if Client.signerAddress(client) != Some(maker) {
+              Promise.resolve(Error(SdkError.Signing("active wallet changed before order signing")))
+            } else {
+              Client.signMessageBytes(client, message)
+            },
+        ) {
+        | Error(error) => Error(error)
+        | Ok(request) =>
+          Client.setOrderNonce(client, nonce)
+          await Order__Client.submit(client, request)
+        }
+      }
+    }
   }
-
-// Build + sign + submit a trigger order with the client's signing strategy.
-let submitTriggerOrderSigned = async (
-  client: Client.t,
-  ~market: SolanaKit.address,
-  ~baseMint: SolanaKit.address,
-  ~quoteMint: SolanaKit.address,
-  ~side: int,
-  ~price: string,
-  ~size: string,
-  ~decimals: Scaling.OrderbookDecimals.t,
-  ~orderbookId: string,
-  ~triggerPrice: float,
-  ~triggerType: Shared.TriggerType.t,
-  ~nonce: option<bigint>=?,
-  ~salt: option<bigint>=?,
-  ~expiration: bigint=0n,
-  ~timeInForce: option<Shared.TimeInForce.t>=?,
-  ~depositSource: option<Shared.DepositSource.t>=?,
-): result<Order.Raw.TriggerResponse.t, SdkError.t> =>
-  switch await buildWithClientSigner(
-    client,
-    ~market,
-    ~baseMint,
-    ~quoteMint,
-    ~side,
-    ~price,
-    ~size,
-    ~decimals,
-    ~orderbookId,
-    ~nonce?,
-    ~salt?,
-    ~expiration,
-    ~timeInForce?,
-    ~depositSource?,
-    ~triggerPrice,
-    ~triggerType,
-  ) {
-  | Ok(request) => await Order.Client.submitTrigger(client, request)
-  | Error(error) => Error(error)
-  }
+}

@@ -11,7 +11,7 @@ let main = async () => {
   | Ok(session) =>
     let wallet = switch session.user.identity {
     | Wallet({address}) => address
-    | Google({privy}) | X({privy}) => privy.wallet.address
+    | Email({privy}) | Google({privy}) | X({privy}) => privy.wallet.address
     }
     switch await Market.Client.get(client, ~limit=1) {
     | Error(error) => Console.error(SdkError.toMessage(error))

@@ -24,12 +24,16 @@ let main = async () => {
 
       let connection = Ws.connect(
         ~url=client.wsUrl,
-        ~onConnected=() => Console.log(`connected — subscribing to ${orderbookId}`),
+        ~onConnected=() => {
+          Orderbook.State.beginGeneration(book)
+          Console.log(`connected — subscribing to ${orderbookId}`)
+        },
         ~onError=error => Console.error(SdkError.toMessage(error)),
         ~onMessage=msg =>
           switch msg.kind {
           | BookUpdate(frame) =>
             switch Orderbook.State.apply(book, frame) {
+            | DiscardedStale | SubscriptionMismatch => ()
             | Applied =>
               hits := hits.contents + 1
               Console.log(
@@ -41,6 +45,7 @@ let main = async () => {
               )
             | RefreshRequired(ServerResync) =>
               // Book fell out of sync — re-subscribe to pull a fresh seq-0 snapshot.
+              Orderbook.State.beginGeneration(book)
               connectionRef.contents->Option.forEach(conn => {
                 Ws.unsubscribe(
                   conn,
@@ -62,7 +67,9 @@ let main = async () => {
                 ~resolution=snap.resolution,
                 ~candles=snap.prices,
               )
-              Console.log(`price-history snapshot: ${Int.toString(Array.length(snap.prices))} candles`)
+              Console.log(
+                `price-history snapshot: ${Int.toString(Array.length(snap.prices))} candles`,
+              )
             | Update(upd) =>
               PriceHistory.State.applyUpdate(
                 history,
@@ -95,7 +102,8 @@ let main = async () => {
       Ws.disconnect(connection)
 
       switch PriceHistory.State.get(history, ~orderbookId, ~resolution=Hour1) {
-      | Some(series) => Console.log(`final price-history series: ${Int.toString(Array.length(series))} points`)
+      | Some(series) =>
+        Console.log(`final price-history series: ${Int.toString(Array.length(series))} points`)
       | None => ()
       }
       if hits.contents == 0 {

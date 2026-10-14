@@ -96,3 +96,59 @@ module DepositTokenBalance: {
   @genType
   let toTokenBalance: t => Position__Model.TokenBalance.t
 }
+
+module NativeSolBalance: {
+  @genType type t = string
+  let t_decode: JSON.t => result<t, Spice.decodeError>
+  let t_encode: t => JSON.t
+  let t_encodeJson: t => JSON.t
+}
+
+module DepositTokenBalancesSnapshot: {
+  @genType @spice
+  type t = {
+    @spice.key("context_slot") contextSlot: ProtocolInt.U64.t,
+    balances: dict<DepositTokenBalance.t>,
+    @spice.key("native_sol_balance") nativeSolBalance: NativeSolBalance.t,
+  }
+}
+module WalletDepositBalanceStatus: {
+  @genType @spice
+  type t =
+    | @as("reconnecting") @spice.as("reconnecting") Reconnecting
+    | @as("metadata_unavailable") @spice.as("metadata_unavailable") MetadataUnavailable
+}
+module WalletDepositBalancesEvent: {
+  @genType @spice
+  type snapshot = {
+    @spice.key("wallet_address") walletAddress: string,
+    @spice.key("context_slot") contextSlot: ProtocolInt.U64.t,
+    balances: dict<DepositTokenBalance.t>,
+    @spice.key("native_sol_balance") nativeSolBalance: NativeSolBalance.t,
+  }
+  @genType @spice
+  type balanceUpdate = {
+    @spice.key("wallet_address") walletAddress: string,
+    @spice.key("context_slot") contextSlot: ProtocolInt.U64.t,
+    balance: DepositTokenBalance.t,
+  }
+  @genType @spice
+  type nativeUpdate = {
+    @spice.key("wallet_address") walletAddress: string,
+    @spice.key("context_slot") contextSlot: ProtocolInt.U64.t,
+    @spice.key("native_sol_balance") nativeSolBalance: NativeSolBalance.t,
+  }
+  @genType @spice
+  type status = {
+    @spice.key("wallet_address") walletAddress: string,
+    status: WalletDepositBalanceStatus.t,
+    code: string,
+  }
+  @genType
+  type t =
+    | Snapshot(snapshot)
+    | BalanceUpdate(balanceUpdate)
+    | NativeSolBalanceUpdate(nativeUpdate)
+    | Status(status)
+  let t_decode: JSON.t => result<t, Spice.decodeError>
+}

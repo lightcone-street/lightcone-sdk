@@ -1,7 +1,6 @@
 """Unified error types for the Lightcone SDK."""
 
 from enum import Enum
-from typing import Optional
 
 from .shared.api_response import ApiRejectedDetails
 
@@ -10,6 +9,33 @@ class SdkError(Exception):
     """Base exception for all Lightcone SDK errors."""
 
     pass
+
+
+class InsufficientSolForTransactionFees(SdkError):
+    """Report a proven Native SOL shortfall for a fee payer or planner reserve.
+
+    ``available_lamports`` is the confirmed Native SOL Balance in the declared
+    fee payer. ``required_lamports`` is the exact message fee or planner-owned
+    transaction reserve. Both values use Solana's non-negative u64 lamport range.
+    """
+
+    def __init__(self, available_lamports: int, required_lamports: int):
+        for label, value in (
+            ("available_lamports", available_lamports),
+            ("required_lamports", required_lamports),
+        ):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+                or value > 2**64 - 1
+            ):
+                raise ValueError(f"{label} must fit the non-negative u64 lamport range")
+        super().__init__(
+            "Insufficient SOL for transaction fees. Deposit SOL to your wallet and try again."
+        )
+        self.available_lamports = available_lamports
+        self.required_lamports = required_lamports
 
 
 class ApiRejected(SdkError):
@@ -51,6 +77,66 @@ class UserCancelled(SdkError):
         super().__init__("User cancelled signing")
 
 
+class SubmissionUnknown(SdkError):
+    """One send may have reached the cluster; reconcile its signature before retrying."""
+
+    def __init__(self, signature: str, last_valid_block_height: int, reason: str):
+        super().__init__(f"Submission outcome unknown for {signature}: {reason}")
+        self.signature = signature
+        self.last_valid_block_height = last_valid_block_height
+        self.reason = reason
+
+
+class SubmissionRejected(SdkError):
+    """The node rejected this send before queuing it; no automatic retry occurs."""
+
+    def __init__(self, signature: str, code: int, reason: str):
+        super().__init__(f"RPC rejected transaction {signature} ({code}): {reason}")
+        self.signature = signature
+        self.code = code
+        self.reason = reason
+
+
+class TransactionFailed(SdkError):
+    """Raised when a submitted transaction landed on-chain but failed.
+
+    Resubmitting the same transaction would fail again.
+    """
+
+    def __init__(self, signature: str, error: str):
+        super().__init__(f"Transaction {signature} failed on-chain: {error}")
+        self.signature = signature
+        self.error = error
+
+
+class TransactionExpired(SdkError):
+    """Raised when a transaction's blockhash expired before the cluster saw it.
+
+    Reconcile its signature before constructing a replacement transaction.
+    """
+
+    def __init__(self, signature: str):
+        super().__init__(
+            f"Transaction {signature} expired before confirmation — "
+            "reconcile its signature before retrying"
+        )
+        self.signature = signature
+
+
+class ConfirmationTimeout(SdkError):
+    """Raised when a transaction's confirmation outcome could not be determined.
+
+    Check the signature on-chain before resubmitting.
+    """
+
+    def __init__(self, signature: str):
+        super().__init__(
+            f"Timed out confirming transaction {signature} — "
+            "status unknown; check the signature on-chain before resubmitting"
+        )
+        self.signature = signature
+
+
 def _require(d: dict, key: str, type_name: str = ""):
     """Extract a required field from a dict, raising DeserializationError if missing."""
     if key not in d:
@@ -64,7 +150,9 @@ def _require(d: dict, key: str, type_name: str = ""):
 # ---------------------------------------------------------------------------
 
 
-class HttpErrorKind(str, Enum):
+class HttpErrorKind(
+    str, Enum
+):  # noqa: UP042 - preserve the public enum string representation
     """HTTP error variants."""
 
     REQUEST = "Request"
@@ -84,8 +172,8 @@ class HttpError(SdkError):
         self,
         message: str,
         kind: HttpErrorKind = HttpErrorKind.REQUEST,
-        status: Optional[int] = None,
-        retry_after_ms: Optional[int] = None,
+        status: int | None = None,
+        retry_after_ms: int | None = None,
     ):
         super().__init__(message)
         self.kind = kind
@@ -102,7 +190,7 @@ class HttpError(SdkError):
 
     @staticmethod
     def rate_limited(
-        message: str = "Rate limited", retry_after_ms: Optional[int] = None
+        message: str = "Rate limited", retry_after_ms: int | None = None
     ) -> "HttpError":
         return HttpError(
             message, HttpErrorKind.RATE_LIMITED, 429, retry_after_ms=retry_after_ms
@@ -126,6 +214,16 @@ class HttpError(SdkError):
 
     @staticmethod
     def max_retries_exceeded(attempts: int, last_error: str = "unknown") -> "HttpError":
+        """NOT produced by the SDK's HTTP retry loop.
+
+        On retry exhaustion the FINAL attempt's error propagates unchanged —
+        structured rejection details, status classification (is_unauthorized
+        etc.), and request id intact — because flattening it into this
+        wrapper's message string would destroy everything callers switch on
+        (see the retry-exhaustion tests). The factory stays public for
+        consumers that build their own retry loops on the raw primitives and
+        want a conventional exhaustion error.
+        """
         return HttpError(
             f"Max retries exceeded after {attempts} attempts: {last_error}",
             HttpErrorKind.MAX_RETRIES_EXCEEDED,
@@ -144,7 +242,9 @@ class HttpError(SdkError):
 # ---------------------------------------------------------------------------
 
 
-class WsErrorKind(str, Enum):
+class WsErrorKind(
+    str, Enum
+):  # noqa: UP042 - preserve the public enum string representation
     """WebSocket error variants."""
 
     NOT_CONNECTED = "NotConnected"
@@ -162,7 +262,7 @@ class WsError(SdkError):
         self,
         message: str,
         kind: WsErrorKind = WsErrorKind.CONNECTION_FAILED,
-        code: Optional[int] = None,
+        code: int | None = None,
     ):
         super().__init__(message)
         self.kind = kind
@@ -189,7 +289,7 @@ class WsError(SdkError):
         return WsError(message, WsErrorKind.PROTOCOL_ERROR)
 
     @staticmethod
-    def closed(code: Optional[int] = None, reason: str = "") -> "WsError":
+    def closed(code: int | None = None, reason: str = "") -> "WsError":
         msg = f"Connection closed: {reason}" if reason else "Connection closed"
         return WsError(msg, WsErrorKind.CLOSED, code)
 
@@ -199,7 +299,9 @@ class WsError(SdkError):
 # ---------------------------------------------------------------------------
 
 
-class AuthErrorKind(str, Enum):
+class AuthErrorKind(
+    str, Enum
+):  # noqa: UP042 - preserve the public enum string representation
     """Authentication error variants."""
 
     NOT_AUTHENTICATED = "NotAuthenticated"
@@ -238,13 +340,43 @@ class AuthError(SdkError):
         return AuthError("Token expired", AuthErrorKind.TOKEN_EXPIRED)
 
 
+def is_unauthorized(error: BaseException) -> bool:
+    """True when the backend rejected a request as unauthenticated (HTTP 401).
+
+    Covers both a bare 401 (``HttpError`` with kind ``UNAUTHORIZED``) and a
+    401 that carried a structured rejection envelope (``ApiRejected`` with an
+    ``http_status`` of 401). Lets callers decide whether refreshing
+    credentials and retrying makes sense without matching on backend error
+    strings.
+    """
+    if isinstance(error, HttpError):
+        return error.kind == HttpErrorKind.UNAUTHORIZED
+    if isinstance(error, ApiRejected):
+        return error.details.http_status == 401
+    return False
+
+
+def is_privy_verification_unavailable(error: object) -> bool:
+    """Identify the exact temporary-authority rejection without matching display text."""
+    return (
+        isinstance(error, ApiRejected)
+        and error.details.is_privy_verification_unavailable()
+    )
+
+
 __all__ = [
+    "is_privy_verification_unavailable",
     "SdkError",
     "ApiRejected",
     "DeserializationError",
     "MissingMarketContext",
     "SigningError",
     "UserCancelled",
+    "SubmissionUnknown",
+    "SubmissionRejected",
+    "TransactionFailed",
+    "TransactionExpired",
+    "ConfirmationTimeout",
     "_require",
     "HttpError",
     "HttpErrorKind",
@@ -252,4 +384,5 @@ __all__ = [
     "WsErrorKind",
     "AuthError",
     "AuthErrorKind",
+    "is_unauthorized",
 ]

@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from solders.instruction import Instruction
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
-from solders.transaction import Transaction
 
-from ...error import SigningError, _require
+from ...error import DeserializationError, SigningError, _require
 from ...program.accounts import deserialize_order_status, deserialize_user_nonce
-from ...program.envelope import LimitOrderEnvelope, TriggerOrderEnvelope
+from ...program.envelope import LimitOrderEnvelope
 from ...program.errors import ArithmeticOverflowError
 from ...program.instructions import (
     build_cancel_order_instruction,
@@ -28,30 +27,33 @@ from ...program.orders import (
     sign_order,
 )
 from ...program.pda import get_order_status_pda, get_user_nonce_pda
+from ...program.transaction import V1Transaction, V1TransactionContext
 from ...program.types import (
     AskOrderParams,
     BidOrderParams,
     CloseOrderStatusParams,
+    OrderSide,
     OrderStatus,
     SignedOrder,
 )
 from ...rpc import require_connection
+from ...shared.scaling import (
+    OrderbookRules,
+    validate_raw_amounts,
+    validate_signed_fields,
+)
 from ...shared.types import (
     SubmitOrderRequest,
-    SubmitTriggerOrderRequest,
 )
 from . import (
     CancelAllBody,
     CancelAllSuccess,
     CancelBody,
     CancelSuccess,
-    CancelTriggerBody,
-    CancelTriggerSuccess,
     SubmitOrderResponse,
-    TriggerOrderResponse,
+    UserMarketBalance,
     UserOrderFillsResponse,
     UserOrdersResponse,
-    UserMarketBalance,
     UserSnapshotOrder,
 )
 from .convert import submit_response_from_dict
@@ -63,7 +65,7 @@ if TYPE_CHECKING:
 class Orders:
     """Order operations sub-client."""
 
-    def __init__(self, client: "LightconeClient"):
+    def __init__(self, client: LightconeClient):
         self._client = client
 
     # ── PDA helpers ──────────────────────────────────────────────────────
@@ -89,24 +91,26 @@ class Orders:
         return create_ask_order(params)
 
     def create_signed_bid_order(
-        self, params: BidOrderParams, keypair: Keypair
+        self, params: BidOrderParams, keypair: Keypair, rules: OrderbookRules
     ) -> SignedOrder:
         """Create and sign a bid order."""
-        return create_signed_bid_order(params, keypair)
+        return create_signed_bid_order(params, keypair, rules)
 
     def create_signed_ask_order(
-        self, params: AskOrderParams, keypair: Keypair
+        self, params: AskOrderParams, keypair: Keypair, rules: OrderbookRules
     ) -> SignedOrder:
         """Create and sign an ask order."""
-        return create_signed_ask_order(params, keypair)
+        return create_signed_ask_order(params, keypair, rules)
 
     def hash_order(self, order: SignedOrder) -> bytes:
         """Compute the keccak256 hash of an order."""
         return hash_order(order)
 
-    def sign_order(self, order: SignedOrder, keypair: Keypair) -> bytes:
+    def sign_order(
+        self, order: SignedOrder, keypair: Keypair, rules: OrderbookRules
+    ) -> bytes:
         """Sign an order with a keypair."""
-        return sign_order(order, keypair)
+        return sign_order(order, keypair, rules)
 
     def generate_cancel_all_salt(self) -> str:
         """Generate a random salt for cancel-all replay protection."""
@@ -122,18 +126,11 @@ class Orders:
         """
         return LimitOrderEnvelope().deposit_source(self._client.deposit_source)
 
-    def trigger_order(self) -> TriggerOrderEnvelope:
-        """Create a TriggerOrderEnvelope pre-seeded with the client's deposit source.
-
-        Users can still override the deposit source on the returned envelope
-        by calling ``.deposit_source()`` before signing.
-        """
-        return TriggerOrderEnvelope().deposit_source(self._client.deposit_source)
-
     # ── HTTP methods ─────────────────────────────────────────────────────
 
     async def submit(self, request: SubmitOrderRequest) -> SubmitOrderResponse:
         """Submit a limit order."""
+        await self._preflight_submit(request)
         data = await self._client._http.post("/api/orders/submit", request.to_dict())
         return submit_response_from_dict(data)
 
@@ -156,27 +153,22 @@ class Orders:
             message=data.get("message", ""),
         )
 
-    async def submit_trigger(
-        self, request: SubmitTriggerOrderRequest
-    ) -> TriggerOrderResponse:
-        """Submit a trigger order."""
-        data = await self._client._http.post("/api/orders/submit", request.to_dict())
-        return TriggerOrderResponse(
-            trigger_order_id=data.get("trigger_order_id", ""),
-            order_hash=data.get("order_hash", ""),
-        )
-
-    async def cancel_trigger(self, body: CancelTriggerBody) -> CancelTriggerSuccess:
-        """Cancel a trigger order."""
-        data = await self._client._http.post("/api/orders/cancel", body.to_dict())
-        return CancelTriggerSuccess(
-            trigger_order_id=data.get("trigger_order_id", body.trigger_order_id),
+    async def _preflight_submit(self, request: SubmitOrderRequest) -> None:
+        """Check exact signed amounts against current orderbook rules before submission."""
+        rules = await self._client.orderbooks().decimals(request.orderbook_id)
+        try:
+            side = OrderSide(request.side)
+        except ValueError as exc:
+            raise ValueError("side must be BID or ASK") from exc
+        validate_raw_amounts(request.amount_in, request.amount_out, int(side), rules)
+        validate_signed_fields(
+            request.amount_in, request.amount_out, request.salt, request.nonce
         )
 
     async def get_user_orders(
         self,
-        limit: Optional[int] = None,
-        cursor: Optional[str] = None,
+        limit: int | None = None,
+        cursor: str | None = None,
     ) -> UserOrdersResponse:
         """Get the authenticated user's open orders with pagination.
 
@@ -194,8 +186,8 @@ class Orders:
 
     async def get_user_orders_with_cookies(
         self,
-        limit: Optional[int],
-        cursor: Optional[str],
+        limit: int | None,
+        cursor: str | None,
         cookie_header: str,
     ) -> UserOrdersResponse:
         """Same as :meth:`get_user_orders`, with an explicit per-call ``cookie_header``.
@@ -217,9 +209,9 @@ class Orders:
 
     async def get_user_order_fills(
         self,
-        market_pubkey: Optional[str] = None,
-        limit: Optional[int] = None,
-        cursor: Optional[str] = None,
+        market_pubkey: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
     ) -> UserOrderFillsResponse:
         """Fetch the authenticated user's filled orders with nested fill events.
 
@@ -234,14 +226,16 @@ class Orders:
             params["limit"] = str(limit)
         if cursor is not None:
             params["cursor"] = cursor
-        data = await self._client._http.get("/api/users/order-fills", params=params or None)
+        data = await self._client._http.get(
+            "/api/users/order-fills", params=params or None
+        )
         return UserOrderFillsResponse.from_dict(data)
 
     async def get_user_order_fills_with_cookies(
         self,
-        market_pubkey: Optional[str],
-        limit: Optional[int],
-        cursor: Optional[str],
+        market_pubkey: str | None,
+        limit: int | None,
+        cursor: str | None,
         cookie_header: str,
     ) -> UserOrderFillsResponse:
         """Same as :meth:`get_user_order_fills`, with an explicit per-call ``cookie_header``.
@@ -266,9 +260,9 @@ class Orders:
     async def get_user_order_fills_by_wallet(
         self,
         wallet_address: str,
-        market_pubkey: Optional[str] = None,
-        limit: Optional[int] = None,
-        cursor: Optional[str] = None,
+        market_pubkey: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
     ) -> UserOrderFillsResponse:
         """Public variant of :meth:`get_user_order_fills`.
 
@@ -337,7 +331,7 @@ class Orders:
         user_pubkey: str,
         timestamp: int,
         salt: str,
-        orderbook_id: Optional[str] = None,
+        orderbook_id: str | None = None,
     ) -> CancelAllSuccess:
         """Cancel all orders using the client's signing strategy."""
         from ...program.orders import cancel_all_message, sign_cancel_all
@@ -392,56 +386,6 @@ class Orders:
 
         raise SigningError(f"Unsupported signing strategy: {strategy.kind}")
 
-    async def cancel_trigger_signed(
-        self,
-        trigger_order_id: str,
-        maker: str,
-    ) -> CancelTriggerSuccess:
-        """Cancel a trigger order using the client's signing strategy."""
-        from ...program.orders import cancel_trigger_order_message
-        from ...shared.signing import SigningStrategyKind, classify_signer_error
-
-        strategy = self._client._require_signing_strategy()
-
-        if strategy.kind == SigningStrategyKind.NATIVE:
-            message = cancel_trigger_order_message(trigger_order_id)
-            from solders.keypair import Keypair as _Keypair
-
-            keypair: _Keypair = strategy.keypair
-            sig = keypair.sign_message(message)
-            body = CancelTriggerBody(
-                trigger_order_id=trigger_order_id,
-                maker=maker,
-                signature=bytes(sig).hex(),
-            )
-            return await self.cancel_trigger(body)
-
-        elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
-            message = cancel_trigger_order_message(trigger_order_id)
-            try:
-                sig_bytes = await strategy.signer.sign_message(message)
-            except Exception as exc:
-                raise classify_signer_error(str(exc)) from exc
-            sig_hex = sig_bytes.hex()
-            body = CancelTriggerBody(
-                trigger_order_id=trigger_order_id,
-                maker=maker,
-                signature=sig_hex,
-            )
-            return await self.cancel_trigger(body)
-
-        elif strategy.kind == SigningStrategyKind.PRIVY:
-            result = await self._client.privy().sign_and_cancel_trigger_order(
-                strategy.wallet_id,
-                trigger_order_id,
-                maker,
-            )
-            return CancelTriggerSuccess(
-                trigger_order_id=result.get("trigger_order_id", trigger_order_id),
-            )
-
-        raise SigningError(f"Unsupported signing strategy: {strategy.kind}")
-
     # ── On-chain instruction builders ────────────────────────────────────
 
     def cancel_order_ix(
@@ -466,28 +410,33 @@ class Orders:
     # ── On-chain transaction builders ────────────────────────────────────
 
     def cancel_order_tx(
-        self, operator: Pubkey, market: Pubkey, order: SignedOrder
-    ) -> Transaction:
+        self,
+        operator: Pubkey,
+        market: Pubkey,
+        order: SignedOrder,
+        context: V1TransactionContext,
+    ) -> V1Transaction:
         """Build CancelOrder transaction."""
         ix = self.cancel_order_ix(operator, market, order)
-        return Transaction.new_with_payer([ix], operator)
+        return V1Transaction.compile([ix], operator, context)
 
-    def increment_nonce_tx(self, user: Pubkey) -> Transaction:
+    def increment_nonce_tx(
+        self, user: Pubkey, context: V1TransactionContext
+    ) -> V1Transaction:
         """Build IncrementNonce transaction."""
         ix = self.increment_nonce_ix(user)
-        return Transaction.new_with_payer([ix], user)
+        return V1Transaction.compile([ix], user, context)
 
     def close_order_status_tx(
-        self,
-        params: CloseOrderStatusParams,
-    ) -> Transaction:
+        self, params: CloseOrderStatusParams, context: V1TransactionContext
+    ) -> V1Transaction:
         """Build CloseOrderStatus transaction."""
         ix = self.close_order_status_ix(params)
-        return Transaction.new_with_payer([ix], params.operator)
+        return V1Transaction.compile([ix], params.operator, context)
 
     # ── On-chain account fetchers (require connection) ───────────────────
 
-    async def get_status(self, order_hash: bytes) -> Optional[OrderStatus]:
+    async def get_status(self, order_hash: bytes) -> OrderStatus | None:
         """Fetch an OrderStatus account (returns None if not found)."""
         conn = require_connection(self._client)
         addr = self.status_pda(order_hash)
@@ -514,11 +463,14 @@ class Orders:
         return nonce
 
 
-
 def _user_orders_response_from_wire(data: dict, wallet: str) -> UserOrdersResponse:
+    """Decode REST limit orders with their account and pagination metadata."""
+    orders = data.get("orders", [])
+    if not isinstance(orders, list):
+        raise DeserializationError("UserOrdersResponse orders must be an array")
     return UserOrdersResponse(
         user_pubkey=data.get("user_pubkey", wallet),
-        orders=[UserSnapshotOrder.from_dict(o) for o in data.get("orders", [])],
+        orders=[UserSnapshotOrder.from_dict(o) for o in orders],
         market_balances=[
             UserMarketBalance.from_dict(b)
             for b in _require(data, "market_balances", "UserOrdersResponse")

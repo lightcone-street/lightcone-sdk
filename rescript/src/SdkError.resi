@@ -30,6 +30,13 @@ module RejectionCode: {
     | TokenPairMismatch
     | InsufficientMarketFeeBuffer
     | SignatureExpired
+    | TradingRulesUnavailable
+    | OrderFieldOutOfRange
+    | PriceNotExactlyRepresentable
+    | PriceOutOfRange
+    | InvalidPriceDecimals
+    | InvalidPriceSignificantFigures
+    | InvalidSizeDecimals
     | Unknown(string)
 
   // Human-readable label (Title Case), e.g. "Insufficient Balance".
@@ -38,6 +45,15 @@ module RejectionCode: {
 
 // Structured rejection details — the payload of the `ApiRejected(…)` variant of `t`
 // below (module and constructor deliberately share the name).
+module LinkedIdentityType: {
+  @genType @spice
+  type t =
+    | @spice.as("email") Email
+    | @spice.as("google") Google
+    | @spice.as("x") X
+    | @spice.as("wallet") Wallet
+}
+
 module ApiRejected: {
   @genType
   type t = {
@@ -46,6 +62,9 @@ module ApiRejected: {
     errorCode?: string,
     errorLogId?: string,
     requestId?: string,
+    httpStatus?: int,
+    retryAfterMs?: float,
+    existingMethod?: LinkedIdentityType.t,
   }
 }
 
@@ -53,7 +72,7 @@ module HttpError: {
   @genType
   type t =
     | ServerError({status: int, body: string})
-    | RateLimited({retryAfterMs: option<int>})
+    | RateLimited({retryAfterMs: option<float>})
     | Unauthorized
     | NotFound(string)
     | BadRequest(string)
@@ -89,11 +108,19 @@ type t =
   | Auth(AuthError.t)
   | Validation(string)
   | Decode(string)
-  | Program(string)
+  | Program(ProgramError.t)
+  | InvalidTransaction(string)
+  | Scaling(Scaling.Error.t)
   | MissingMarketContext(string)
   | Signing(string)
   | UserCancelled
   | ApiRejected(ApiRejected.t)
+  | TransactionFailed({signature: string, error: string})
+  | TransactionExpired({signature: string})
+  | ConfirmationTimeout({signature: string})
+  | SubmissionUnknown({signature: string, lastValidBlockHeight: bigint, reason: string})
+  | SubmissionRejected({signature: string, code: int, reason: string})
+  | InsufficientSolForTransactionFees({availableLamports: bigint, requiredLamports: bigint})
   | Other(string)
 
 // Human-readable message per error case.
@@ -112,3 +139,6 @@ let throwAsJsError: (string, t) => 'a
 
 // The facade boundary: unwrap a result-promise into a value-promise that rejects.
 let unwrap: promise<result<'a, t>> => promise<'a>
+
+let isUnauthorized: t => bool
+let isPrivyVerificationUnavailable: t => bool

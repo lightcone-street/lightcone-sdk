@@ -97,11 +97,11 @@ let sortByDisplayPriority = (items: array<'a>, ~symbolOf: 'a => string): array<'
 
 // Resolve three icon-url quality variants with cross-fallback. `None` only when
 // all three inputs are absent.
-let resolveIconUrls = (
-  low: option<string>,
-  medium: option<string>,
-  high: option<string>,
-): option<(string, string, string)> =>
+let resolveIconUrls = (low: option<string>, medium: option<string>, high: option<string>): option<(
+  string,
+  string,
+  string,
+)> =>
   switch low->Option.orElse(medium)->Option.orElse(high) {
   | None => None
   | Some(fallback) =>
@@ -116,9 +116,9 @@ let resolveIconUrls = (
 module Outcome = {
   type t = {
     index: float,
-    iconUrlLow: string,
-    iconUrlMedium: string,
-    iconUrlHigh: string,
+    iconUrlLow?: string,
+    iconUrlMedium?: string,
+    iconUrlHigh?: string,
     name: string,
     nameLong?: string,
   }
@@ -233,19 +233,6 @@ module OrderBookPair = {
     active: bool,
   }
 
-  // Scaling decimals derived from the pair's token metadata — the recommended
-  // way to get `Scaling.OrderbookDecimals.t` (no REST call needed).
-  let decimals = (pair: t): Scaling.OrderbookDecimals.t => {
-    let baseDecimals = Float.toInt(pair.base.decimals)
-    let quoteDecimals = Float.toInt(pair.quote.decimals)
-    {
-      baseDecimals,
-      quoteDecimals,
-      priceDecimals: max(6 + quoteDecimals - baseDecimals, 0),
-      tickSize: Math.max(pair.tickSize, 0.0),
-    }
-  }
-
   // The conditional token a denomination refers to on this pair, plus its
   // symbols.
   let denominatorToken = (denominator: Shared.Denominator.t, pair: t): ConditionalToken.t =>
@@ -284,7 +271,8 @@ module Impact = {
   // (pct, sign). Zero / malformed inputs yield (0.0, "").
   let pct = (~depositPrice: string, ~conditionalPrice: string): (float, string) =>
     switch (parseDecimalOpt(depositPrice), parseDecimalOpt(conditionalPrice)) {
-    | (Some(deposit), Some(conditional)) if !Decimal.isZero(deposit) && !Decimal.isZero(conditional) =>
+    | (Some(deposit), Some(conditional))
+      if !Decimal.isZero(deposit) && !Decimal.isZero(conditional) =>
       let value =
         Decimal.div(Decimal.minus(conditional, deposit), deposit)
         ->Decimal.times(Decimal.fromInt(100))
@@ -318,9 +306,9 @@ type t = {
   id: float,
   pubkey: Shared.pubkeyStr,
   name: string,
-  bannerImageUrlLow: string,
-  bannerImageUrlMedium: string,
-  bannerImageUrlHigh: string,
+  bannerImageUrlLow?: string,
+  bannerImageUrlMedium?: string,
+  bannerImageUrlHigh?: string,
   iconUrlLow: string,
   iconUrlMedium: string,
   iconUrlHigh: string,
@@ -332,9 +320,14 @@ type t = {
   activatedAt?: float,
   settledAt?: float,
   resolution?: Resolution.t,
-  description: string,
+  description?: string,
   definition: string,
   category?: string,
+  subcategory?: string,
+  makerFeeBps: int,
+  takerFeeBps: int,
+  resolutionBy?: bigint,
+  numOutcomes: int,
   tags: array<string>,
   depositAssets: array<DepositAsset.t>,
   // Unique base/quote deposit-asset pairs derived from `orderbookPairs`,
@@ -359,7 +352,7 @@ let hasSingleWinningOutcome = (market: t): bool => singleWinningOutcome(market)-
 // Result of fetching multiple markets: valid markets plus any per-market
 // validation errors (invalid markets are skipped, not fatal).
 module MarketsResult = {
-  type nonrec t = {
+  type t = {
     markets: array<t>,
     validationErrors: array<string>,
   }
@@ -373,3 +366,22 @@ module GlobalDepositAssetsResult = {
     validationErrors: array<string>,
   }
 }
+
+module FavoriteMarkets = {
+  @genType @spice
+  type t = {
+    @spice.key("market_pubkeys") marketPubkeys: array<string>,
+    @spice.key("next_cursor") nextCursor?: ProtocolInt.U64.t,
+    @spice.key("has_more") hasMore: bool,
+  }
+}
+module FavoriteMarketUpdate = {
+  @genType @spice type t = {@spice.key("market_pubkey") marketPubkey: string, favorited: bool}
+}
+
+let depositSymbol = (~mint, ~symbol) =>
+  if mint == "So11111111111111111111111111111111111111112" {
+    "SOL"
+  } else {
+    symbol
+  }

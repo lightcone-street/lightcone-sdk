@@ -2,8 +2,8 @@
 
 import * as Buntest from "bun:test";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
-import * as Position__Model from "../src/domain/position/Position__Model.res.mjs";
-import * as Position__State from "../src/domain/position/Position__State.res.mjs";
+import * as Position__Model$LightconeSdk from "../src/domain/position/Position__Model.res.mjs";
+import * as Position__State$LightconeSdk from "../src/domain/position/Position__State.res.mjs";
 
 function outcome(token, idle, onBook) {
   return {
@@ -40,15 +40,15 @@ function delta(orderbookId, idleOpt, onBookOpt) {
 
 Buntest.describe("Position.ConditionalBalanceDelta", () => {
   Buntest.test("total = idle + on-book (Decimal string)", () => {
-    Buntest.expect(Position__Model.ConditionalBalanceDelta.total(delta(undefined, undefined, undefined))).toBe("4");
+    Buntest.expect(Position__Model$LightconeSdk.ConditionalBalanceDelta.total(delta(undefined, undefined, undefined))).toBe("4");
   });
   Buntest.test("isZero: only positive balances count", () => {
-    Buntest.expect(Position__Model.ConditionalBalanceDelta.isZero(delta(undefined, undefined, undefined))).toBe(false);
-    Buntest.expect(Position__Model.ConditionalBalanceDelta.isZero(delta(undefined, "0", "0"))).toBe(true);
-    Buntest.expect(Position__Model.ConditionalBalanceDelta.isZero(delta(undefined, "0", "0.0001"))).toBe(false);
+    Buntest.expect(Position__Model$LightconeSdk.ConditionalBalanceDelta.isZero(delta(undefined, undefined, undefined))).toBe(false);
+    Buntest.expect(Position__Model$LightconeSdk.ConditionalBalanceDelta.isZero(delta(undefined, "0", "0"))).toBe(true);
+    Buntest.expect(Position__Model$LightconeSdk.ConditionalBalanceDelta.isZero(delta(undefined, "0", "0.0001"))).toBe(false);
   });
   Buntest.test("toTokenBalance classifies as conditional token", () => {
-    let balance = Position__Model.ConditionalBalanceDelta.toTokenBalance(delta("ob1", undefined, undefined));
+    let balance = Position__Model$LightconeSdk.ConditionalBalanceDelta.toTokenBalance(delta("ob1", undefined, undefined));
     Buntest.expect(balance.mint).toBe("ct1");
     Buntest.expect(balance.idle).toBe("1.5");
     let match = balance.tokenType;
@@ -59,7 +59,7 @@ Buntest.describe("Position.ConditionalBalanceDelta", () => {
       Buntest.expect(match.marketPubkey).toBe("mkt1");
       Buntest.expect(match.outcomeIndex).toBe(1.0);
     }
-    let match$1 = Position__Model.ConditionalBalanceDelta.toTokenBalance(delta(undefined, undefined, undefined)).tokenType;
+    let match$1 = Position__Model$LightconeSdk.ConditionalBalanceDelta.toTokenBalance(delta(undefined, undefined, undefined)).tokenType;
     if (typeof match$1 !== "object") {
       Buntest.expect("deposit asset").toBe("conditional token");
       return;
@@ -67,7 +67,7 @@ Buntest.describe("Position.ConditionalBalanceDelta", () => {
     Buntest.expect(match$1.orderbookId).toBe("");
   });
   Buntest.test("toUserOutcomeBalance sets balance = total", () => {
-    let balance = Position__Model.ConditionalBalanceDelta.toUserOutcomeBalance(delta(undefined, undefined, undefined));
+    let balance = Position__Model$LightconeSdk.ConditionalBalanceDelta.toUserOutcomeBalance(delta(undefined, undefined, undefined));
     Buntest.expect(balance.balance).toBe("4");
     Buntest.expect(balance.balanceIdle).toBe("1.5");
     Buntest.expect(balance.balanceOnBook).toBe("2.5");
@@ -77,7 +77,7 @@ Buntest.describe("Position.ConditionalBalanceDelta", () => {
 
 Buntest.describe("Position computed display values", () => {
   Buntest.test("computedBase formats size / value / price through Fmt.display", () => {
-    let computed = Position__Model.TokenBalance.computedBase({
+    let computed = Position__Model$LightconeSdk.TokenBalance.computedBase({
       mint: "ct1",
       idle: "2",
       onBook: "1",
@@ -88,7 +88,7 @@ Buntest.describe("Position computed display values", () => {
     Buntest.expect(computed.price).toBe("0.5000");
   });
   Buntest.test("computedQuote formats idle + on-book", () => {
-    Buntest.expect(Position__Model.TokenBalance.computedQuote({
+    Buntest.expect(Position__Model$LightconeSdk.TokenBalance.computedQuote({
       mint: "usdc",
       idle: "1000",
       onBook: "500",
@@ -115,9 +115,9 @@ Buntest.describe("Position.State", () => {
         balanceOnBook: "0"
       }
     ]);
-    let index = Position__State.fromMarketBalance(balance);
+    let index = Position__State$LightconeSdk.fromMarketBalance(balance);
     if (index !== undefined) {
-      let byAsset = Position__State.get(index, "mkt1");
+      let byAsset = Position__State$LightconeSdk.get(index, "mkt1");
       if (byAsset !== undefined) {
         let byToken = byAsset["usdc"];
         if (byToken !== undefined) {
@@ -142,10 +142,10 @@ Buntest.describe("Position.State", () => {
         balanceIdle: "0",
         balanceOnBook: "0"
       }]);
-    Buntest.expect(Stdlib_Option.isNone(Position__State.fromMarketBalance(balance))).toBe(true);
+    Buntest.expect(Stdlib_Option.isNone(Position__State$LightconeSdk.fromMarketBalance(balance))).toBe(true);
   });
   Buntest.test("fromMarketBalances indexes every market; marketPubkeys is sorted", () => {
-    let index = Position__State.fromMarketBalances([
+    let index = Position__State$LightconeSdk.fromMarketBalances([
       marketBalance("zzz", "usdc", [{
           outcomeIndex: 0.0,
           conditionalToken: "ct1",
@@ -168,20 +168,20 @@ Buntest.describe("Position.State", () => {
           balanceOnBook: "0"
         }])
     ]);
-    Buntest.expect(Position__State.marketPubkeys(index)).toEqual([
+    Buntest.expect(Position__State$LightconeSdk.marketPubkeys(index)).toEqual([
       "aaa",
       "zzz"
     ]);
   });
   Buntest.test("extend merges at the market level; per-deposit-asset entries win wholesale", () => {
-    let index = Position__State.fromMarketBalances([marketBalance("mkt1", "usdc", [{
+    let index = Position__State$LightconeSdk.fromMarketBalances([marketBalance("mkt1", "usdc", [{
           outcomeIndex: 0.0,
           conditionalToken: "ct1",
           balance: "0",
           balanceIdle: "1",
           balanceOnBook: "0"
         }])]);
-    let update = Position__State.fromMarketBalances([
+    let update = Position__State$LightconeSdk.fromMarketBalances([
       marketBalance("mkt1", "usdc", [{
           outcomeIndex: 0.0,
           conditionalToken: "ct2",
@@ -197,8 +197,8 @@ Buntest.describe("Position.State", () => {
           balanceOnBook: "0"
         }])
     ]);
-    Position__State.extend(index, update);
-    let byAsset = Position__State.get(index, "mkt1");
+    Position__State$LightconeSdk.extend(index, update);
+    let byAsset = Position__State$LightconeSdk.get(index, "mkt1");
     if (byAsset !== undefined) {
       let byToken = byAsset["usdc"];
       if (byToken !== undefined) {
@@ -213,12 +213,12 @@ Buntest.describe("Position.State", () => {
     Buntest.expect("mkt1").toBe("present");
   });
   Buntest.test("insert and remove operate per market", () => {
-    let index = Position__State.make();
+    let index = Position__State$LightconeSdk.make();
     let entry = {};
-    Position__State.insert(index, "mkt1", entry);
-    Buntest.expect(Stdlib_Option.isSome(Position__State.get(index, "mkt1"))).toBe(true);
-    Position__State.remove(index, "mkt1");
-    Buntest.expect(Stdlib_Option.isNone(Position__State.get(index, "mkt1"))).toBe(true);
+    Position__State$LightconeSdk.insert(index, "mkt1", entry);
+    Buntest.expect(Stdlib_Option.isSome(Position__State$LightconeSdk.get(index, "mkt1"))).toBe(true);
+    Position__State$LightconeSdk.remove(index, "mkt1");
+    Buntest.expect(Stdlib_Option.isNone(Position__State$LightconeSdk.get(index, "mkt1"))).toBe(true);
   });
 });
 

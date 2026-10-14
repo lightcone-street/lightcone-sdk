@@ -51,13 +51,6 @@ module TimeInForce: {
     | @as("ALO") @spice.as("ALO") Alo
 }
 
-module TriggerType: {
-  @genType @spice
-  type t =
-    | @as("TP") @spice.as("TP") TakeProfit
-    | @as("SL") @spice.as("SL") StopLoss
-}
-
 // The engine's real-time order state; wire absence defaults to Open.
 module OrderStatus: {
   @genType @spice
@@ -69,40 +62,12 @@ module OrderStatus: {
     | @as("PENDING") @spice.as("PENDING") Pending
 }
 
-module TriggerStatus: {
-  @genType @spice
-  type t =
-    | @as("created") @spice.as("created") Created
-    | @as("triggered") @spice.as("triggered") Triggered
-    | @as("failed") @spice.as("failed") Failed
-    | @as("expired") @spice.as("expired") Expired
-    | @as("invalidated") @spice.as("invalidated") Invalidated
-}
-
 module OrderUpdateType: {
   @genType @spice
   type t =
     | @as("PLACEMENT") @spice.as("PLACEMENT") Placement
     | @as("UPDATE") @spice.as("UPDATE") Update
     | @as("CANCELLATION") @spice.as("CANCELLATION") Cancellation
-}
-
-module TriggerUpdateType: {
-  @genType @spice
-  type t =
-    | @as("CREATED") @spice.as("CREATED") Created
-    | @as("TRIGGERED") @spice.as("TRIGGERED") Triggered
-    | @as("FAILED") @spice.as("FAILED") Failed
-    | @as("EXPIRED") @spice.as("EXPIRED") Expired
-    | @as("INVALIDATED") @spice.as("INVALIDATED") Invalidated
-}
-
-module TriggerResultStatus: {
-  @genType @spice
-  type t =
-    | @as("filled") @spice.as("filled") Filled
-    | @as("accepted") @spice.as("accepted") Accepted
-    | @as("rejected") @spice.as("rejected") Rejected
 }
 
 module DepositSource: {

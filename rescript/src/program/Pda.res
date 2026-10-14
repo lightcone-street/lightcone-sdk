@@ -8,8 +8,10 @@ let addressBytes = address => SolanaKitCodec.encode(SolanaKitCodec.getAddressEnc
 let u64le = (value: bigint) => SolanaKitCodec.encode(SolanaKitCodec.getU64Encoder(), value)
 let u8byte = (value: int) => SolanaKitCodec.encode(SolanaKitCodec.getU8Encoder(), value)
 
-let derive = (programId: SolanaKit.address, seeds: array<Uint8Array.t>): promise<(SolanaKit.address, int)> =>
-  SolanaKitPda.getProgramDerivedAddress({programAddress: programId, seeds})
+let derive = (programId: SolanaKit.address, seeds: array<Uint8Array.t>): promise<(
+  SolanaKit.address,
+  int,
+)> => SolanaKitPda.getProgramDerivedAddress({programAddress: programId, seeds})
 
 // Lexicographic byte-array comparison (a <= b), used for canonical mint ordering.
 let bytesLte: (Uint8Array.t, Uint8Array.t) => bool = %raw(`function (a, b) {
@@ -18,13 +20,16 @@ let bytesLte: (Uint8Array.t, Uint8Array.t) => bool = %raw(`function (a, b) {
 }`)
 
 // Seeds: ["central_state"]
-let exchange = (programId): promise<(SolanaKit.address, int)> => derive(programId, [seedBytes("central_state")])
+let exchange = (programId): promise<(SolanaKit.address, int)> =>
+  derive(programId, [seedBytes("central_state")])
 
 // Seeds: ["market", market_id u64 LE]
-let market = (programId, ~marketId: bigint) => derive(programId, [seedBytes("market"), u64le(marketId)])
+let market = (programId, ~marketId: bigint) =>
+  derive(programId, [seedBytes("market"), u64le(marketId)])
 
 // Seeds: ["user_nonce", user]
-let userNonce = (programId, ~user) => derive(programId, [seedBytes("user_nonce"), addressBytes(user)])
+let userNonce = (programId, ~user) =>
+  derive(programId, [seedBytes("user_nonce"), addressBytes(user)])
 
 // Seeds: ["position", owner, market]
 let position = (programId, ~owner, ~market) =>
@@ -32,7 +37,10 @@ let position = (programId, ~owner, ~market) =>
 
 // Seeds: ["market_deposit_token_account", deposit_mint, market]
 let vault = (programId, ~depositMint, ~market) =>
-  derive(programId, [seedBytes("market_deposit_token_account"), addressBytes(depositMint), addressBytes(market)])
+  derive(
+    programId,
+    [seedBytes("market_deposit_token_account"), addressBytes(depositMint), addressBytes(market)],
+  )
 
 // Seeds: ["market_mint_authority", market]
 let mintAuthority = (programId, ~market) =>
@@ -42,16 +50,18 @@ let mintAuthority = (programId, ~market) =>
 let conditionalMint = (programId, ~market, ~depositMint, ~outcomeIndex) =>
   derive(
     programId,
-    [seedBytes("conditional_mint"), addressBytes(market), addressBytes(depositMint), u8byte(outcomeIndex)],
+    [
+      seedBytes("conditional_mint"),
+      addressBytes(market),
+      addressBytes(depositMint),
+      u8byte(outcomeIndex),
+    ],
   )
 
 // Every outcome's conditional mint for (market, deposit_mint), in outcome order.
-let allConditionalMints = async (
-  programId,
-  ~market,
-  ~depositMint,
-  ~numOutcomes: int,
-): array<SolanaKit.address> => {
+let allConditionalMints = async (programId, ~market, ~depositMint, ~numOutcomes: int): array<
+  SolanaKit.address,
+> => {
   let mints = []
   for outcomeIndex in 0 to numOutcomes - 1 {
     let (mint, _) = await conditionalMint(programId, ~market, ~depositMint, ~outcomeIndex)
@@ -88,13 +98,11 @@ let orderbook = (programId, ~mintA, ~mintB) => {
 let mplMetadata = (~conditionalMint) =>
   derive(
     Constants.mplTokenMetadataProgram,
-    [seedBytes("metadata"), addressBytes(Constants.mplTokenMetadataProgram), addressBytes(conditionalMint)],
+    [
+      seedBytes("metadata"),
+      addressBytes(Constants.mplTokenMetadataProgram),
+      addressBytes(conditionalMint),
+    ],
   )
 
-// Seeds: [orderbook, slot u64 LE] @ ALT program
-let alt = (~orderbook, ~recentSlot: bigint) =>
-  derive(Constants.altProgram, [addressBytes(orderbook), u64le(recentSlot)])
-
-// Seeds: [position, slot u64 LE] @ ALT program
-let positionAlt = (~position, ~recentSlot: bigint) =>
-  derive(Constants.altProgram, [addressBytes(position), u64le(recentSlot)])
+let eventAuthority = programId => derive(programId, [seedBytes("__event_authority")])

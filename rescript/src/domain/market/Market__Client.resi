@@ -36,3 +36,20 @@ let getDepositMints: (
   Client.t,
   ~marketPubkey: string,
 ) => promise<result<Market__Raw.DepositMintsResponse.t, SdkError.t>>
+
+let favoriteMarkets: (
+  Client.t,
+  ~limit: int=?,
+  ~cursor: bigint=?,
+  ~cookieHeader: string=?,
+) => promise<result<Market__Model.FavoriteMarkets.t, SdkError.t>>
+let addFavoriteMarket: (
+  Client.t,
+  ~marketPubkey: string,
+  ~cookieHeader: string=?,
+) => promise<result<Market__Model.FavoriteMarketUpdate.t, SdkError.t>>
+let removeFavoriteMarket: (
+  Client.t,
+  ~marketPubkey: string,
+  ~cookieHeader: string=?,
+) => promise<result<Market__Model.FavoriteMarketUpdate.t, SdkError.t>>

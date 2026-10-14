@@ -2,27 +2,29 @@
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+import asyncio
+from typing import TYPE_CHECKING
 
 from solders.instruction import Instruction
 from solders.pubkey import Pubkey
-from solders.transaction import Transaction
 
-from .aggregation import BookAggregation
-from .wire import OrderbookDepthResponse
 from ...program.accounts import deserialize_orderbook
 from ...program.errors import AccountNotFoundError
 from ...program.instructions import (
-    build_close_orderbook_alt_instruction,
     build_close_orderbook_instruction,
 )
 from ...program.pda import get_orderbook_pda
+from ...program.transaction import V1Transaction, V1TransactionContext
 from ...program.types import (
-    CloseOrderbookAltParams,
     CloseOrderbookParams,
+)
+from ...program.types import (
     Orderbook as OnchainOrderbook,
 )
 from ...rpc import require_connection
+from ...shared.scaling import OrderbookRules
+from .aggregation import BookAggregation
+from .wire import DecimalsResponse, OrderbookDepthResponse
 
 if TYPE_CHECKING:
     from ...client import LightconeClient
@@ -31,8 +33,10 @@ if TYPE_CHECKING:
 class Orderbooks:
     """Orderbook operations sub-client."""
 
-    def __init__(self, client: "LightconeClient"):
+    def __init__(self, client: LightconeClient):
         self._client = client
+        self._rules_cache: dict[str, OrderbookRules] = {}
+        self._rules_in_flight: dict[str, asyncio.Task[OrderbookRules]] = {}
 
     # ── PDA helpers ──────────────────────────────────────────────────────
 
@@ -43,41 +47,28 @@ class Orderbooks:
 
     # ── On-chain instruction builders ────────────────────────────────────
 
-    def close_orderbook_alt_ix(
-        self,
-        params: CloseOrderbookAltParams,
-    ) -> Instruction:
-        """Build CloseOrderbookAlt instruction."""
-        return build_close_orderbook_alt_instruction(params, self._client.program_id)
-
     def close_orderbook_ix(self, params: CloseOrderbookParams) -> Instruction:
         """Build CloseOrderbook instruction."""
         return build_close_orderbook_instruction(params, self._client.program_id)
 
     # ── On-chain transaction builders ────────────────────────────────────
 
-    def close_orderbook_alt_tx(
-        self,
-        params: CloseOrderbookAltParams,
-    ) -> Transaction:
-        """Build CloseOrderbookAlt transaction."""
-        ix = self.close_orderbook_alt_ix(params)
-        return Transaction.new_with_payer([ix], params.operator)
-
-    def close_orderbook_tx(self, params: CloseOrderbookParams) -> Transaction:
+    def close_orderbook_tx(
+        self, params: CloseOrderbookParams, context: V1TransactionContext
+    ) -> V1Transaction:
         """Build CloseOrderbook transaction."""
         ix = self.close_orderbook_ix(params)
-        return Transaction.new_with_payer([ix], params.operator)
+        return V1Transaction.compile([ix], params.operator, context)
 
     # ── HTTP methods ─────────────────────────────────────────────────────
 
     async def get(
         self,
         orderbook_id: str,
-        depth: Optional[int] = None,
+        depth: int | None = None,
         *,
-        n_sig_figs: Optional[int] = None,
-        mantissa: Optional[int] = None,
+        n_sig_figs: int | None = None,
+        mantissa: int | None = None,
     ) -> OrderbookDepthResponse:
         """Get live orderbook depth, optionally aggregated (Hyperliquid-style).
 
@@ -100,6 +91,38 @@ class Orderbooks:
             f"/api/orderbook/{orderbook_id}", params=params or None
         )
         return OrderbookDepthResponse.from_dict(data)
+
+    async def decimals(self, orderbook_id: str) -> OrderbookRules:
+        """Fetch and cache immutable exact admission rules for an active book."""
+        cached = self._rules_cache.get(orderbook_id)
+        if cached is not None:
+            return cached
+        task = self._rules_in_flight.get(orderbook_id)
+        if task is None:
+
+            async def _fetch() -> OrderbookRules:
+                data = await self._client._http.get(
+                    f"/api/orderbooks/{orderbook_id}/decimals"
+                )
+                rules = DecimalsResponse.from_dict(data).to_rules()
+                rules.validate_for_orderbook(orderbook_id)
+                return rules
+
+            task = asyncio.create_task(_fetch())
+            self._rules_in_flight[orderbook_id] = task
+        try:
+            rules = await task
+            self._rules_cache[orderbook_id] = rules
+            return rules
+        finally:
+            if self._rules_in_flight.get(orderbook_id) is task:
+                self._rules_in_flight.pop(orderbook_id, None)
+
+    def invalidate_decimals(self, orderbook_id: str) -> None:
+        self._rules_cache.pop(orderbook_id, None)
+
+    def clear_decimals_cache(self) -> None:
+        self._rules_cache.clear()
 
     # ── On-chain account fetchers (require connection) ───────────────────
 
