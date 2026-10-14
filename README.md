@@ -11,10 +11,13 @@ These guides describe the SDK APIs in this checkout. The [published documentatio
 | **Rust** | [`lightcone`](rust/) | `cargo add lightcone` |
 | **TypeScript** | [`@lightconexyz/lightcone-sdk`](typescript/) | `npm install @lightconexyz/lightcone-sdk` |
 | **Python** | [`lightcone-sdk`](python/) | `pip install git+https://github.com/lightcone-street/lightcone-sdk.git@prod#subdirectory=python` |
+| **ReScript** | [`@lightconexyz/lightcone-sdk-rescript`](rescript/) | `bun add @lightconexyz/lightcone-sdk-rescript` — authored in ReScript, exported to TypeScript via gentype |
 
 Rust, TypeScript, and Python share the protocol's instruction ABI, business
 semantics, and Solana v1 transaction contract. Transaction builders require
 explicit resources and a blockhash/expiry context; legacy/v0 imports are rejected.
+
+The ReScript SDK is authored in ReScript and also exposes JavaScript and generated TypeScript surfaces.
 
 ## Features
 
@@ -42,13 +45,13 @@ The snapshot converters return `UserOpenLimitOrders`: `convert_snapshot_orders` 
 
 The program builders target the [reviewed program ABI](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src). This is a hard cutover. Orderbooks use the 176-byte layout with both collateral mints and a shared outcome. Matching requires both collateral identities. Preparation uses `InitPositionTokens` without a slot. Retired ALT operations and their SDK parameters are removed.
 
-Matching instructions support up to eleven makers with two-byte participant masks and taker bit 15. This limit does not guarantee that a transaction fits the transport or runtime limits. All three SDKs compile, sign, simulate, and submit Solana v1 transactions with explicit resources and expiry. They reject legacy/v0 imports and changed wallet messages. See the [v1 decision](docs/adr/0004-solana-v1.md) and migration instructions for [Rust](rust/README.md#solana-v1-transactions), [TypeScript](typescript/README.md#solana-v1-transactions), and [Python](python/README.md#solana-v1-transactions). Python now requires 3.11 or newer for its maintained v1 dependencies.
+Matching instructions support up to eleven makers with two-byte participant masks and taker bit 15. This limit does not guarantee that a transaction fits the transport or runtime limits. All four SDKs compile, sign, simulate, and submit Solana v1 transactions with explicit resources and expiry. They reject legacy/v0 imports and changed wallet messages. See the [v1 decision](docs/adr/0004-solana-v1.md) and migration instructions for [Rust](rust/README.md#solana-v1-transactions), [TypeScript](typescript/README.md#solana-v1-transactions), [Python](python/README.md#solana-v1-transactions), and [ReScript](rescript/README.md#prepared-v1-transactions). Python now requires 3.11 or newer for its maintained v1 dependencies.
 
 Program event schema version 2 is independent of outer Solana transaction version 1. Refer to the [authenticated event transport decision](docs/adr/0003-authenticated-event-transport.md).
 
 ## SOL Account Lifecycle
 
-All three SDKs model native SOL and canonical Tokenkeg WSOL separately while
+All four SDKs model native SOL and canonical Tokenkeg WSOL separately while
 presenting their sum as one SOL balance. Split wraps only a shortfall; merge and
 redeem retain proceeds in the persistent canonical account; native withdrawal
 uses native SOL directly or converts only its shortfall through a temporary
@@ -210,6 +213,7 @@ Use the shared example runner script:
 ./scripts/run-examples.sh --sdk rs
 ./scripts/run-examples.sh --sdk ts
 ./scripts/run-examples.sh --sdk py
+./scripts/run-examples.sh --sdk res
 
 # See all options
 ./scripts/run-examples.sh --help
@@ -217,7 +221,7 @@ Use the shared example runner script:
 
 ### Supply Chain Security
 
-All three SDKs enforce a 7-day minimum release age on dependencies to guard against supply chain attacks. Install `cargo-cooldown` so that Rust dependency updates respect the cooldown window:
+All four SDKs enforce a 7-day minimum release age on dependencies to guard against supply chain attacks. Install `cargo-cooldown` so that Rust dependency updates respect the cooldown window:
 
 ```bash
 cargo install --locked cargo-cooldown
@@ -229,6 +233,7 @@ Then use `cargo cooldown` in place of `cargo` when updating dependencies (e.g. `
 |-----|-----------|--------|
 | Rust | [`cargo-cooldown`](https://crates.io/crates/cargo-cooldown) | `cooldown.toml` — `cooldown_minutes = 10080` |
 | TypeScript | npm `min-release-age` | `.npmrc` — `min-release-age=7` |
+| ReScript | Bun `minimumReleaseAge` | `rescript/bunfig.toml` — 604800 seconds |
 | Python | uv `exclude-newer` | `pyproject.toml` — `exclude-newer = "7 days"` |
 
 ## Manual recovery from temporary authentication failures

@@ -7,7 +7,7 @@ file only names SDK-local concepts and ownership.
 ## Ownership
 
 **SDK Contract**:
-The public Rust, Python, and TypeScript declarations, exports, exact units, errors, and wire
+The public Rust, Python, TypeScript, and ReScript declarations, exports, exact units, errors, and wire
 representations maintained in this repository.
 
 **Wire Contract**:
@@ -15,7 +15,7 @@ The backend owns payload meaning. This repository owns compatible decoding, vali
 language-specific representation of those payloads.
 
 **Cross-Language Parity**:
-Equivalent observable behavior across all three SDKs, expressed with each language's naming,
+Equivalent observable behavior across all four SDKs, expressed with each language's naming,
 numeric, and error conventions.
 _Avoid_: Identical APIs
 

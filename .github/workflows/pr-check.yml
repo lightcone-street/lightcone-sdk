@@ -139,9 +139,30 @@ jobs:
         run: uv run --locked pytest
 
   publish:
-    needs: [rust_tests, typescript_tests, python_tests]
-    if: ${{ always() && needs.rust_tests.result == 'success' && needs.typescript_tests.result == 'success' && needs.python_tests.result == 'success' }}
+    needs: [rust_tests, typescript_tests, python_tests, rescript_tests]
+    if: ${{ always() && needs.rust_tests.result == 'success' && needs.typescript_tests.result == 'success' && needs.python_tests.result == 'success' && needs.rescript_tests.result == 'success' }}
     uses: ./.github/workflows/publish.yml
     with:
       mode: dry-run
     secrets: inherit
+
+  rescript_tests:
+    name: ReScript SDK and Consumers
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rescript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - run: bun run test
+      - run: bun run typecheck
+      - run: bun run test:consumers
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:browser

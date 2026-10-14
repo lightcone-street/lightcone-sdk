@@ -16,3 +16,4 @@ target
 temp
 
 node_modules
+**/lib/**

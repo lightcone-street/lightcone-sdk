@@ -15,17 +15,17 @@ page instead of copying public definitions here.
 
 ## Compatibility
 
-- Treat Rust, Python, and TypeScript as language-idiomatic views of one semantic SDK
+- Treat Rust, Python, TypeScript, and ReScript as language-idiomatic views of one semantic SDK
   contract. Keep behavior, exact units, wire fields, error conditions, and exports aligned.
 - Preserve public names, signatures, return shapes, serialization, and feature behavior
   unless the task explicitly authorizes a breaking change.
 - Keep fund-moving values exact. Rust uses integer and `Decimal` boundaries, Python uses
-  integer and exact-decimal boundaries, and TypeScript uses `bigint` and decimal strings.
+  integer and exact-decimal boundaries, and TypeScript and ReScript use `bigint` and decimal strings.
   Document the unit at every public numeric boundary.
 - Keep wire models compatible with the backend payload. Domain models may add validation or
   presentation, but must not silently reinterpret API fields.
 - A contract change in one SDK requires a parity review of the corresponding declarations,
-  exports, docs, and tests in the other two SDKs.
+  exports, docs, and tests in every other SDK. Record an explicit disposition for each affected language.
 
 ## Tests
 
@@ -37,7 +37,11 @@ page instead of copying public definitions here.
   cleanup into an unrelated task.
 - Keep TypeScript tests under `typescript/tests`. From `typescript`, run `npm run lint`,
   `npm run typecheck`, `npm run typecheck:examples`, and `npm test`.
-- For cross-language contracts, run the nearest equivalent tests in all three SDKs. Assert
+- For ReScript changes, run its package build, unit and binding tests, TypeScript checks,
+  clean packed consumers, and Chromium integration tests. Keep `.resi`, namespace aliases,
+  generated runtime, and gentype declarations synchronized. ReScript is the app SDK; browser
+  imports must remain independent of the server entry.
+- For cross-language contracts, run the nearest equivalent tests in all four SDKs. Assert
   decoded instructions, exact amounts, and failure cases rather than instruction counts alone.
 - Examples require the matching backend environment. The fund-moving
   `deposit_token_balances` example is manual-only and restricted to built-in local or staging

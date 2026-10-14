@@ -49,7 +49,7 @@ jobs:
           pip install build
           python -m build --sdist
 
-  # ── rc: publish a prerelease from staging (rust + ts; no commit, no sync).
+  # ── rc: publish a prerelease from staging (rust + ts + rescript; no commit, no sync).
   # The eventual prod release commits the same <next patch> as the final,
   # so the final is the promoted RC code, just with the -rc suffix dropped.
   publish-rc-rust:
@@ -124,6 +124,7 @@ jobs:
       rust-version: ${{ steps.bump.outputs.rust_version }}
       ts-version: ${{ steps.bump.outputs.ts_version }}
       python-version: ${{ steps.bump.outputs.python_version }}
+      rescript-version: ${{ steps.bump.outputs.rescript_version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -150,11 +151,12 @@ jobs:
           RUST_VERSION: ${{ steps.bump.outputs.rust_version }}
           TS_VERSION: ${{ steps.bump.outputs.ts_version }}
           PYTHON_VERSION: ${{ steps.bump.outputs.python_version }}
+          RESCRIPT_VERSION: ${{ steps.bump.outputs.rescript_version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add rust/Cargo.toml rust/Cargo.lock typescript/package.json typescript/package-lock.json python/pyproject.toml python/uv.lock
-          git commit -m "chore: bump versions to rust=$RUST_VERSION ts=$TS_VERSION python=$PYTHON_VERSION [skip ci]"
+          git add rescript/package.json rust/Cargo.toml rust/Cargo.lock typescript/package.json typescript/package-lock.json python/pyproject.toml python/uv.lock
+          git commit -m "chore: bump versions to rust=$RUST_VERSION ts=$TS_VERSION python=$PYTHON_VERSION rescript=$RESCRIPT_VERSION [skip ci]"
           git push origin prod
 
   publish-rust:
@@ -207,7 +209,7 @@ jobs:
   sync-staging:
     if: ${{ inputs.mode == 'release' }}
     name: Merge Back to Staging
-    needs: [publish-rust, publish-typescript]
+    needs: [publish-rust, publish-typescript, publish-rescript]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -223,3 +225,72 @@ jobs:
           git fetch origin prod
           git merge origin/prod -m "chore: merge prod version bumps back to staging [skip ci]"
           git push origin staging
+
+  validate-rescript-packaging:
+    if: ${{ inputs.mode == 'dry-run' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rescript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - run: bun run test:consumers
+
+  publish-rc-rescript:
+    if: ${{ inputs.mode == 'rc' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rescript
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: staging
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - name: Set ReScript RC version
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          NEXT=$(bash ../.github/scripts/next-release-version.sh "$CURRENT")
+          npm version "${NEXT}-rc.${GITHUB_RUN_NUMBER}" --no-git-tag-version
+      - run: bun run test:consumers
+      - run: npm publish --access public --tag next
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-rescript:
+    if: ${{ inputs.mode == 'release' }}
+    needs: [bump-versions]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rescript
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: prod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - run: bun run test:consumers
+      - run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

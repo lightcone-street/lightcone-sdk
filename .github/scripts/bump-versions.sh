@@ -28,6 +28,18 @@ node -e "
 echo "TypeScript: $TS_OLD -> $TS_NEW"
 sed -i "s/\"version\": \"${TS_OLD}\"/\"version\": \"${TS_NEW}\"/g" typescript/package-lock.json
 
+# ReScript has its own release line; promote its prerelease core independently.
+RESCRIPT_OLD=$(node -p "require('./rescript/package.json').version")
+RESCRIPT_NEW=$(next_release_version "$RESCRIPT_OLD")
+RESCRIPT_VERSION="$RESCRIPT_NEW" node -e '
+  const fs = require("fs");
+  const file = "rescript/package.json";
+  const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+  pkg.version = process.env.RESCRIPT_VERSION;
+  fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
+'
+echo "ReScript: $RESCRIPT_OLD -> $RESCRIPT_NEW"
+
 # ── Python (pyproject.toml) ──
 PY_FILE="python/pyproject.toml"
 PY_OLD=$(grep '^version = ' "$PY_FILE" | head -1 | sed 's/version = "\(.*\)"/\1/')
@@ -41,3 +53,4 @@ sed -i "/^name = \"lightcone-sdk\"$/{n;s/^version = \"${PY_OLD}\"$/version = \"$
 echo "rust_version=$RUST_NEW" >> "$GITHUB_OUTPUT"
 echo "ts_version=$TS_NEW" >> "$GITHUB_OUTPUT"
 echo "python_version=$PY_NEW" >> "$GITHUB_OUTPUT"
+echo "rescript_version=$RESCRIPT_NEW" >> "$GITHUB_OUTPUT"
